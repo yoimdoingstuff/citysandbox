@@ -714,6 +714,7 @@ func _update_placed_object_heights() -> void:
 				house.position.y = _height_at(p.x + house.position.x, p.z + house.position.z) - p.y
 	for city_id in range(cities.size()):
 		_refresh_city_territory(city_id)
+		_rebuild_city_roads(city_id)
 	for army in armies:
 		var p: Vector3 = army["pos"]
 		p.y = _height_at(p.x, p.z)
@@ -797,6 +798,12 @@ func _create_city(position: Vector3, city_name: String, color: Color) -> int:
 	town.name = "City_%s" % city_name.replace(" ", "")
 	town.position = position
 	add_child(town)
+	var road_network := MeshInstance3D.new()
+	road_network.name = "RoadNetwork"
+	var road_material := _material(Color(0.24, 0.27, 0.28), 0.94)
+	road_material.shading_mode = BaseMaterial3D.SHADING_MODE_UNSHADED
+	road_network.material_override = road_material
+	town.add_child(road_network)
 
 	var plinth_mesh := BoxMesh.new()
 	plinth_mesh.size = Vector3(3.2, 0.45, 3.2)
@@ -853,6 +860,7 @@ func _create_city(position: Vector3, city_name: String, color: Color) -> int:
 		"pos": position,
 		"color": color,
 		"node": town,
+		"roads": road_network,
 		"label": city_label,
 		"far_marker": far_marker,
 		"zone_fill": zone_fill,
@@ -1096,6 +1104,51 @@ func _sync_city_buildings(city_id: int) -> void:
 		_add_mesh(house, roof, _material(city["color"].darkened(0.10)), Vector3(0.0, 1.62, 0.0))
 		houses.append(house)
 	city["houses"] = houses
+	cities[city_id] = city
+	_rebuild_city_roads(city_id)
+
+
+func _rebuild_city_roads(city_id: int) -> void:
+	if city_id < 0 or city_id >= cities.size():
+		return
+	var city: Dictionary = cities[city_id]
+	var road_node: MeshInstance3D = city["roads"]
+	if not is_instance_valid(road_node):
+		return
+	var road_surface := SurfaceTool.new()
+	road_surface.begin(Mesh.PRIMITIVE_TRIANGLES)
+	var city_position: Vector3 = city["pos"]
+	for house in city["houses"]:
+		if not is_instance_valid(house):
+			continue
+		var target := Vector2(house.position.x, house.position.z)
+		var distance: float = target.length()
+		if distance < 2.8:
+			continue
+		var direction: Vector2 = target / distance
+		var side := Vector2(-direction.y, direction.x) * 0.25
+		var start_point: Vector2 = direction * 2.4
+		var segment_count: int = max(2, int(ceil((distance - 2.4) / 2.6)))
+		var previous_left := Vector3.ZERO
+		var previous_right := Vector3.ZERO
+		for segment in range(segment_count + 1):
+			var t: float = float(segment) / float(segment_count)
+			var center_line: Vector2 = start_point.lerp(target, t)
+			var left_xz: Vector2 = center_line + side
+			var right_xz: Vector2 = center_line - side
+			var left := Vector3(left_xz.x, _height_at(city_position.x + left_xz.x, city_position.z + left_xz.y) - city_position.y + 0.10, left_xz.y)
+			var right := Vector3(right_xz.x, _height_at(city_position.x + right_xz.x, city_position.z + right_xz.y) - city_position.y + 0.10, right_xz.y)
+			if segment > 0:
+				road_surface.add_vertex(previous_left)
+				road_surface.add_vertex(previous_right)
+				road_surface.add_vertex(left)
+				road_surface.add_vertex(previous_right)
+				road_surface.add_vertex(right)
+				road_surface.add_vertex(left)
+			previous_left = left
+			previous_right = right
+	road_surface.generate_normals(true)
+	road_node.mesh = road_surface.commit()
 
 
 func _seed_resources_around(center: Vector3) -> void:
@@ -2472,6 +2525,9 @@ func _update_world_detail_levels() -> void:
 		var city_label: Label3D = city["label"]
 		if is_instance_valid(city_label):
 			city_label.visible = show_city_labels
+		var roads: MeshInstance3D = city["roads"]
+		if is_instance_valid(roads):
+			roads.visible = show_neighbourhoods
 		for house in city["houses"]:
 			if is_instance_valid(house):
 				house.visible = show_neighbourhoods
