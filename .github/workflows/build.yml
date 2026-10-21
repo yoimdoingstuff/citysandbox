@@ -101,6 +101,22 @@ jobs:
             throw "Godot reported a script or scene error during startup."
           }
 
+      - name: Save/load regression test
+        shell: pwsh
+        run: |
+          & $env:GODOT_EXE --headless --path . -- --civiterra-save-load-smoke-test *> "godot-save-load-test.log"
+          $saveLoadExitCode = $LASTEXITCODE
+          Get-Content "godot-save-load-test.log"
+          if ($saveLoadExitCode -ne 0) { throw "Save/load regression test failed with exit code $saveLoadExitCode." }
+          if (-not (Select-String -Path "godot-save-load-test.log" -Pattern "CIVITERRA_SAVE_LOAD_TEST_PASSED" -Quiet)) {
+            throw "Save/load regression test did not report success."
+          }
+          $saveLoadErrors = Select-String -Path "godot-save-load-test.log" -Pattern "SCRIPT ERROR:|Parse Error:|Failed to load script|ERROR:" | Where-Object { $_.Line -notmatch 'ERROR: Parameter "m" is null\.' }
+          if ($saveLoadErrors) {
+            $saveLoadErrors | ForEach-Object { Write-Error $_.Line }
+            throw "Godot reported an error during save/load regression testing."
+          }
+
       - name: Export Windows and Linux
         shell: pwsh
         run: |
