@@ -929,7 +929,6 @@ func _create_city(position: Vector3, city_name: String, color: Color) -> int:
 		"flag": flag,
 		"stage": 0,
 		"houses": [],
-		"destroyed_building_debt": 0,
 		"owner": index,
 		"food": 8.0,
 		"wood": 5.0,
