@@ -711,6 +711,7 @@ func _sync_city_buildings(city_id: int) -> void:
 		var offset_z: float = sin(angle) * ring
 		var terrain_delta: float = _height_at(city["pos"].x + offset_x, city["pos"].z + offset_z) - city["pos"].y
 		var house := Node3D.new()
+		house.scale = Vector3.ONE * (1.0 + float(stage) * 0.07)
 		house.position = Vector3(offset_x, terrain_delta, offset_z)
 		city["node"].add_child(house)
 		var wall_color: Color = Color(0.70, 0.64, 0.48).lerp(city["color"], 0.24)
