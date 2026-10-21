@@ -1481,7 +1481,7 @@ func _add_road_segment(surface: SurfaceTool, city_position: Vector3, from_point:
 	var side := Vector2(-direction.y, direction.x) * width * 0.5
 	var start_point: Vector2 = from_point + direction * 1.05
 	var finish_point: Vector2 = to_point - direction * 1.05
-	var segment_count: int = max(2, int(ceil(distance / 2.4)))
+	var segment_count: int = max(2, int(ceil(distance / 5.0)))
 	var previous_left := Vector3.ZERO
 	var previous_right := Vector3.ZERO
 	for segment in range(segment_count + 1):
@@ -2259,6 +2259,8 @@ func _spawn_city_event_visual(city_id: int, event_name: String) -> void:
 				"flash": fireball,
 				"smoke": smoke,
 				"house": target_house,
+				"city_id": city_id,
+				"collapsed": false,
 				"start_rotation": target_house.rotation,
 				"age": 0.0,
 				"duration": 3.0
@@ -2355,6 +2357,9 @@ func _update_city_event_scenes(delta: float) -> void:
 				house.rotation = Vector3(original_rotation.x, original_rotation.y, original_rotation.z + fall_amount * 1.12)
 				if age > 0.75:
 					house.set_meta("damaged", true)
+				if age >= 1.08 and not bool(scene.get("collapsed", false)):
+					_collapse_specific_building(int(scene.get("city_id", -1)), house, true)
+					scene["collapsed"] = true
 		elif kind == "robbery":
 			var robber: Node3D = scene["robber"]
 			var car: Node3D = scene["car"]
@@ -2668,59 +2673,71 @@ func _damage_city(city_id: int, amount: int, cause: String) -> void:
 		cities[city_id]["label"].text = "%s\nPOP %d" % [cities[city_id]["name"], int(cities[city_id]["population"])]
 
 
-func _destroy_city_houses(city_id: int, count: int) -> void:
-	if city_id < 0 or city_id >= cities.size():
+func _collapse_specific_building(city_id: int, house: Node3D, allow_chain: bool = true) -> void:
+	if city_id < 0 or city_id >= cities.size() or not is_instance_valid(house):
 		return
 	var city: Dictionary = cities[city_id]
 	var houses: Array = city["houses"]
-	for i in range(mini(count, houses.size())):
-		if houses.is_empty():
+	var house_index: int = houses.find(house)
+	if house_index < 0:
+		return
+	var local_position: Vector3 = house.position
+	var world_position: Vector3 = house.global_position
+	var tall_building: bool = house.has_node("EraUpgrade") or float(house.scale.y) > 1.35
+	var rubble := Node3D.new()
+	rubble.name = "BuildingRubble"
+	rubble.position = world_position
+	add_child(rubble)
+	for debris_index in range(6 if tall_building else 4):
+		var piece := MeshInstance3D.new()
+		var piece_mesh := BoxMesh.new()
+		piece_mesh.size = Vector3(randf_range(0.35, 1.0), randf_range(0.16, 0.55), randf_range(0.35, 1.0))
+		piece.mesh = piece_mesh
+		piece.material_override = _material(Color(0.34, 0.32, 0.29).lerp(city["color"], 0.18))
+		piece.position = Vector3(randf_range(-1.5, 1.5), piece_mesh.size.y * 0.5, randf_range(-1.5, 1.5))
+		piece.rotation = Vector3(randf_range(-0.25, 0.25), randf() * TAU, randf_range(-0.25, 0.25))
+		rubble.add_child(piece)
+	house.queue_free()
+	houses.remove_at(house_index)
+	if allow_chain and tall_building:
+		for other_index in range(houses.size() - 1, -1, -1):
+			var other: Node3D = houses[other_index]
+			if not is_instance_valid(other):
+				continue
+			var dx: float = other.position.x - local_position.x
+			var dz: float = other.position.z - local_position.z
+			if dx * dx + dz * dz > 23.04 or randf() >= 0.55:
+				continue
+			var secondary := Node3D.new()
+			secondary.name = "SecondaryCollapseRubble"
+			secondary.position = other.global_position
+			add_child(secondary)
+			var chunk := MeshInstance3D.new()
+			var chunk_mesh := BoxMesh.new()
+			chunk_mesh.size = Vector3(1.0, 0.35, 0.85)
+			chunk.mesh = chunk_mesh
+			chunk.material_override = _material(Color(0.35, 0.34, 0.32))
+			chunk.position.y = 0.18
+			secondary.add_child(chunk)
+			other.queue_free()
+			houses.remove_at(other_index)
 			break
-		var house_index: int = randi_range(0, houses.size() - 1)
-		var house: Node3D = houses[house_index]
-		if not is_instance_valid(house):
-			houses.remove_at(house_index)
-			continue
-		var local_position: Vector3 = house.position
-		var was_tall: bool = house.has_node("EraUpgrade") or float(house.scale.y) > 1.35
-		var rubble := Node3D.new()
-		rubble.name = "BuildingRubble"
-		rubble.position = house.global_position
-		add_child(rubble)
-		# Debris remains in the world after the building is destroyed.
-		for debris_index in range(4):
-			var piece := MeshInstance3D.new()
-			var piece_mesh := BoxMesh.new()
-			piece_mesh.size = Vector3(randf_range(0.35, 0.9), randf_range(0.18, 0.55), randf_range(0.35, 0.9))
-			piece.mesh = piece_mesh
-			piece.material_override = _material(Color(0.34, 0.32, 0.29).lerp(city["color"], 0.18))
-			piece.position = Vector3(randf_range(-1.0, 1.0), piece_mesh.size.y * 0.5, randf_range(-1.0, 1.0))
-			piece.rotation.y = randf() * TAU
-			rubble.add_child(piece)
-		house.queue_free()
-		houses.remove_at(house_index)
-		if was_tall:
-			# Nearby structures may also collapse when a tower comes down.
-			for other_index in range(houses.size() - 1, -1, -1):
-				var other: Node3D = houses[other_index]
-				if is_instance_valid(other) and Vector2(other.position.x - local_position.x, other.position.z - local_position.z).length() < 4.8 and randf() < 0.55:
-					var secondary := Node3D.new()
-					secondary.name = "SecondaryCollapseRubble"
-					secondary.position = other.global_position
-					add_child(secondary)
-					var chunk := MeshInstance3D.new()
-					var chunk_mesh := BoxMesh.new()
-					chunk_mesh.size = Vector3(1.0, 0.35, 0.85)
-					chunk.mesh = chunk_mesh
-					chunk.material_override = _material(Color(0.35, 0.34, 0.32))
-					chunk.position.y = 0.18
-					secondary.add_child(chunk)
-					other.queue_free()
-					houses.remove_at(other_index)
-					break
 	city["houses"] = houses
 	cities[city_id] = city
 	_rebuild_city_roads(city_id)
+
+
+func _destroy_city_houses(city_id: int, count: int) -> void:
+	if city_id < 0 or city_id >= cities.size():
+		return
+	for i in range(count):
+		if city_id >= cities.size():
+			return
+		var houses: Array = cities[city_id]["houses"]
+		if houses.is_empty():
+			break
+		var house: Node3D = houses[randi_range(0, houses.size() - 1)]
+		_collapse_specific_building(city_id, house, true)
 
 
 func _capture_city(city_id: int, source_id: int) -> void:
@@ -2836,23 +2853,28 @@ func _power_damage(center: Vector3, radius: float, people_limit: int, resource_c
 				resource["alive"] = false
 				if is_instance_valid(resource["node"]):
 					resource["node"].visible = false
+	var radius_squared: float = radius * radius
 	for city_id in range(cities.size()):
 		var city_position: Vector3 = cities[city_id]["pos"]
-		var distance: float = Vector2(city_position.x - center.x, city_position.z - center.z).length()
-		# Test individual building footprints, not only the city centre. This lets
-		# a meteor, tornado, fire, or quake hit an outer neighbourhood too.
-		var buildings_hit: int = 0
+		var city_dx: float = city_position.x - center.x
+		var city_dz: float = city_position.z - center.z
+		var city_distance_squared: float = city_dx * city_dx + city_dz * city_dz
 		var city_houses: Array = cities[city_id]["houses"]
-		for house in city_houses:
-			if not is_instance_valid(house):
-				continue
-			var house_position: Vector3 = house.global_position
-			var house_distance: float = Vector2(house_position.x - center.x, house_position.z - center.z).length()
-			if house_distance <= radius and buildings_hit < house_damage and randf() < 0.72:
-				buildings_hit += 1
-		if buildings_hit > 0:
-			_destroy_city_houses(city_id, buildings_hit)
-		if distance <= radius * 1.5:
+		if house_damage > 0 and city_distance_squared <= (radius + 45.0) * (radius + 45.0):
+			var hit_houses: Array[Node3D] = []
+			for house in city_houses:
+				if not is_instance_valid(house):
+					continue
+				var house_position: Vector3 = house.global_position
+				var dx: float = house_position.x - center.x
+				var dz: float = house_position.z - center.z
+				if dx * dx + dz * dz <= radius_squared and randf() < 0.72:
+					hit_houses.append(house)
+					if hit_houses.size() >= house_damage:
+						break
+			for hit_house in hit_houses:
+				_collapse_specific_building(city_id, hit_house, true)
+		if city_distance_squared <= radius * radius * 2.25:
 			cities[city_id]["food"] = max(0.0, float(cities[city_id]["food"]) - float(removed) * 0.25)
 	_refresh_ui()
 
