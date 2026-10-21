@@ -43,6 +43,7 @@ var paused: bool = false
 var sim_speed: float = 1.0
 var game_clock: float = 0.0
 var world_seed: int = 0
+var people_update_accumulator: float = 0.0
 var growth_timer: float = 0.0
 var resource_timer: float = 0.0
 var founding_timer: float = 0.0
@@ -102,7 +103,24 @@ func _process(delta: float) -> void:
 	if not paused:
 		sim_delta = delta * sim_speed
 		game_clock += sim_delta
-		_update_people(sim_delta)
+
+		# Citizens are tiny or invisible at world scale, so update their movement
+		# less often at distance. The accumulated delta preserves movement speed
+		# and timers instead of making the population run in slow motion.
+		var people_update_interval: float = 0.0
+		if camera_distance > 165.0:
+			people_update_interval = 0.55
+		elif camera_distance > 100.0:
+			people_update_interval = 0.18
+		if people_update_interval <= 0.0:
+			people_update_accumulator = 0.0
+			_update_people(sim_delta)
+		else:
+			people_update_accumulator += sim_delta
+			if people_update_accumulator >= people_update_interval:
+				_update_people(people_update_accumulator)
+				people_update_accumulator = 0.0
+
 		_update_armies(sim_delta)
 		_update_missiles(sim_delta)
 		_update_explosions(sim_delta)
