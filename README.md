@@ -21,13 +21,15 @@ Open the repository's **Actions** tab and download the latest `Civiterra-desktop
 
 ## Current features
 
-- Procedurally generated 3D island with smooth terrain normals, hills, shoreline, and water.
+- Seeded procedural 3D world generation with several continent-scale landmasses, smaller islands, irregular coastlines, hills, and a surrounding ocean.
+- Four terrain mesh detail levels, with lower-triangle terrain generated when zoomed out and rebuilt lazily after terrain edits.
+- Zoom-dependent visibility for city structures, neighbourhoods, resources, and citizens, with lightweight city markers at world scale.
 - Height-aware terrain sculpting; raise and lower tools follow the actual 3D surface and can be painted by dragging.
 - Spawn humans, plant trees, place stone and food resources, and erase nearby items.
 - WorldBox-style powers: lightning, spreading wildfires, falling meteors with craters, moving tornadoes, spreading plague, healing/blessing, forest creation, and earthquakes.
 - Brush-radius preview follows the real terrain surface; terrain/resource tools can be painted by dragging.
 - Humans wander, join nearby settlements, and can spontaneously found towns when enough gather.
-- Cities collect nearby resources, grow populations, and construct houses as populations rise.
+- Cities progress through visible village, town, city, and metropolis stages as population grows; central landmarks and neighbourhoods expand with development.
 - Select any city and take control of it.
 - Order missile strikes and invasions against rival cities.
 - Armies march, fight, capture cities, and trigger AI wars.
