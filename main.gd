@@ -1108,6 +1108,32 @@ func _sync_city_buildings(city_id: int) -> void:
 		var ring: float = 4.5 + float(house_index / 6) * 3.4
 		var offset_x: float = cos(angle) * ring
 		var offset_z: float = sin(angle) * ring
+		var found_building_site: bool = false
+		# Coastal cities may not have land at the next ideal ring position.
+		# Search nearby angles and rings, rejecting sea, map-edge, and overlap sites.
+		for attempt in range(20):
+			var candidate_x: float = city["pos"].x + offset_x
+			var candidate_z: float = city["pos"].z + offset_z
+			var inside_world: bool = abs(candidate_x) < TERRAIN_SIZE * 0.47 and abs(candidate_z) < TERRAIN_SIZE * 0.47
+			var on_land: bool = inside_world and _height_at(candidate_x, candidate_z) > WATER_LEVEL + 0.22
+			var overlaps_existing: bool = false
+			if on_land:
+				for existing_house in houses:
+					if not is_instance_valid(existing_house):
+						continue
+					var existing_offset: Vector2 = Vector2(existing_house.position.x, existing_house.position.z)
+					if existing_offset.distance_to(Vector2(offset_x, offset_z)) < 2.25:
+						overlaps_existing = true
+						break
+			if on_land and not overlaps_existing:
+				found_building_site = true
+				break
+			angle += 0.47
+			ring += 0.28
+			offset_x = cos(angle) * ring
+			offset_z = sin(angle) * ring
+		if not found_building_site:
+			break
 		var terrain_delta: float = _height_at(city["pos"].x + offset_x, city["pos"].z + offset_z) - city["pos"].y
 		var house := Node3D.new()
 		house.scale = Vector3.ONE * (1.0 + float(stage) * 0.07)
