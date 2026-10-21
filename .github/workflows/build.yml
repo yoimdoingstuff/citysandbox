@@ -1,0 +1,93 @@
+name: Build desktop game
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    name: Validate and export desktop builds
+    runs-on: windows-latest
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+
+      - name: Bootstrap source files on first run
+        shell: pwsh
+        run: |
+          if (-not (Test-Path "project.godot")) {
+            $parts = Get-ChildItem ".bootstrap" -Filter "part*.b64" | Sort-Object Name
+            if ($parts.Count -ne 6) {
+              throw "Expected six project bootstrap parts; found $($parts.Count)."
+            }
+
+            $encoded = [System.Text.StringBuilder]::new()
+            foreach ($part in $parts) {
+              [void]$encoded.Append((Get-Content -LiteralPath $part.FullName -Raw).Trim())
+            }
+
+            $archivePath = Join-Path $env:RUNNER_TEMP "civiterra-source.zip"
+            [System.IO.File]::WriteAllBytes($archivePath, [Convert]::FromBase64String($encoded.ToString()))
+            $unpackPath = Join-Path $env:RUNNER_TEMP "civiterra-source"
+            Expand-Archive -LiteralPath $archivePath -DestinationPath $unpackPath -Force
+
+            $sourcePath = Join-Path $unpackPath "CivitasGodSandbox"
+            if (-not (Test-Path (Join-Path $sourcePath "project.godot"))) {
+              throw "The extracted Godot project is missing project.godot."
+            }
+
+            Get-ChildItem -LiteralPath $sourcePath -Force | ForEach-Object {
+              Copy-Item -LiteralPath $_.FullName -Destination $PWD -Recurse -Force
+            }
+            Remove-Item -LiteralPath ".bootstrap" -Recurse -Force
+
+            git config user.name "github-actions[bot]"
+            git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+            git add -A
+            git commit -m "Add Civiterra Godot source project [skip ci]"
+            if ($LASTEXITCODE -ne 0) { throw "Could not commit extracted source files." }
+            git push origin "HEAD:$env:GITHUB_REF_NAME"
+            if ($LASTEXITCODE -ne 0) { throw "Could not push extracted source files to GitHub." }
+          }
+
+      - name: Set up Godot 4.3 and export templates
+        uses: chickensoft-games/setup-godot@v2
+        with:
+          version: 4.3.0
+          use-dotnet: false
+          include-templates: true
+
+      - name: Show Godot version
+        shell: pwsh
+        run: godot --version
+
+      - name: Import project and check scripts
+        shell: pwsh
+        run: godot --headless --editor --path . --quit
+
+      - name: Smoke-test main scene
+        shell: pwsh
+        run: godot --headless --path . --quit-after 3
+
+      - name: Export Windows and Linux
+        shell: pwsh
+        run: |
+          New-Item -ItemType Directory -Force -Path "dist" | Out-Null
+          godot --headless --path . --export-release "Windows Desktop" "dist/Civiterra.exe"
+          if ($LASTEXITCODE -ne 0) { throw "Windows export failed." }
+          godot --headless --path . --export-release "Linux/X11" "dist/Civiterra.x86_64"
+          if ($LASTEXITCODE -ne 0) { throw "Linux export failed." }
+
+      - name: Upload desktop builds
+        uses: actions/upload-artifact@v4
+        with:
+          name: Civiterra-desktop-builds
+          path: |
+            dist/Civiterra.exe
+            dist/Civiterra.x86_64
+          if-no-files-found: error
+          retention-days: 30
