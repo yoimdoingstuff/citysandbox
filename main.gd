@@ -1461,6 +1461,144 @@ func _try_found_cities() -> void:
 			return
 
 
+func _city_is_at_war(city_id: int) -> bool:
+	for other_id in range(cities.size()):
+		if other_id != city_id and _are_at_war(city_id, other_id):
+			return true
+	return false
+
+
+func _update_city_condition_metrics(city_id: int) -> void:
+	if city_id < 0 or city_id >= cities.size():
+		return
+	var city: Dictionary = cities[city_id]
+	var population: int = _city_population(city_id)
+	var stability: float = float(city.get("stability", 72.0))
+	var security: float = float(city.get("security", 44.0))
+	var wealth: float = float(city.get("wealth", 12.0))
+	if float(city["food"]) < 2.0:
+		stability -= 4.5
+		security -= 1.5
+	elif float(city["food"]) >= 7.0:
+		stability += 1.7
+	if _city_is_at_war(city_id):
+		stability -= 2.0
+	else:
+		stability += 0.6
+	wealth += float(population) * 0.012
+	if wealth > 8.0:
+		security += 0.8
+	stability = clamp(stability, 0.0, 100.0)
+	security = clamp(security, 0.0, 100.0)
+	wealth = clamp(wealth, 0.0, 100.0)
+	city["stability"] = stability
+	city["security"] = security
+	city["wealth"] = wealth
+	cities[city_id] = city
+
+
+func _process_city_events() -> void:
+	if cities.is_empty():
+		return
+	for city_id in range(cities.size()):
+		_update_city_condition_metrics(city_id)
+
+	# Rotate the starting point so no city is permanently favoured by its ID.
+	var first_city: int = randi_range(0, cities.size() - 1)
+	for attempt in range(cities.size()):
+		var city_id: int = (first_city + attempt) % cities.size()
+		if _try_city_event(city_id):
+			return
+
+
+func _try_city_event(city_id: int) -> bool:
+	if city_id < 0 or city_id >= cities.size():
+		return false
+	var city: Dictionary = cities[city_id]
+	var population: int = _city_population(city_id)
+	var stability: float = float(city.get("stability", 72.0))
+	var security: float = float(city.get("security", 44.0))
+	var wealth: float = float(city.get("wealth", 12.0))
+	var food: float = float(city["food"])
+	var wood: float = float(city["wood"])
+	var stage: int = int(city.get("stage", 0))
+
+	if population >= 10 and stability < 24.0 and int(city["owner"]) != city_id:
+		city["owner"] = city_id
+		city["stability"] = 36.0
+		city["security"] = maxf(12.0, security - 12.0)
+		city["wealth"] = maxf(0.0, wealth - 5.0)
+		cities[city_id] = city
+		_log("REBELLION: %s has declared independence after unrest overwhelmed its government." % city["name"])
+		_record_city_event()
+		return true
+
+	if population >= 5 and food < 1.5:
+		city["stability"] = maxf(0.0, stability - 8.0)
+		city["security"] = maxf(0.0, security - 2.0)
+		cities[city_id] = city
+		_log("FOOD PROTEST: Residents in %s are demonstrating over dwindling food supplies." % city["name"])
+		_record_city_event()
+		return true
+
+	if population >= 16 and stage >= 2 and randf() < 0.035:
+		var houses: Array = city["houses"]
+		if not houses.is_empty():
+			var damaged_house: Node3D = houses[randi_range(0, houses.size() - 1)]
+			if is_instance_valid(damaged_house):
+				damaged_house.set_meta("damaged", true)
+				for visual in damaged_house.get_children():
+					if visual is MeshInstance3D:
+						var mat: StandardMaterial3D = (visual as MeshInstance3D).material_override as StandardMaterial3D
+						if mat != null:
+							mat.albedo_color = mat.albedo_color.darkened(0.34)
+		city["stability"] = maxf(0.0, stability - 7.0)
+		city["security"] = maxf(0.0, security - 9.0)
+		city["wealth"] = maxf(0.0, wealth - 6.0)
+		cities[city_id] = city
+		_log("SECURITY INCIDENT: An extremist attack damaged property in %s. Security is being reviewed." % city["name"])
+		_record_city_event()
+		return true
+
+	if population >= 12 and stage >= 2 and wealth >= 5.0 and security < 72.0 and randf() < 0.24:
+		city["wealth"] = maxf(0.0, wealth - randf_range(3.0, 6.0))
+		city["security"] = maxf(0.0, security - randf_range(3.0, 7.0))
+		city["stability"] = maxf(0.0, stability - 2.0)
+		cities[city_id] = city
+		_log("BANK ROBBERY: A bank was robbed in %s. The city lost funds and authorities increased patrols." % city["name"])
+		_record_city_event()
+		return true
+
+	if population >= 8 and (stability < 58.0 or randf() < 0.13):
+		city["stability"] = maxf(0.0, stability - randf_range(4.0, 8.0))
+		city["security"] = maxf(0.0, security - 2.0)
+		cities[city_id] = city
+		_log("PROTEST: A crowd gathered in %s over local conditions. The city is less stable." % city["name"])
+		_record_city_event()
+		return true
+
+	if population >= 8 and (wood < 1.0 or stability < 43.0) and randf() < 0.38:
+		city["wealth"] = maxf(0.0, wealth - 2.0)
+		city["stability"] = maxf(0.0, stability - 4.0)
+		cities[city_id] = city
+		_log("WORKERS' STRIKE: Work has slowed in %s amid shortages and public frustration." % city["name"])
+		_record_city_event()
+		return true
+
+	if population >= 8 and stability >= 82.0 and randf() < 0.12:
+		city["wealth"] = minf(100.0, wealth + 3.0)
+		city["stability"] = minf(100.0, stability + 2.0)
+		cities[city_id] = city
+		_log("CITY FESTIVAL: A successful public celebration boosted morale in %s." % city["name"])
+		_record_city_event()
+		return true
+	return false
+
+
+func _record_city_event() -> void:
+	city_events_total += 1
+
+
 func _try_start_ai_war() -> void:
 	if cities.size() < 2:
 		return
