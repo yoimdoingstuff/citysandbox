@@ -446,7 +446,7 @@ func _request_city_camera_zoom(city_id: int) -> void:
 	var city: Dictionary = cities[city_id]
 	var radius: float = float(city.get("zone_radius", 12.0))
 	camera_auto_focus_target = city["pos"]
-	camera_auto_zoom_target = clamp(maxf(camera_distance, radius * 3.35), camera_distance, TERRAIN_SIZE * 1.65)
+	camera_auto_zoom_target = maxf(camera_distance, minf(TERRAIN_SIZE * 1.65, radius * 3.35))
 	camera_auto_zoom_active = true
 
 
@@ -712,6 +712,8 @@ func _update_placed_object_heights() -> void:
 		for house in city["houses"]:
 			if is_instance_valid(house):
 				house.position.y = _height_at(p.x + house.position.x, p.z + house.position.z) - p.y
+	for city_id in range(cities.size()):
+		_refresh_city_territory(city_id)
 	for army in armies:
 		var p: Vector3 = army["pos"]
 		p.y = _height_at(p.x, p.z)
@@ -1074,7 +1076,7 @@ func _sync_city_buildings(city_id: int) -> void:
 	while houses.size() < desired_houses and houses.size() < 28:
 		var house_index: int = houses.size()
 		var angle: float = float(house_index) * 2.39996
-		var ring: float = 4.0 + float(house_index / 6) * 2.5
+		var ring: float = 4.5 + float(house_index / 6) * 4.0
 		var offset_x: float = cos(angle) * ring
 		var offset_z: float = sin(angle) * ring
 		var terrain_delta: float = _height_at(city["pos"].x + offset_x, city["pos"].z + offset_z) - city["pos"].y
@@ -2419,7 +2421,7 @@ func _refresh_ui() -> void:
 			var city: Dictionary = cities[selected_city]
 			var owner_id: int = int(city["owner"])
 			var owner_name: String = cities[owner_id]["name"] if owner_id >= 0 and owner_id < cities.size() else city["name"]
-			city_info_label.text = "SELECTED  %s\nDEVELOPMENT  %s\nPOPULATION  %d\nOWNER  %s\nFOOD  %d   WOOD  %d   STONE  %d" % [city["name"], _city_stage_name(int(city.get("stage", 0))), _city_population(selected_city), owner_name, int(city["food"]), int(city["wood"]), int(city["stone"])]
+			city_info_label.text = "SELECTED  %s\nDEVELOPMENT  %s\nPOPULATION  %d\nTERRITORY  %.1f m radius\nOWNER  %s\nFOOD  %d   WOOD  %d   STONE  %d" % [city["name"], _city_stage_name(int(city.get("stage", 0))), _city_population(selected_city), float(city.get("zone_radius", 0.0)), owner_name, int(city["food"]), int(city["wood"]), int(city["stone"])]
 		else:
 			city_info_label.text = "Select a city to view its people, resources and owner."
 	if is_instance_valid(control_button):
