@@ -1311,6 +1311,7 @@ func _sync_city_buildings(city_id: int) -> void:
 	var stage: int = int(city.get("stage", 0))
 	var desired_houses: int = min(MAX_CITY_HOUSES, max(1, 1 + int(population / 3) + stage * 2))
 	var houses: Array = city["houses"]
+	var houses_before: int = houses.size()
 	var plot_index: int = int(city.get("next_plot_index", houses.size()))
 	while houses.size() < desired_houses and houses.size() < MAX_CITY_HOUSES:
 		var offset_x: float = 0.0
@@ -1433,6 +1434,8 @@ func _sync_city_buildings(city_id: int) -> void:
 	city["next_plot_index"] = plot_index
 	cities[city_id] = city
 	_rebuild_city_roads(city_id)
+	if houses.size() > houses_before:
+		_apply_building_era_appearance(city_id, _world_year())
 
 
 func house_index_to_building_type(index: int, stage: int) -> int:
