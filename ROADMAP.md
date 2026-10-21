@@ -156,6 +156,38 @@ This is a major later feature. It should extend the god-game rather than replace
 
 **Done when:** the game remains responsive in a busy world, builds are reproducible, and known limitations are documented honestly.
 
+## Phase 11: Port the game to mobile (late stage)
+
+This phase starts only after the core desktop simulation and save format are reasonably stable.
+
+- [ ] Audit UI layouts for touchscreens and smaller displays.
+- [ ] Add touch-friendly camera orbit, pan, zoom, selection, brush controls, and contextual actions.
+- [ ] Make tool panels and city/person information readable without relying on mouse hover.
+- [ ] Add graphics and simulation settings that help control memory use, heat, battery consumption, and frame rate.
+- [ ] Reduce costly effects and distant-world detail on lower-powered devices while keeping gameplay rules consistent.
+- [ ] Produce Android test builds and verify world generation, saves, terrain editing, simulation, and input on physical devices.
+- [ ] Evaluate iOS exports, signing, distribution, and device performance after the Android path is stable.
+- [ ] Keep save compatibility and feature parity across desktop and mobile where practical; document any platform-specific limits.
+
+**Done when:** the game can be played comfortably on a real mobile device with touch controls and a stable, performance-appropriate world.
+
+## Phase 12: Add multiplayer (very late stage)
+
+Multiplayer should follow a stable single-player simulation. Decide on the authoritative host/server model before adding network calls throughout game logic.
+
+- [ ] Choose the initial session model: host a world for friends or use a dedicated authoritative server.
+- [ ] Separate simulation rules from local input and rendering so multiple clients can share one consistent world state.
+- [ ] Synchronise world generation, terrain edits, city development, people, events, military units, and simulation time.
+- [ ] Define player roles and permissions for god powers, city control, citizen control, and destructive actions.
+- [ ] Add session creation, joining, leaving, reconnecting, and useful connection/error feedback.
+- [ ] Handle save ownership, world persistence, and recovery after the host or a player disconnects.
+- [ ] Detect and recover from state divergence instead of allowing clients to simulate different worlds indefinitely.
+- [ ] Test multiplayer with different frame rates, latency, packet loss, many active units, and simultaneous terrain edits.
+- [ ] Plan cross-platform sessions with mobile only after mobile input and performance have been validated.
+- [ ] Document privacy, player permissions, and basic safeguards against griefing in shared worlds.
+
+**Done when:** multiple players can join the same persistent world and see consistent simulation results while performing supported actions.
+
 ## Suggested implementation order
 
 1. Reliability and real desktop playtesting.
@@ -165,7 +197,9 @@ This is a major later feature. It should extend the god-game rather than replace
 5. Warfare, vehicle combat, and destruction.
 6. City events and reactive populations.
 7. Direct citizen control.
-8. Save/load, UI polish, optimisation, and release preparation.
+8. Save/load, UI polish, optimisation, and desktop release preparation.
+9. Add mobile controls and validate Android first, then evaluate iOS.
+10. Add a multiplayer foundation and cross-platform sessions after single-player and mobile stability.
 
 These phases are a direction, not a promise that every feature will be cheap. In particular, large world simulation, chain-collapse physics, modern vehicle combat, and controllable citizens are substantial systems. Keep each task unchecked until it is implemented and tested in-game.
 
