@@ -130,6 +130,20 @@ jobs:
           Get-Content "dist/export-linux.log"
           if ($linuxExitCode -ne 0) { throw "Linux export failed with exit code $linuxExitCode." }
 
+      - name: Upload Godot diagnostics on failure
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: Civiterra-godot-diagnostics
+          path: |
+            godot-validation.log
+            godot-smoke-test.log
+            godot-save-load-test.log
+            dist/export-windows.log
+            dist/export-linux.log
+          if-no-files-found: ignore
+          retention-days: 7
+
       - name: Upload desktop builds
         uses: actions/upload-artifact@v4
         with:
