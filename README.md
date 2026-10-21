@@ -14,32 +14,30 @@ Open the repository's **Actions** tab and download the latest `Civiterra-desktop
 2. Import `project.godot` in the Godot Project Manager.
 3. Press **F6** to run the main scene or **F5** to run the project.
 
-The project uses Godot's Compatibility renderer to support a broad range of desktop hardware.
-
 ## Current features
 
-- Procedurally generated 3D island, water, hills, and terrain height map.
-- Raise/lower terrain brush with adjustable radius.
-- Spawn humans, trees/wood, stone deposits, and food patches.
+- Procedurally generated 3D island with smooth terrain normals, hills, shoreline, and water.
+- Height-aware terrain sculpting; raise and lower tools follow the actual 3D surface and can be painted by dragging.
+- Spawn humans, plant trees, place stone and food resources, and erase nearby items.
+- New WorldBox-style powers: lightning, persistent local wildfires, falling meteors with craters, healing/blessing, forest creation, and earthquakes.
 - Humans wander, join nearby settlements, and can spontaneously found towns when enough gather.
-- Cities collect nearby resources, grow their populations, and build additional houses.
+- Cities collect nearby resources, grow populations, and construct houses as populations rise.
 - Select any city and take control of it.
 - Order missile strikes and invasions against rival cities.
-- Visible missile projectiles and blast effects, casualties, and building damage.
-- Armies travel across the island; cities defend themselves, lose citizens, and can be captured.
-- AI city-states can start wars on their own.
+- Armies march, fight, capture cities, and trigger AI wars.
 - Pause and simulation speed controls.
-- Native 3D view with desktop UI.
+- Native 3D desktop UI and automatic Windows/Linux builds through GitHub Actions.
 
 ## Controls
 
-- **WASD / arrow keys:** move the camera
-- **Right mouse drag:** rotate the camera
-- **Middle mouse drag:** pan
+- **WASD / arrows:** move the camera
+- **Right mouse drag:** orbit the camera
+- **Middle mouse drag:** pan by grabbing the world
 - **Mouse wheel:** zoom
-- Choose a world tool, then click the island.
+- Select a world tool, then click or drag over the island.
+- Choose **Lightning**, **Fire**, **Meteor**, **Heal / Bless**, **Create Forest**, or **Earthquake**, then click the world to cast it.
 - Click a city, choose **Control Selected City**, then choose **Launch Missile** or **Order Invasion** and click a target city.
 
 ## Project status
 
-This is an active prototype with simple procedural art and lightweight simulation rules. The main next steps are deeper citizen jobs, roads and zoning, save/load, more detailed combat, and continued balancing and bug fixing. Automated exports are not a guarantee that all gameplay behaviour is bug-free; check the Actions logs for validation and build results.
+This is an active prototype with simple procedural art and lightweight simulation rules. The next steps are deeper citizen jobs, roads and zoning, save/load, more detailed combat, and continued visual/gameplay polish. Automated exports confirm that Godot can validate and export the project, but in-game behaviour still needs normal playtesting.
