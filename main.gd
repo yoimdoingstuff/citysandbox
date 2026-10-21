@@ -702,22 +702,12 @@ func _find_city_at(point: Vector3, radius: float) -> int:
 
 
 func _find_city_in_territory(point: Vector3) -> int:
-	var best_city: int = -1
-	var best_distance: float = INF
+	var cell := Vector2i(roundi(point.x / TERRITORY_CELL_SIZE), roundi(point.z / TERRITORY_CELL_SIZE))
 	for city_id in range(cities.size()):
-		var city_position: Vector3 = cities[city_id]["pos"]
-		var offset := Vector2(point.x - city_position.x, point.z - city_position.z)
-		var distance: float = offset.length()
-		var angle: float = atan2(offset.y, offset.x)
-		var territory_radius: float = _city_territory_radius_at_angle(
-			city_id,
-			angle,
-			_city_territory_base_radius(city_id)
-		)
-		if distance <= territory_radius and distance < best_distance:
-			best_distance = distance
-			best_city = city_id
-	return best_city
+		var city_cells: Dictionary = cities[city_id].get("territory_cells", {})
+		if city_cells.has(cell):
+			return city_id
+	return -1
 
 
 func _sculpt_terrain(center: Vector3, amount: float) -> void:
@@ -926,6 +916,8 @@ func _create_city(position: Vector3, city_name: String, color: Color) -> int:
 		"zone_fill": zone_fill,
 		"zone_border": zone_border,
 		"zone_radius": 0.0,
+		"territory_cells": {},
+		"next_plot_index": 0,
 		"plinth": plinth,
 		"body": body,
 		"roof": roof,
@@ -954,96 +946,156 @@ func _territory_material(color: Color, alpha: float) -> StandardMaterial3D:
 	return material
 
 
-func _city_territory_base_radius(city_id: int) -> float:
-	if city_id < 0 or city_id >= cities.size():
-		return 0.0
-	var city: Dictionary = cities[city_id]
-	var houses: Array = city["houses"]
-	var house_count: int = houses.size()
-	var stage: int = int(city.get("stage", 0))
-	if house_count == 0:
-		return 8.0 + float(stage) * 0.8
-
-	# Match the zone to the outermost housing ring. Each extra house on that
-	# ring pushes the boundary a little farther, and each new ring expands it
-	# more substantially. The stage bonus gives mature cities a wider hinterland.
-	var outer_ring_index: int = int((house_count - 1) / 6)
-	var outer_ring: float = 4.5 + float(outer_ring_index) * 3.4
-	var houses_in_outer_ring: int = ((house_count - 1) % 6) + 1
-	return outer_ring + 3.5 + float(houses_in_outer_ring) * 0.45 + float(stage) * 0.8
+func _territory_cell_is_land(cell: Vector2i) -> bool:
+	var x: float = float(cell.x) * TERRITORY_CELL_SIZE
+	var z: float = float(cell.y) * TERRITORY_CELL_SIZE
+	if absf(x) > TERRAIN_SIZE * 0.49 or absf(z) > TERRAIN_SIZE * 0.49:
+		return false
+	return _height_at(x, z) > WATER_LEVEL + 0.10
 
 
-func _city_territory_radius_at_angle(city_id: int, angle: float, base_radius: float) -> float:
-	var city_position: Vector3 = cities[city_id]["pos"]
-	var direction := Vector2(cos(angle), sin(angle))
-	var radius: float = base_radius
-	for other_id in range(cities.size()):
-		if other_id == city_id:
-			continue
-		var other_position: Vector3 = cities[other_id]["pos"]
-		var offset := Vector2(other_position.x - city_position.x, other_position.z - city_position.z)
-		var distance: float = offset.length()
-		if distance < 0.1:
-			continue
-		var other_radius: float = _city_territory_base_radius(other_id)
-		# Once both influence zones reach each other, use the shared bisector as
-		# the border. The border shifts towards the smaller zone until balanced.
-		if distance > base_radius + other_radius:
-			continue
-		var along: float = offset.dot(direction)
-		if along <= 0.001:
-			continue
-		var facing_amount: float = along / distance
-		var border_offset: float = clamp((distance + base_radius - other_radius) * 0.5, 0.0, distance)
-		var border_radius: float = border_offset / maxf(facing_amount, 0.05)
-		radius = minf(radius, border_radius)
-	return maxf(radius, 1.0)
+func _territory_material(color: Color, alpha: float) -> StandardMaterial3D:
+	var material := StandardMaterial3D.new()
+	material.albedo_color = Color(color.r, color.g, color.b, alpha)
+	material.transparency = BaseMaterial3D.TRANSPARENCY_ALPHA
+	material.shading_mode = BaseMaterial3D.SHADING_MODE_UNSHADED
+	material.cull_mode = BaseMaterial3D.CULL_DISABLED
+	material.roughness = 1.0
+	return material
 
 
 func _refresh_city_territory(city_id: int) -> void:
+	# Recalculate claims globally so a contested grid tile belongs to exactly
+	# one city. This creates irregular, coast-following polygons from parcels,
+	# rather than expanding a single circular radius around each town centre.
+	if cities.is_empty():
+		return
+	var claims: Dictionary = {}
+	var city_candidates: Array = []
+	var directions: Array[Vector2i] = [
+		Vector2i(1, 0), Vector2i(-1, 0), Vector2i(0, 1), Vector2i(0, -1),
+		Vector2i(1, 1), Vector2i(-1, 1), Vector2i(1, -1), Vector2i(-1, -1)
+	]
+	for owner_id in range(cities.size()):
+		var city: Dictionary = cities[owner_id]
+		var cells: Dictionary = {}
+		var frontier: Array[Vector2i] = []
+		var centre: Vector3 = city["pos"]
+		var centre_cell := Vector2i(roundi(centre.x / TERRITORY_CELL_SIZE), roundi(centre.z / TERRITORY_CELL_SIZE))
+		if _territory_cell_is_land(centre_cell):
+			cells[centre_cell] = 0
+			frontier.append(centre_cell)
+		for house in city["houses"]:
+			if not is_instance_valid(house):
+				continue
+			var world_x: float = centre.x + house.position.x
+			var world_z: float = centre.z + house.position.z
+			var seed_cell := Vector2i(roundi(world_x / TERRITORY_CELL_SIZE), roundi(world_z / TERRITORY_CELL_SIZE))
+			if _territory_cell_is_land(seed_cell) and not cells.has(seed_cell):
+				cells[seed_cell] = 0
+				frontier.append(seed_cell)
+
+		# Each new building adds the capacity to claim an extra landward shell.
+		# Irregular diagonal gaps, shorelines and land elevation create varied shapes.
+		var margin_cells: int = clampi(1 + int(city["houses"].size() / 12), 1, 4)
+		for shell in range(1, margin_cells + 1):
+			var next_frontier: Array[Vector2i] = []
+			for cell in frontier:
+				for direction in directions:
+					var next_cell: Vector2i = cell + direction
+					if cells.has(next_cell) or not _territory_cell_is_land(next_cell):
+						continue
+					if direction.x != 0 and direction.y != 0 and ((next_cell.x * 7 + next_cell.y * 11 + owner_id + shell) % 5 == 0):
+						continue
+					cells[next_cell] = shell
+				next_frontier.append(next_cell)
+			frontier = next_frontier
+		city_candidates.append(cells)
+		for cell in cells.keys():
+			if not claims.has(cell):
+				claims[cell] = []
+			var claimers: Array = claims[cell]
+			claimers.append(owner_id)
+			claims[cell] = claimers
+
+	var owners: Dictionary = {}
+	for cell_key in claims.keys():
+		var cell: Vector2i = cell_key
+		var tile_world := Vector2(float(cell.x) * TERRITORY_CELL_SIZE, float(cell.y) * TERRITORY_CELL_SIZE)
+		var best_city: int = -1
+		var best_score: float = INF
+		for candidate_id in claims[cell]:
+			var candidate: Dictionary = cities[candidate_id]
+			var distance: float = tile_world.distance_to(Vector2(candidate["pos"].x, candidate["pos"].z))
+			var house_distance: float = INF
+			for house in candidate["houses"]:
+				if not is_instance_valid(house):
+					continue
+				var house_world_x: float = candidate["pos"].x + house.position.x
+				var house_world_z: float = candidate["pos"].z + house.position.z
+				house_distance = minf(house_distance, tile_world.distance_to(Vector2(house_world_x, house_world_z)))
+			var score: float = minf(distance, house_distance) - float(candidate["houses"].size()) * 0.035
+			if score < best_score:
+				best_score = score
+				best_city = candidate_id
+		if best_city >= 0:
+			owners[cell] = best_city
+
+		var owner_cells: Dictionary = {}
+		for cell_key in owners.keys():
+			if int(owners[cell_key]) == owner_id:
+				owner_cells[cell_key] = true
+		city["territory_cells"] = owner_cells
+		city["zone_area"] = float(owner_cells.size()) * TERRITORY_CELL_SIZE * TERRITORY_CELL_SIZE
+		var max_distance: float = 0.0
+		for owned_cell in owner_cells.keys():
+			var cell: Vector2i = owned_cell
+			var world_pos := Vector2(float(cell.x) * TERRITORY_CELL_SIZE, float(cell.y) * TERRITORY_CELL_SIZE)
+			max_distance = maxf(max_distance, world_pos.distance_to(Vector2(city["pos"].x, city["pos"].z)))
+		city["zone_radius"] = max_distance
+		cities[owner_id] = city
+		_render_city_territory(owner_id, owners)
+
+
+func _render_city_territory(city_id: int, all_owners: Dictionary) -> void:
 	if city_id < 0 or city_id >= cities.size():
 		return
 	var city: Dictionary = cities[city_id]
-	var old_radius: float = float(city.get("zone_radius", 0.0))
-	var base_radius: float = _city_territory_base_radius(city_id)
-	var segment_count: int = 96
+	var cells: Dictionary = city.get("territory_cells", {})
 	var fill_surface := SurfaceTool.new()
 	fill_surface.begin(Mesh.PRIMITIVE_TRIANGLES)
 	var border_surface := SurfaceTool.new()
 	border_surface.begin(Mesh.PRIMITIVE_TRIANGLES)
-	var center: Vector3 = city["pos"]
-	center.y = _height_at(center.x, center.z) + 0.13
-	var previous_outer := Vector3.ZERO
-	var previous_inner := Vector3.ZERO
-	var previous_valid: bool = false
+	var half: float = TERRITORY_CELL_SIZE * 0.5
+	var border_offset: float = 0.17 + float(city_id) * 0.002
 
-	for segment in range(segment_count + 1):
-		var angle: float = TAU * float(segment) / float(segment_count)
-		var radius: float = _city_territory_radius_at_angle(city_id, angle, base_radius)
-		var direction := Vector2(cos(angle), sin(angle))
-		var outer := Vector3(center.x + direction.x * radius, 0.0, center.z + direction.y * radius)
-		outer.y = _height_at(outer.x, outer.z) + 0.15
-		var inner_radius: float = maxf(0.25, radius - 0.42)
-		var inner := Vector3(center.x + direction.x * inner_radius, 0.0, center.z + direction.y * inner_radius)
-		inner.y = _height_at(inner.x, inner.z) + 0.16
-		var outer_land: bool = outer.y > WATER_LEVEL + 0.08
+	for cell_key in cells.keys():
+		var cell: Vector2i = cell_key
+		var x: float = float(cell.x) * TERRITORY_CELL_SIZE
+		var z: float = float(cell.y) * TERRITORY_CELL_SIZE
+		var a := Vector3(x - half, _height_at(x - half, z - half) + 0.13, z - half)
+		var b := Vector3(x + half, _height_at(x + half, z - half) + 0.13, z - half)
+		var c := Vector3(x + half, _height_at(x + half, z + half) + 0.13, z + half)
+		var d := Vector3(x - half, _height_at(x - half, z + half) + 0.13, z + half)
+		fill_surface.add_vertex(a)
+		fill_surface.add_vertex(b)
+		fill_surface.add_vertex(c)
+		fill_surface.add_vertex(a)
+		fill_surface.add_vertex(c)
+		fill_surface.add_vertex(d)
 
-		if segment > 0 and previous_valid and outer_land:
-			# A faint translucent surface makes the whole city influence area
-			# readable; a thicker ribbon marks its boundary.
-			fill_surface.add_vertex(center)
-			fill_surface.add_vertex(previous_outer)
-			fill_surface.add_vertex(outer)
-			border_surface.add_vertex(previous_inner)
-			border_surface.add_vertex(previous_outer)
-			border_surface.add_vertex(inner)
-			border_surface.add_vertex(previous_outer)
-			border_surface.add_vertex(outer)
-			border_surface.add_vertex(inner)
-
-		previous_outer = outer
-		previous_inner = inner
-		previous_valid = outer_land
+		var top_neighbour := cell + Vector2i(0, -1)
+		var right_neighbour := cell + Vector2i(1, 0)
+		var bottom_neighbour := cell + Vector2i(0, 1)
+		var left_neighbour := cell + Vector2i(-1, 0)
+		if int(all_owners.get(top_neighbour, -1)) != city_id:
+			_add_territory_edge(border_surface, a, b, border_offset)
+		if int(all_owners.get(right_neighbour, -1)) != city_id:
+			_add_territory_edge(border_surface, b, c, border_offset)
+		if int(all_owners.get(bottom_neighbour, -1)) != city_id:
+			_add_territory_edge(border_surface, c, d, border_offset)
+		if int(all_owners.get(left_neighbour, -1)) != city_id:
+			_add_territory_edge(border_surface, d, a, border_offset)
 
 	fill_surface.generate_normals(true)
 	border_surface.generate_normals(true)
@@ -1051,11 +1103,25 @@ func _refresh_city_territory(city_id: int) -> void:
 	var border_node: MeshInstance3D = city["zone_border"]
 	fill_node.mesh = fill_surface.commit()
 	border_node.mesh = border_surface.commit()
-	city["zone_radius"] = base_radius
-	cities[city_id] = city
 
-	if selected_city == city_id and base_radius > old_radius + 0.25:
-		_request_city_camera_zoom(city_id)
+
+func _add_territory_edge(surface: SurfaceTool, start_point: Vector3, end_point: Vector3, y_offset: float) -> void:
+	var direction := Vector2(end_point.x - start_point.x, end_point.z - start_point.z)
+	var length: float = direction.length()
+	if length < 0.01:
+		return
+	direction /= length
+	var side := Vector2(-direction.y, direction.x) * 0.13
+	var a := Vector3(start_point.x + side.x, start_point.y + y_offset, start_point.z + side.y)
+	var b := Vector3(start_point.x - side.x, start_point.y + y_offset, start_point.z - side.y)
+	var c := Vector3(end_point.x + side.x, end_point.y + y_offset, end_point.z + side.y)
+	var d := Vector3(end_point.x - side.x, end_point.y + y_offset, end_point.z - side.y)
+	surface.add_vertex(a)
+	surface.add_vertex(b)
+	surface.add_vertex(c)
+	surface.add_vertex(b)
+	surface.add_vertex(d)
+	surface.add_vertex(c)
 
 
 func _city_stage_for_population(population: int) -> int:
@@ -1150,6 +1216,29 @@ func _apply_city_stage_appearance(city_id: int) -> void:
 			house.scale = Vector3.ONE * (1.0 + float(stage) * 0.07)
 
 
+func _spiral_grid_offset(index: int) -> Vector2i:
+	# A deterministic square spiral gives cities a grid plan without making
+	# every neighbourhood a perfect rectangular spreadsheet.
+	var x: int = 0
+	var z: int = 0
+	var direction := Vector2i(1, 0)
+	var segment_length: int = 1
+	var segment_steps: int = 0
+	var segments_at_length: int = 0
+	for step in range(index + 1):
+		x += direction.x
+		z += direction.y
+		segment_steps += 1
+		if segment_steps >= segment_length:
+			segment_steps = 0
+			direction = Vector2i(-direction.y, direction.x)
+			segments_at_length += 1
+			if segments_at_length >= 2:
+				segments_at_length = 0
+				segment_length += 1
+	return Vector2i(x, z)
+
+
 func _sync_city_buildings(city_id: int) -> void:
 	if city_id < 0 or city_id >= cities.size():
 		return
@@ -1158,16 +1247,18 @@ func _sync_city_buildings(city_id: int) -> void:
 	var stage: int = int(city.get("stage", 0))
 	var desired_houses: int = min(MAX_CITY_HOUSES, max(1, 1 + int(population / 3) + stage * 2))
 	var houses: Array = city["houses"]
+	var plot_index: int = int(city.get("next_plot_index", houses.size()))
 	while houses.size() < desired_houses and houses.size() < MAX_CITY_HOUSES:
-		var house_index: int = houses.size()
-		var angle: float = float(house_index) * 2.39996
-		var ring: float = 4.5 + float(house_index / 6) * 3.4
-		var offset_x: float = cos(angle) * ring
-		var offset_z: float = sin(angle) * ring
+		var offset_x: float = 0.0
+		var offset_z: float = 0.0
 		var found_building_site: bool = false
-		# Coastal cities may not have land at the next ideal ring position.
-		# Search nearby angles and rings, rejecting sea, map-edge, and overlap sites.
-		for attempt in range(20):
+		var chosen_plot_index: int = plot_index
+		# Try the next parcels in the grid spiral. Coastal sites are skipped,
+		# preserving street alignment instead of bending the whole district.
+		for attempt in range(64):
+			var plot: Vector2i = _spiral_grid_offset(plot_index)
+			offset_x = float(plot.x) * TERRITORY_CELL_SIZE
+			offset_z = float(plot.y) * TERRITORY_CELL_SIZE
 			var candidate_x: float = city["pos"].x + offset_x
 			var candidate_z: float = city["pos"].z + offset_z
 			var inside_world: bool = abs(candidate_x) < TERRAIN_SIZE * 0.47 and abs(candidate_z) < TERRAIN_SIZE * 0.47
@@ -1177,29 +1268,26 @@ func _sync_city_buildings(city_id: int) -> void:
 				for existing_house in houses:
 					if not is_instance_valid(existing_house):
 						continue
-					var existing_offset: Vector2 = Vector2(existing_house.position.x, existing_house.position.z)
+					var existing_offset := Vector2(existing_house.position.x, existing_house.position.z)
 					if existing_offset.distance_to(Vector2(offset_x, offset_z)) < 2.25:
 						overlaps_existing = true
 						break
 			if on_land and not overlaps_existing:
 				found_building_site = true
+				chosen_plot_index = plot_index
 				break
-			angle += 0.47
-			ring += 0.28
-			offset_x = cos(angle) * ring
-			offset_z = sin(angle) * ring
+			plot_index += 1
 		if not found_building_site:
 			break
+		plot_index = chosen_plot_index + 1
 		var terrain_delta: float = _height_at(city["pos"].x + offset_x, city["pos"].z + offset_z) - city["pos"].y
 		var house := Node3D.new()
 		house.scale = Vector3.ONE * (1.0 + float(stage) * 0.07)
 		house.position = Vector3(offset_x, terrain_delta, offset_z)
 		city["node"].add_child(house)
-		# Give each neighbourhood a mix of residential and civic buildings.
-		# Later rings become taller and denser as the settlement develops.
-		var building_type: int = house_index % 5
+
+		var building_type: int = house_index_to_building_type(houses.size(), stage)
 		var building_size: Vector3 = Vector3(1.35, 1.2, 1.35)
-		var building_height: float = 1.2
 		match building_type:
 			1:
 				building_size = Vector3(1.25, 2.15 + float(stage) * 0.18, 1.25)
@@ -1209,7 +1297,11 @@ func _sync_city_buildings(city_id: int) -> void:
 				building_size = Vector3(1.65, 1.75 + float(stage) * 0.16, 1.55)
 			4:
 				building_size = Vector3(1.95, 0.72 + float(stage) * 0.08, 1.90)
-		building_height = building_size.y
+			5:
+				building_size = Vector3(1.5, 5.0, 1.5)
+			6:
+				building_size = Vector3(2.1, 10.0, 2.1)
+		var building_height: float = building_size.y
 		var wall_color: Color = Color(0.70, 0.64, 0.48).lerp(city["color"], 0.24)
 		if building_type == 2:
 			wall_color = wall_color.darkened(0.09)
@@ -1217,6 +1309,8 @@ func _sync_city_buildings(city_id: int) -> void:
 			wall_color = Color(0.57, 0.47, 0.31).lerp(city["color"], 0.10)
 		elif building_type == 3:
 			wall_color = wall_color.lerp(city["color"].lightened(0.28), 0.25)
+		elif building_type >= 5:
+			wall_color = Color(0.36, 0.54, 0.61)
 		var walls := BoxMesh.new()
 		walls.size = building_size
 		_add_mesh(house, walls, _material(wall_color), Vector3(0.0, building_height * 0.5, 0.0))
@@ -1228,7 +1322,7 @@ func _sync_city_buildings(city_id: int) -> void:
 			roof.height = 0.88
 			roof.radial_segments = 4
 			_add_mesh(house, roof, _material(city["color"].darkened(0.10)), Vector3(0.0, building_height + 0.44, 0.0))
-		else:
+		elif building_type < 5:
 			var flat_roof := BoxMesh.new()
 			flat_roof.size = Vector3(building_size.x + 0.12, 0.16, building_size.z + 0.12)
 			var flat_roof_color: Color = city["color"].darkened(0.18)
@@ -1236,24 +1330,22 @@ func _sync_city_buildings(city_id: int) -> void:
 				flat_roof_color = Color(0.22, 0.36, 0.21)
 			_add_mesh(house, flat_roof, _material(flat_roof_color), Vector3(0.0, building_height + 0.08, 0.0))
 
-		# Small door and windows give close-up zooms something to reveal.
-		var door_mesh := BoxMesh.new()
-		door_mesh.size = Vector3(0.25, 0.44, 0.055)
-		_add_mesh(house, door_mesh, _material(Color(0.24, 0.16, 0.11)), Vector3(0.0, 0.23, building_size.z * 0.5 + 0.035))
-		var window_count: int = 3 if building_type == 1 or building_type == 3 else 2
-		for window_index in range(window_count):
-			var window_mesh := BoxMesh.new()
-			window_mesh.size = Vector3(0.20, 0.19, 0.045)
-			var window_x: float = (float(window_index) - float(window_count - 1) * 0.5) * 0.35
-			var window_y: float = minf(building_height - 0.26, 0.72 + float(stage) * 0.12)
-			_add_mesh(house, window_mesh, _material(Color(0.45, 0.78, 0.88)), Vector3(window_x, window_y, building_size.z * 0.5 + 0.04))
-			if building_type == 1 or building_type == 3:
-				var upper_window := BoxMesh.new()
-				upper_window.size = Vector3(0.18, 0.18, 0.045)
-				_add_mesh(house, upper_window, _material(Color(0.45, 0.78, 0.88)), Vector3(window_x, minf(building_height - 0.30, window_y + 0.58), building_size.z * 0.5 + 0.04))
-
+		if building_type < 5:
+			var door_mesh := BoxMesh.new()
+			door_mesh.size = Vector3(0.25, 0.44, 0.055)
+			_add_mesh(house, door_mesh, _material(Color(0.24, 0.16, 0.11)), Vector3(0.0, 0.23, building_size.z * 0.5 + 0.035))
+			var window_count: int = 3 if building_type == 1 or building_type == 3 else 2
+			for window_index in range(window_count):
+				var window_mesh := BoxMesh.new()
+				window_mesh.size = Vector3(0.20, 0.19, 0.045)
+				var window_x: float = (float(window_index) - float(window_count - 1) * 0.5) * 0.35
+				var window_y: float = minf(building_height - 0.26, 0.72 + float(stage) * 0.12)
+				_add_mesh(house, window_mesh, _material(Color(0.45, 0.78, 0.88)), Vector3(window_x, window_y, building_size.z * 0.5 + 0.04))
+				if building_type == 1 or building_type == 3:
+					var upper_window := BoxMesh.new()
+					upper_window.size = Vector3(0.18, 0.18, 0.045)
+					_add_mesh(house, upper_window, _material(Color(0.45, 0.78, 0.88)), Vector3(window_x, minf(building_height - 0.30, window_y + 0.58), building_size.z * 0.5 + 0.04))
 		if building_type == 4:
-			# Small crop beds identify farms at close zoom and tie them to food production.
 			for crop_row in range(3):
 				var bed := BoxMesh.new()
 				bed.size = Vector3(building_size.x * 0.76, 0.07, 0.16)
@@ -1271,10 +1363,54 @@ func _sync_city_buildings(city_id: int) -> void:
 			chimney.height = 0.72
 			_add_mesh(house, chimney, _material(Color(0.38, 0.30, 0.26)), Vector3(building_size.x * 0.28, building_height + 0.42, -building_size.z * 0.18))
 		house.set_meta("building_type", building_type)
+		house.set_meta("plot_index", chosen_plot_index)
 		houses.append(house)
 	city["houses"] = houses
+	city["next_plot_index"] = plot_index
 	cities[city_id] = city
 	_rebuild_city_roads(city_id)
+
+
+func house_index_to_building_type(index: int, stage: int) -> int:
+	var kind: int = index % 5
+	var year: int = _world_year()
+	if kind != 4 and year >= 1880 and stage >= 2 and index % 4 == 1:
+		kind = 5
+	if kind != 4 and year >= 1950 and stage >= 3 and index % 6 == 1:
+		kind = 6
+	return kind
+
+
+
+
+func _add_road_segment(surface: SurfaceTool, city_position: Vector3, from_point: Vector2, to_point: Vector2, width: float = 0.48) -> void:
+	var delta: Vector2 = to_point - from_point
+	var distance: float = delta.length()
+	if distance < 1.0:
+		return
+	var direction: Vector2 = delta / distance
+	var side := Vector2(-direction.y, direction.x) * width * 0.5
+	var start_point: Vector2 = from_point + direction * 1.05
+	var finish_point: Vector2 = to_point - direction * 1.05
+	var segment_count: int = max(2, int(ceil(distance / 2.4)))
+	var previous_left := Vector3.ZERO
+	var previous_right := Vector3.ZERO
+	for segment in range(segment_count + 1):
+		var t: float = float(segment) / float(segment_count)
+		var center_line: Vector2 = start_point.lerp(finish_point, t)
+		var left_xz: Vector2 = center_line + side
+		var right_xz: Vector2 = center_line - side
+		var left := Vector3(left_xz.x, _height_at(city_position.x + left_xz.x, city_position.z + left_xz.y) - city_position.y + 0.10, left_xz.y)
+		var right := Vector3(right_xz.x, _height_at(city_position.x + right_xz.x, city_position.z + right_xz.y) - city_position.y + 0.10, right_xz.y)
+		if segment > 0:
+			surface.add_vertex(previous_left)
+			surface.add_vertex(previous_right)
+			surface.add_vertex(left)
+			surface.add_vertex(previous_right)
+			surface.add_vertex(right)
+			surface.add_vertex(left)
+		previous_left = left
+		previous_right = right
 
 
 func _rebuild_city_roads(city_id: int) -> void:
@@ -1287,35 +1423,30 @@ func _rebuild_city_roads(city_id: int) -> void:
 	var road_surface := SurfaceTool.new()
 	road_surface.begin(Mesh.PRIMITIVE_TRIANGLES)
 	var city_position: Vector3 = city["pos"]
-	for house in city["houses"]:
-		if not is_instance_valid(house):
+	var houses: Array = city["houses"]
+	# A few short avenues connect the central civic building to the nearest
+	# blocks. Most roads then run along the grid between neighbouring parcels.
+	for i in range(mini(4, houses.size())):
+		var house: Node3D = houses[i]
+		if is_instance_valid(house):
+			_add_road_segment(road_surface, city_position, Vector2.ZERO, Vector2(house.position.x, house.position.z), 0.62)
+	for i in range(houses.size()):
+		var first: Node3D = houses[i]
+		if not is_instance_valid(first):
 			continue
-		var target := Vector2(house.position.x, house.position.z)
-		var distance: float = target.length()
-		if distance < 2.8:
-			continue
-		var direction: Vector2 = target / distance
-		var side := Vector2(-direction.y, direction.x) * 0.25
-		var start_point: Vector2 = direction * 2.4
-		var segment_count: int = max(2, int(ceil((distance - 2.4) / 2.6)))
-		var previous_left := Vector3.ZERO
-		var previous_right := Vector3.ZERO
-		for segment in range(segment_count + 1):
-			var t: float = float(segment) / float(segment_count)
-			var center_line: Vector2 = start_point.lerp(target, t)
-			var left_xz: Vector2 = center_line + side
-			var right_xz: Vector2 = center_line - side
-			var left := Vector3(left_xz.x, _height_at(city_position.x + left_xz.x, city_position.z + left_xz.y) - city_position.y + 0.10, left_xz.y)
-			var right := Vector3(right_xz.x, _height_at(city_position.x + right_xz.x, city_position.z + right_xz.y) - city_position.y + 0.10, right_xz.y)
-			if segment > 0:
-				road_surface.add_vertex(previous_left)
-				road_surface.add_vertex(previous_right)
-				road_surface.add_vertex(left)
-				road_surface.add_vertex(previous_right)
-				road_surface.add_vertex(right)
-				road_surface.add_vertex(left)
-			previous_left = left
-			previous_right = right
+		var a := Vector2(first.position.x, first.position.z)
+		for j in range(i + 1, houses.size()):
+			var second: Node3D = houses[j]
+			if not is_instance_valid(second):
+				continue
+			var b := Vector2(second.position.x, second.position.z)
+			var dx: float = absf(a.x - b.x)
+			var dz: float = absf(a.y - b.y)
+			var distance: float = a.distance_to(b)
+			var cardinal_neighbours: bool = distance >= 3.6 and distance <= 4.5 and (dx < 0.8 or dz < 0.8)
+			var diagonal_neighbours: bool = distance >= 5.0 and distance <= 6.0 and dx > 2.5 and dz > 2.5 and ((i + j) % 4 == 0)
+			if cardinal_neighbours or diagonal_neighbours:
+				_add_road_segment(road_surface, city_position, a, b, 0.48 if cardinal_neighbours else 0.34)
 	road_surface.generate_normals(true)
 	road_node.mesh = road_surface.commit()
 
