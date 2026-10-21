@@ -3300,10 +3300,16 @@ func _toggle_pause() -> void:
 
 
 func _cycle_speed() -> void:
+	# Cycle through increasingly fast simulation rates while keeping the
+	# current one-button control simple: 1x -> 2x -> 4x -> 8x -> 16x -> 1x.
 	if is_equal_approx(sim_speed, 1.0):
 		sim_speed = 2.0
 	elif is_equal_approx(sim_speed, 2.0):
 		sim_speed = 4.0
+	elif is_equal_approx(sim_speed, 4.0):
+		sim_speed = 8.0
+	elif is_equal_approx(sim_speed, 8.0):
+		sim_speed = 16.0
 	else:
 		sim_speed = 1.0
 	if is_instance_valid(speed_button):
@@ -3753,7 +3759,7 @@ func _load_world() -> void:
 	camera_distance = clampf(float(save_data.get("camera_distance", 94.0)), 24.0, TERRAIN_SIZE * 1.75)
 	camera_yaw = float(save_data.get("camera_yaw", -0.72))
 	camera_pitch = clampf(float(save_data.get("camera_pitch", 0.56)), 0.20, 1.25)
-	sim_speed = clampf(float(save_data.get("sim_speed", 1.0)), 0.5, 3.0)
+	sim_speed = clampf(float(save_data.get("sim_speed", 1.0)), 1.0, 16.0)
 	paused = false
 	_update_camera()
 	_update_world_detail_levels()
