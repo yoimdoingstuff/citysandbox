@@ -544,7 +544,7 @@ func _seed_civilizations() -> void:
 		cities[city_id]["food"] = 14.0
 		cities[city_id]["wood"] = 10.0
 		cities[city_id]["stone"] = 5.0
-		_sync_city_buildings(city_id)
+		_refresh_city_development(city_id)
 	_log("Three small city-states are competing to grow. Their future is, regrettably, in your hands.")
 
 
@@ -572,10 +572,10 @@ func _create_city(position: Vector3, city_name: String, color: Color) -> int:
 	flag_pole_mesh.top_radius = 0.045
 	flag_pole_mesh.bottom_radius = 0.045
 	flag_pole_mesh.height = 2.8
-	_add_mesh(town, flag_pole_mesh, _material(Color(0.82, 0.82, 0.73)), Vector3(0.0, 4.6, 0.0))
+	var flag_pole := _add_mesh(town, flag_pole_mesh, _material(Color(0.82, 0.82, 0.73)), Vector3(0.0, 4.6, 0.0))
 	var flag_mesh := BoxMesh.new()
 	flag_mesh.size = Vector3(0.9, 0.45, 0.08)
-	_add_mesh(town, flag_mesh, _material(color), Vector3(0.42, 5.55, 0.0))
+	var flag := _add_mesh(town, flag_mesh, _material(color), Vector3(0.42, 5.55, 0.0))
 
 	var city_label := Label3D.new()
 	city_label.text = "%s\nPOP 0" % city_name
@@ -593,8 +593,12 @@ func _create_city(position: Vector3, city_name: String, color: Color) -> int:
 		"color": color,
 		"node": town,
 		"label": city_label,
+		"plinth": plinth,
 		"body": body,
 		"roof": roof,
+		"flag_pole": flag_pole,
+		"flag": flag,
+		"stage": 0,
 		"houses": [],
 		"owner": index,
 		"food": 8.0,
@@ -604,14 +608,102 @@ func _create_city(position: Vector3, city_name: String, color: Color) -> int:
 	return index
 
 
+func _city_stage_for_population(population: int) -> int:
+	if population >= 40:
+		return 3
+	if population >= 24:
+		return 2
+	if population >= 12:
+		return 1
+	return 0
+
+
+func _city_stage_name(stage: int) -> String:
+	match stage:
+		1:
+			return "TOWN"
+		2:
+			return "CITY"
+		3:
+			return "METROPOLIS"
+		_:
+			return "VILLAGE"
+
+
+func _refresh_city_development(city_id: int) -> void:
+	if city_id < 0 or city_id >= cities.size():
+		return
+	var city: Dictionary = cities[city_id]
+	var population: int = _city_population(city_id)
+	var previous_stage: int = int(city.get("stage", 0))
+	var next_stage: int = _city_stage_for_population(population)
+	city["stage"] = next_stage
+	city["population"] = population
+	cities[city_id] = city
+	if next_stage != previous_stage:
+		_apply_city_stage_appearance(city_id)
+		if next_stage > previous_stage:
+			_log("%s developed into a %s." % [city["name"], _city_stage_name(next_stage).to_lower()])
+	_sync_city_buildings(city_id)
+	city = cities[city_id]
+	if is_instance_valid(city["label"]):
+		city["label"].text = "%s\n%s | POP %d" % [city["name"], _city_stage_name(next_stage), population]
+	cities[city_id] = city
+
+
+func _apply_city_stage_appearance(city_id: int) -> void:
+	if city_id < 0 or city_id >= cities.size():
+		return
+	var city: Dictionary = cities[city_id]
+	var stage: int = int(city.get("stage", 0))
+	var plinth := city["plinth"] as MeshInstance3D
+	if is_instance_valid(plinth):
+		var plinth_mesh := plinth.mesh as BoxMesh
+		if plinth_mesh != null:
+			var footprint: float = 3.2 + float(stage) * 0.85
+			plinth_mesh.size = Vector3(footprint, 0.45, footprint)
+	var body := city["body"] as MeshInstance3D
+	var body_top: float = 2.2
+	if is_instance_valid(body):
+		var body_mesh := body.mesh as BoxMesh
+		if body_mesh != null:
+			var width: float = 2.15 + float(stage) * 0.36
+			var height: float = 1.9 + float(stage) * 0.38
+			body_mesh.size = Vector3(width, height, width)
+			body.position = Vector3(0.0, 0.30 + height * 0.5, 0.0)
+			body_top = 0.30 + height
+	var roof := city["roof"] as MeshInstance3D
+	var roof_top: float = body_top + 1.35
+	if is_instance_valid(roof):
+		var roof_mesh := roof.mesh as CylinderMesh
+		if roof_mesh != null:
+			roof_mesh.bottom_radius = 1.65 + float(stage) * 0.28
+			roof_mesh.height = 1.35 + float(stage) * 0.16
+			roof.position = Vector3(0.0, body_top + roof_mesh.height * 0.5, 0.0)
+			roof_top = body_top + roof_mesh.height
+	var flag_pole := city["flag_pole"] as MeshInstance3D
+	if is_instance_valid(flag_pole):
+		flag_pole.position = Vector3(0.0, roof_top + 1.075, 0.0)
+	var flag := city["flag"] as MeshInstance3D
+	if is_instance_valid(flag_pole) and is_instance_valid(flag):
+		flag.position = Vector3(0.42, flag_pole.position.y + 0.95, 0.0)
+	var label := city["label"] as Label3D
+	if is_instance_valid(flag_pole) and is_instance_valid(label):
+		label.position = Vector3(0.0, flag_pole.position.y + 1.9, 0.0)
+	for house in city["houses"]:
+		if is_instance_valid(house):
+			house.scale = Vector3.ONE * (1.0 + float(stage) * 0.07)
+
+
 func _sync_city_buildings(city_id: int) -> void:
 	if city_id < 0 or city_id >= cities.size():
 		return
 	var city: Dictionary = cities[city_id]
 	var population: int = _city_population(city_id)
-	var desired_houses: int = max(1, 1 + int(population / 4))
+	var stage: int = int(city.get("stage", 0))
+	var desired_houses: int = min(28, max(1, 1 + int(population / 3) + stage * 2))
 	var houses: Array = city["houses"]
-	while houses.size() < desired_houses and houses.size() < 18:
+	while houses.size() < desired_houses and houses.size() < 28:
 		var house_index: int = houses.size()
 		var angle: float = float(house_index) * 2.39996
 		var ring: float = 4.0 + float(house_index / 6) * 2.5
@@ -864,11 +956,8 @@ func _grow_cities() -> void:
 				var spawn_pos: Vector3 = _surface_position(city["pos"].x + cos(angle) * 2.2, city["pos"].z + sin(angle) * 2.2)
 				_spawn_human(spawn_pos, city_id)
 				_log("%s grew to %d citizens." % [city["name"], population + 1])
-			_sync_city_buildings(city_id)
-		city["population"] = _city_population(city_id)
-		if is_instance_valid(city["label"]):
-			city["label"].text = "%s\nPOP %d" % [city["name"], int(city["population"])]
 		cities[city_id] = city
+		_refresh_city_development(city_id)
 
 
 func _assign_wild_people() -> void:
@@ -921,7 +1010,7 @@ func _try_found_cities() -> void:
 			cities[new_city_id]["stone"] = 3.0
 			for member_id in members:
 				people[member_id]["city_id"] = new_city_id
-			_sync_city_buildings(new_city_id)
+			_refresh_city_development(new_city_id)
 			_seed_resources_around(cities[new_city_id]["pos"])
 			_log("A new settlement, %s, has been founded by %d humans." % [new_name, members.size()])
 			return
