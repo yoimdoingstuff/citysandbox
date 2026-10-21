@@ -19,7 +19,8 @@ Open the repository's **Actions** tab and download the latest `Civiterra-desktop
 - Procedurally generated 3D island with smooth terrain normals, hills, shoreline, and water.
 - Height-aware terrain sculpting; raise and lower tools follow the actual 3D surface and can be painted by dragging.
 - Spawn humans, plant trees, place stone and food resources, and erase nearby items.
-- New WorldBox-style powers: lightning, persistent local wildfires, falling meteors with craters, healing/blessing, forest creation, and earthquakes.
+- WorldBox-style powers: lightning, spreading wildfires, falling meteors with craters, moving tornadoes, spreading plague, healing/blessing, forest creation, and earthquakes.
+- Brush-radius preview follows the real terrain surface; terrain/resource tools can be painted by dragging.
 - Humans wander, join nearby settlements, and can spontaneously found towns when enough gather.
 - Cities collect nearby resources, grow populations, and construct houses as populations rise.
 - Select any city and take control of it.
@@ -35,7 +36,7 @@ Open the repository's **Actions** tab and download the latest `Civiterra-desktop
 - **Middle mouse drag:** pan by grabbing the world
 - **Mouse wheel:** zoom
 - Select a world tool, then click or drag over the island.
-- Choose **Lightning**, **Fire**, **Meteor**, **Heal / Bless**, **Create Forest**, or **Earthquake**, then click the world to cast it.
+- Choose **Lightning**, **Fire**, **Meteor**, **Tornado**, **Plague**, **Heal / Bless**, **Create Forest**, or **Earthquake**, then click the world to cast it. Blessing cures plague; tornadoes and wildfires move/spread and damage nearby populations.
 - Click a city, choose **Control Selected City**, then choose **Launch Missile** or **Order Invasion** and click a target city.
 
 ## Project status
