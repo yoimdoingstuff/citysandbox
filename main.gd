@@ -655,6 +655,8 @@ func _apply_world_tool(world_position: Vector3) -> void:
 	match tool_mode:
 		"select":
 			var city_id: int = _find_city_at(world_position, 5.5)
+			if city_id < 0:
+				city_id = _find_city_in_territory(world_position)
 			if city_id >= 0:
 				selected_city = city_id
 				_request_city_camera_zoom(city_id, true)
@@ -691,6 +693,25 @@ func _find_city_at(point: Vector3, radius: float) -> int:
 			best_distance = distance
 			best_id = i
 	return best_id
+
+
+func _find_city_in_territory(point: Vector3) -> int:
+	var best_city: int = -1
+	var best_distance: float = INF
+	for city_id in range(cities.size()):
+		var city_position: Vector3 = cities[city_id]["pos"]
+		var offset := Vector2(point.x - city_position.x, point.z - city_position.z)
+		var distance: float = offset.length()
+		var angle: float = atan2(offset.y, offset.x)
+		var territory_radius: float = _city_territory_radius_at_angle(
+			city_id,
+			angle,
+			_city_territory_base_radius(city_id)
+		)
+		if distance <= territory_radius and distance < best_distance:
+			best_distance = distance
+			best_city = city_id
+	return best_city
 
 
 func _sculpt_terrain(center: Vector3, amount: float) -> void:
