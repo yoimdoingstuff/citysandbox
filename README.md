@@ -10,7 +10,8 @@ Open the repository's **Actions** tab and download the latest `Civiterra-desktop
 
 ## Roadmap
 
-See **[ROADMAP.md](ROADMAP.md)** for the development plan, current prototype snapshot, ordered milestones, and checkable tasks. The next priority is validating the recent terrain and input fixes in a normal desktop session before building more systems on top.
+- **[Simple roadmap](ROADMAP_SIMPLE.md):** the big-picture vision for larger continents, cities that evolve over time, zoom-dependent detail, and a modern UI.
+- **[Detailed roadmap](ROADMAP.md):** the longer implementation checklist, prototype status, and development milestones.
 
 ## Run from source
 
