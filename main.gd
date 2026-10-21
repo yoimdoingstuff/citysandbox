@@ -44,6 +44,7 @@ var falling_meteors: Array = []
 var tornadoes: Array = []
 var wars: Array = []
 var city_event_scenes: Array = []
+var rubble_records: Array = []
 var log_entries: Array[String] = []
 
 var selected_city: int = -1
@@ -928,13 +929,15 @@ func _create_city(position: Vector3, city_name: String, color: Color) -> int:
 		"flag": flag,
 		"stage": 0,
 		"houses": [],
+		"destroyed_building_debt": 0,
 		"owner": index,
 		"food": 8.0,
 		"wood": 5.0,
 		"stone": 3.0,
 		"stability": 72.0,
 		"security": 44.0,
-		"wealth": 12.0
+		"wealth": 12.0,
+		"destroyed_building_debt": 0
 	})
 	return index
 
@@ -1330,7 +1333,9 @@ func _sync_city_buildings(city_id: int) -> void:
 	var city: Dictionary = cities[city_id]
 	var population: int = _city_population(city_id)
 	var stage: int = int(city.get("stage", 0))
-	var desired_houses: int = min(MAX_CITY_HOUSES, max(1, 1 + int(population / 3) + stage * 2))
+	var theoretical_houses: int = min(MAX_CITY_HOUSES, max(1, 1 + int(population / 3) + stage * 2))
+	var destroyed_building_debt: int = maxi(0, int(city.get("destroyed_building_debt", 0)))
+	var desired_houses: int = maxi(0, theoretical_houses - destroyed_building_debt)
 	var houses: Array = city["houses"]
 	var houses_before: int = houses.size()
 	var plot_index: int = int(city.get("next_plot_index", houses.size()))
@@ -2685,6 +2690,7 @@ func _collapse_specific_building(city_id: int, house: Node3D, allow_chain: bool 
 	var tall_building: bool = house.has_node("EraUpgrade") or float(house.scale.y) > 1.35
 	_animate_building_fall(house, tall_building, city["color"])
 	houses.remove_at(house_index)
+	city["destroyed_building_debt"] = int(city.get("destroyed_building_debt", 0)) + 1
 	if allow_chain and tall_building:
 		for other_index in range(houses.size() - 1, -1, -1):
 			var other: Node3D = houses[other_index]
@@ -2696,6 +2702,7 @@ func _collapse_specific_building(city_id: int, house: Node3D, allow_chain: bool 
 				continue
 			_animate_building_fall(other, other.has_node("EraUpgrade") or float(other.scale.y) > 1.35, city["color"])
 			houses.remove_at(other_index)
+			city["destroyed_building_debt"] = int(city.get("destroyed_building_debt", 0)) + 1
 			break
 	city["houses"] = houses
 	cities[city_id] = city
@@ -2722,9 +2729,14 @@ func _animate_building_fall(house: Node3D, tall_building: bool, building_color: 
 func _finish_building_collapse(house: Node3D, tall_building: bool, building_color: Color) -> void:
 	if not is_instance_valid(house):
 		return
+	_spawn_persistent_rubble(house.global_position, tall_building, building_color)
+	house.queue_free()
+
+
+func _spawn_persistent_rubble(position: Vector3, tall_building: bool, building_color: Color, record: bool = true) -> void:
 	var rubble := Node3D.new()
 	rubble.name = "BuildingRubble"
-	rubble.position = house.global_position
+	rubble.position = position
 	add_child(rubble)
 	var debris_count: int = 7 if tall_building else 4
 	for debris_index in range(debris_count):
@@ -2736,7 +2748,12 @@ func _finish_building_collapse(house: Node3D, tall_building: bool, building_colo
 		piece.position = Vector3(randf_range(-1.5, 1.5), piece_mesh.size.y * 0.5, randf_range(-1.5, 1.5))
 		piece.rotation = Vector3(randf_range(-0.25, 0.25), randf() * TAU, randf_range(-0.25, 0.25))
 		rubble.add_child(piece)
-	house.queue_free()
+	if record:
+		rubble_records.append({
+			"position": _vector3_to_array(position),
+			"tall": tall_building,
+			"color": building_color.to_html(true)
+		})
 
 
 func _destroy_city_houses(city_id: int, count: int) -> void:
@@ -3636,6 +3653,13 @@ func _run_save_load_smoke_test() -> void:
 			expected_resource_count += 1
 	var expected_height: float = float(terrain_heights[7][11])
 	var expected_food: float = float(cities[0]["food"])
+	cities[0]["destroyed_building_debt"] = int(cities[0].get("destroyed_building_debt", 0)) + 1
+	cities[0]["next_plot_index"] = maxi(int(cities[0].get("next_plot_index", 0)), 9)
+	var expected_destroyed_debt: int = int(cities[0]["destroyed_building_debt"])
+	var expected_next_plot_index: int = int(cities[0]["next_plot_index"])
+	if rubble_records.is_empty():
+		_spawn_persistent_rubble(cities[0]["pos"] + Vector3(4.0, 0.0, 4.0), false, Color(0.42, 0.40, 0.37))
+	var expected_rubble_count: int = rubble_records.size()
 
 	_save_world()
 	if not FileAccess.file_exists(SAVE_PATH):
@@ -3666,6 +3690,18 @@ func _run_save_load_smoke_test() -> void:
 		return
 	if absf(float(cities[0]["food"]) - expected_food) > 0.001:
 		push_error("SAVE_LOAD_TEST_FAILED: City stock was not restored.")
+		get_tree().quit(1)
+		return
+	if int(cities[0].get("destroyed_building_debt", 0)) != expected_destroyed_debt:
+		push_error("SAVE_LOAD_TEST_FAILED: Destroyed building debt was not restored.")
+		get_tree().quit(1)
+		return
+	if int(cities[0].get("next_plot_index", 0)) != expected_next_plot_index:
+		push_error("SAVE_LOAD_TEST_FAILED: City building plot index was not restored.")
+		get_tree().quit(1)
+		return
+	if rubble_records.size() != expected_rubble_count:
+		push_error("SAVE_LOAD_TEST_FAILED: Rubble was not restored.")
 		get_tree().quit(1)
 		return
 
@@ -3699,7 +3735,9 @@ func _save_world() -> void:
 			"stone": float(city["stone"]),
 			"stability": float(city.get("stability", 72.0)),
 			"security": float(city.get("security", 44.0)),
-			"wealth": float(city.get("wealth", 12.0))
+			"wealth": float(city.get("wealth", 12.0)),
+			"destroyed_building_debt": int(city.get("destroyed_building_debt", 0)),
+			"next_plot_index": int(city.get("next_plot_index", 0))
 		})
 
 	var saved_people: Array = []
@@ -3735,6 +3773,7 @@ func _save_world() -> void:
 		"cities": saved_cities,
 		"people": saved_people,
 		"resources": saved_resources,
+		"rubble": rubble_records,
 		"selected_city": selected_city,
 		"controlled_city": controlled_city,
 		"camera_target": _vector3_to_array(camera_target),
@@ -3752,7 +3791,7 @@ func _save_world() -> void:
 		return
 	file.store_string(JSON.stringify(save_data))
 	file.close()
-	_log("WORLD SAVED: Terrain, cities, people, resources, camera, and simulation time saved locally.")
+	_log("WORLD SAVED: Terrain, cities, people, resources, city damage, rubble, camera, and simulation time saved locally.")
 
 
 func _load_world() -> void:
@@ -3790,7 +3829,8 @@ func _load_world() -> void:
 	var saved_cities: Variant = save_data.get("cities", [])
 	var saved_people: Variant = save_data.get("people", [])
 	var saved_resources: Variant = save_data.get("resources", [])
-	if typeof(saved_cities) != TYPE_ARRAY or typeof(saved_people) != TYPE_ARRAY or typeof(saved_resources) != TYPE_ARRAY:
+	var saved_rubble: Variant = save_data.get("rubble", [])
+	if typeof(saved_cities) != TYPE_ARRAY or typeof(saved_people) != TYPE_ARRAY or typeof(saved_resources) != TYPE_ARRAY or typeof(saved_rubble) != TYPE_ARRAY:
 		_log("LOAD FAILED: The save is missing world data.")
 		return
 	if saved_cities.is_empty():
@@ -3835,6 +3875,8 @@ func _load_world() -> void:
 		city["stability"] = float(city_data.get("stability", 72.0))
 		city["security"] = float(city_data.get("security", 44.0))
 		city["wealth"] = float(city_data.get("wealth", 12.0))
+		city["destroyed_building_debt"] = maxi(0, int(city_data.get("destroyed_building_debt", 0)))
+		city["next_plot_index"] = maxi(0, int(city_data.get("next_plot_index", 0)))
 		cities[city_id] = city
 
 	for saved_person in saved_people:
@@ -3883,6 +3925,14 @@ func _load_world() -> void:
 		_refresh_city_territory(city_id)
 		_rebuild_city_roads(city_id)
 
+	for saved_rubble in saved_rubble:
+		if typeof(saved_rubble) != TYPE_DICTIONARY:
+			continue
+		var rubble_data: Dictionary = saved_rubble
+		var rubble_position: Vector3 = _array_to_vector3(rubble_data.get("position", []))
+		var rubble_color: Color = Color.from_string(str(rubble_data.get("color", "777777")), Color(0.42, 0.40, 0.37))
+		_spawn_persistent_rubble(rubble_position, bool(rubble_data.get("tall", false)), rubble_color)
+
 	selected_city = int(save_data.get("selected_city", -1))
 	if selected_city < 0 or selected_city >= cities.size():
 		selected_city = -1
@@ -3918,6 +3968,10 @@ func _queue_nodes_from_entries(entries: Array) -> void:
 
 
 func _clear_loaded_world() -> void:
+	for existing_child in get_children():
+		if existing_child is Node3D and existing_child.name == "BuildingRubble":
+			existing_child.queue_free()
+	rubble_records.clear()
 	for city in cities:
 		for key in ["node", "zone_fill", "zone_border"]:
 			if city.has(key) and city[key] is Node and is_instance_valid(city[key]):
