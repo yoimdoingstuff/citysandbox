@@ -2,12 +2,14 @@ extends Node3D
 
 const TERRAIN_RES: int = 161
 const TERRAIN_SIZE: float = 160.0
+const TERRAIN_LOD_STEPS: Array[int] = [1, 2, 4, 8]
 const MAX_CITIES: int = 10
 const MAX_PEOPLE: int = 500
 const WATER_LEVEL: float = -0.15
 
 var terrain: MeshInstance3D
 var terrain_material: StandardMaterial3D
+var terrain_lod_nodes: Array[MeshInstance3D] = []
 var selection_ring: MeshInstance3D
 var terrain_heights: Array = []
 var city_names: Array[String] = ["Asterfall", "Mossreach", "Copper Bay", "New Avalon", "Westhaven", "Emberplain", "Stonebridge", "Northstar", "Rivermark", "Sunfield"]
@@ -131,7 +133,7 @@ func _build_world() -> void:
 
 	var water := MeshInstance3D.new()
 	var water_mesh := PlaneMesh.new()
-	water_mesh.size = Vector2(TERRAIN_SIZE + 100.0, TERRAIN_SIZE + 100.0)
+	water_mesh.size = Vector2(TERRAIN_SIZE * 3.0, TERRAIN_SIZE * 3.0)
 	water.mesh = water_mesh
 	var water_material := StandardMaterial3D.new()
 	water_material.albedo_color = Color(0.08, 0.35, 0.58)
@@ -251,32 +253,59 @@ func _generate_terrain_heights() -> void:
 
 
 func _rebuild_terrain() -> void:
-	var surface := SurfaceTool.new()
-	surface.begin(Mesh.PRIMITIVE_TRIANGLES)
+	# Build several terrain meshes once per terrain edit. Only one is visible
+	# at a time, so distant views render far fewer triangles.
+	if terrain_lod_nodes.is_empty():
+		terrain_lod_nodes.append(terrain)
+	while terrain_lod_nodes.size() < TERRAIN_LOD_STEPS.size():
+		var lod_index: int = terrain_lod_nodes.size()
+		var lod_node := MeshInstance3D.new()
+		lod_node.name = "TerrainLOD_%d" % int(ceil(float(TERRAIN_RES - 1) / float(TERRAIN_LOD_STEPS[lod_index])) + 1.0)
+		lod_node.material_override = terrain_material
+		add_child(lod_node)
+		terrain_lod_nodes.append(lod_node)
+
 	var spacing: float = TERRAIN_SIZE / float(TERRAIN_RES - 1)
-	for z_index in range(TERRAIN_RES - 1):
-		for x_index in range(TERRAIN_RES - 1):
-			var x0: float = -TERRAIN_SIZE * 0.5 + float(x_index) * spacing
-			var x1: float = x0 + spacing
+	var active_lod: int = _terrain_lod_index_for_distance(camera_distance)
+	for lod_index in range(TERRAIN_LOD_STEPS.size()):
+		var stride: int = TERRAIN_LOD_STEPS[lod_index]
+		var surface := SurfaceTool.new()
+		surface.begin(Mesh.PRIMITIVE_TRIANGLES)
+		for z_index in range(0, TERRAIN_RES - 1, stride):
+			var z_next: int = min(z_index + stride, TERRAIN_RES - 1)
 			var z0: float = -TERRAIN_SIZE * 0.5 + float(z_index) * spacing
-			var z1: float = z0 + spacing
-			var p00 := Vector3(x0, terrain_heights[z_index][x_index], z0)
-			var p10 := Vector3(x1, terrain_heights[z_index][x_index + 1], z0)
-			var p01 := Vector3(x0, terrain_heights[z_index + 1][x_index], z1)
-			var p11 := Vector3(x1, terrain_heights[z_index + 1][x_index + 1], z1)
-			# Godot culls triangles by clockwise front-face winding. Keep both
-			# triangles in each terrain cell facing outward, toward the top.
-			_add_terrain_vertex(surface, p00)
-			_add_terrain_vertex(surface, p10)
-			_add_terrain_vertex(surface, p01)
-			_add_terrain_vertex(surface, p10)
-			_add_terrain_vertex(surface, p11)
-			_add_terrain_vertex(surface, p01)
-	surface.index()
-	# The reversed triangle order also reverses the cross-product normals.
-	# Flip them back so slopes are lit from above instead of looking inside-out.
-	surface.generate_normals(true)
-	terrain.mesh = surface.commit()
+			var z1: float = -TERRAIN_SIZE * 0.5 + float(z_next) * spacing
+			for x_index in range(0, TERRAIN_RES - 1, stride):
+				var x_next: int = min(x_index + stride, TERRAIN_RES - 1)
+				var x0: float = -TERRAIN_SIZE * 0.5 + float(x_index) * spacing
+				var x1: float = -TERRAIN_SIZE * 0.5 + float(x_next) * spacing
+				var p00 := Vector3(x0, terrain_heights[z_index][x_index], z0)
+				var p10 := Vector3(x1, terrain_heights[z_index][x_next], z0)
+				var p01 := Vector3(x0, terrain_heights[z_next][x_index], z1)
+				var p11 := Vector3(x1, terrain_heights[z_next][x_next], z1)
+				# Keep the known working top-facing triangle order for every LOD.
+				_add_terrain_vertex(surface, p00)
+				_add_terrain_vertex(surface, p10)
+				_add_terrain_vertex(surface, p01)
+				_add_terrain_vertex(surface, p10)
+				_add_terrain_vertex(surface, p11)
+				_add_terrain_vertex(surface, p01)
+		surface.index()
+		surface.generate_normals(true)
+		var lod_node: MeshInstance3D = terrain_lod_nodes[lod_index]
+		lod_node.mesh = surface.commit()
+		lod_node.material_override = terrain_material
+		lod_node.visible = lod_index == active_lod
+
+
+func _terrain_lod_index_for_distance(distance: float) -> int:
+	if distance <= 58.0:
+		return 0
+	if distance <= 100.0:
+		return 1
+	if distance <= 165.0:
+		return 2
+	return 3
 
 
 func _add_terrain_vertex(surface: SurfaceTool, p: Vector3) -> void:
@@ -632,6 +661,15 @@ func _create_city(position: Vector3, city_name: String, color: Color) -> int:
 	flag_mesh.size = Vector3(0.9, 0.45, 0.08)
 	var flag := _add_mesh(town, flag_mesh, _material(color), Vector3(0.42, 5.55, 0.0))
 
+	var city_marker_mesh := CylinderMesh.new()
+	city_marker_mesh.top_radius = 0.8
+	city_marker_mesh.bottom_radius = 1.05
+	city_marker_mesh.height = 0.20
+	city_marker_mesh.radial_segments = 8
+	var far_marker := _add_mesh(town, city_marker_mesh, _material(color.lightened(0.15)), Vector3(0.0, 0.16, 0.0))
+	far_marker.name = "DistantCityMarker"
+	far_marker.visible = false
+
 	var city_label := Label3D.new()
 	city_label.text = "%s\nPOP 0" % city_name
 	city_label.position = Vector3(0.0, 6.5, 0.0)
@@ -648,6 +686,7 @@ func _create_city(position: Vector3, city_name: String, color: Color) -> int:
 		"color": color,
 		"node": town,
 		"label": city_label,
+		"far_marker": far_marker,
 		"plinth": plinth,
 		"body": body,
 		"roof": roof,
@@ -2128,14 +2167,27 @@ func _refresh_ui() -> void:
 
 
 func _update_world_detail_levels() -> void:
-	# Hide small scene objects at world scale. Close zoom progressively reveals
-	# city neighbourhoods, resources, and citizens without deleting simulation data.
-	var show_neighbourhoods: bool = camera_distance <= 145.0
-	var show_resources: bool = camera_distance <= 160.0
-	var show_people: bool = camera_distance <= 118.0
-	var show_city_labels: bool = camera_distance >= 32.0
+	# Render a progressively simpler version of the world as the camera pulls
+	# back: terrain LOD, city markers, houses, resources, and citizens.
+	var active_lod: int = _terrain_lod_index_for_distance(camera_distance)
+	for lod_index in range(terrain_lod_nodes.size()):
+		terrain_lod_nodes[lod_index].visible = lod_index == active_lod
+
+	var show_city_models: bool = camera_distance <= 165.0
+	var show_neighbourhoods: bool = camera_distance <= 135.0
+	var show_resources: bool = camera_distance <= 110.0
+	var show_people: bool = camera_distance <= 85.0
+	var show_city_labels: bool = camera_distance >= 48.0
+	var show_far_markers: bool = not show_city_models
 
 	for city in cities:
+		for visual_key in ["plinth", "body", "roof", "flag_pole", "flag"]:
+			var city_visual: MeshInstance3D = city[visual_key]
+			if is_instance_valid(city_visual):
+				city_visual.visible = show_city_models
+		var far_marker: MeshInstance3D = city["far_marker"]
+		if is_instance_valid(far_marker):
+			far_marker.visible = show_far_markers
 		var city_label: Label3D = city["label"]
 		if is_instance_valid(city_label):
 			city_label.visible = show_city_labels
