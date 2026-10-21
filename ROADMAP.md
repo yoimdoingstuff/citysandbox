@@ -25,6 +25,7 @@ A successful GitHub Actions build confirms that Godot can validate and export th
 - [x] Camera orbit, pan, zoom, pause, and simulation-speed controls.
 - [x] GitHub Actions validates the project and exports Windows and Linux builds.
 - [x] Initial local save/load restores terrain edits, world seed, city data, citizen state, active resources, camera view, and simulation time; automated regression coverage is in GitHub Actions.
+- [x] Add a first functional building economy: farm plots produce food, workshops consume a little wood to add wealth, apartments and commercial buildings add prosperity, and commercial buildings improve security.
 
 ## Phase 1: Make the world dependable
 
