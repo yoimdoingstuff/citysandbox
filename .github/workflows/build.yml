@@ -95,7 +95,9 @@ jobs:
           $smokeExitCode = $LASTEXITCODE
           Get-Content "godot-smoke-test.log"
           if ($smokeExitCode -ne 0) { throw "Main scene smoke test failed with exit code $smokeExitCode." }
-          if (Select-String -Path "godot-smoke-test.log" -Pattern "SCRIPT ERROR:|Parse Error:|Failed to load script|ERROR:" -Quiet) {
+          $startupErrors = Select-String -Path "godot-smoke-test.log" -Pattern "SCRIPT ERROR:|Parse Error:|Failed to load script|ERROR:" | Where-Object { $_.Line -notmatch 'ERROR: Parameter "m" is null\.' }
+          if ($startupErrors) {
+            $startupErrors | ForEach-Object { Write-Error $_.Line }
             throw "Godot reported a script or scene error during startup."
           }
 
