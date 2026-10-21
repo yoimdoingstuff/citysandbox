@@ -2209,10 +2209,10 @@ func _build_ui() -> void:
 	left_panel.anchor_top = 0.0
 	left_panel.anchor_bottom = 1.0
 	left_panel.offset_left = 14.0
-	left_panel.offset_right = 294.0
+	left_panel.offset_right = 310.0
 	left_panel.offset_top = 14.0
 	left_panel.offset_bottom = -14.0
-	left_panel.add_theme_stylebox_override("panel", _panel_style(Color(0.035, 0.055, 0.075, 0.96)))
+	left_panel.add_theme_stylebox_override("panel", _panel_style(Color(0.025, 0.040, 0.060, 0.95)))
 	ui_root.add_child(left_panel)
 	var margin := MarginContainer.new()
 	margin.add_theme_constant_override("margin_left", 14)
@@ -2230,8 +2230,8 @@ func _build_ui() -> void:
 	scroll.add_child(content)
 
 	content.add_child(_make_label("CIVITERRA", 26, Color(0.46, 0.86, 0.98)))
-	content.add_child(_make_label("GOD SANDBOX  /  3D PROTOTYPE", 10, Color(0.62, 0.72, 0.80)))
-	content.add_child(_make_label("Shape the land. Raise people. Let the little kingdoms make their own terrible decisions.", 12, Color(0.82, 0.86, 0.89)))
+	content.add_child(_make_label("WORLD SIMULATION  /  GOD MODE", 10, Color(0.62, 0.78, 0.87)))
+	content.add_child(_make_label("Shape continents. Guide civilizations. Rewrite history.", 12, Color(0.84, 0.89, 0.93)))
 	content.add_child(_make_separator())
 	stats_label = _make_label("CITIES  3     PEOPLE  16", 13, Color(0.52, 0.86, 0.70))
 	content.add_child(stats_label)
@@ -2299,11 +2299,11 @@ func _build_ui() -> void:
 	right_panel.anchor_right = 1.0
 	right_panel.anchor_top = 0.0
 	right_panel.anchor_bottom = 0.0
-	right_panel.offset_left = -320.0
+	right_panel.offset_left = -340.0
 	right_panel.offset_right = -14.0
 	right_panel.offset_top = 14.0
-	right_panel.offset_bottom = 276.0
-	right_panel.add_theme_stylebox_override("panel", _panel_style(Color(0.035, 0.055, 0.075, 0.91)))
+	right_panel.offset_bottom = 294.0
+	right_panel.add_theme_stylebox_override("panel", _panel_style(Color(0.025, 0.040, 0.060, 0.93)))
 	ui_root.add_child(right_panel)
 	var right_margin := MarginContainer.new()
 	right_margin.add_theme_constant_override("margin_left", 13)
@@ -2396,9 +2396,11 @@ func _make_label(text: String, font_size: int, color: Color) -> Label:
 func _make_button(text: String, callback: Callable, tint: Color) -> Button:
 	var button := Button.new()
 	button.text = text
-	button.custom_minimum_size = Vector2(0.0, 35.0)
+	button.custom_minimum_size = Vector2(0.0, 38.0)
 	button.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	button.add_theme_font_size_override("font_size", 12)
+	button.add_theme_color_override("font_pressed_color", Color(1.0, 1.0, 1.0))
+	button.add_theme_color_override("font_disabled_color", Color(0.53, 0.59, 0.63))
 	button.add_theme_color_override("font_color", Color(0.91, 0.95, 0.97))
 	button.add_theme_color_override("font_hover_color", Color(1.0, 1.0, 1.0))
 	button.add_theme_stylebox_override("normal", _button_style(tint))
@@ -2412,22 +2414,28 @@ func _make_button(text: String, callback: Callable, tint: Color) -> Button:
 func _button_style(color: Color) -> StyleBoxFlat:
 	var style := StyleBoxFlat.new()
 	style.bg_color = color
-	style.border_color = color.lightened(0.22)
+	style.border_color = Color(color.lightened(0.24).r, color.lightened(0.24).g, color.lightened(0.24).b, 0.82)
 	style.set_border_width_all(1)
-	style.set_corner_radius_all(6)
-	style.content_margin_left = 8.0
-	style.content_margin_right = 8.0
-	style.content_margin_top = 6.0
-	style.content_margin_bottom = 6.0
+	style.set_corner_radius_all(9)
+	style.content_margin_left = 10.0
+	style.content_margin_right = 10.0
+	style.content_margin_top = 7.0
+	style.content_margin_bottom = 7.0
+	style.shadow_color = Color(0.0, 0.0, 0.0, 0.20)
+	style.shadow_size = 2
+	style.shadow_offset = Vector2(0.0, 1.0)
 	return style
 
 
 func _panel_style(color: Color) -> StyleBoxFlat:
 	var style := StyleBoxFlat.new()
 	style.bg_color = color
-	style.border_color = Color(0.20, 0.35, 0.42, 0.88)
+	style.border_color = Color(0.22, 0.48, 0.58, 0.48)
 	style.set_border_width_all(1)
-	style.set_corner_radius_all(10)
+	style.set_corner_radius_all(14)
+	style.shadow_color = Color(0.0, 0.0, 0.0, 0.34)
+	style.shadow_size = 10
+	style.shadow_offset = Vector2(0.0, 4.0)
 	return style
 
 
