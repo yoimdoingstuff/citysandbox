@@ -11,6 +11,8 @@ var terrain: MeshInstance3D
 var terrain_material: StandardMaterial3D
 var terrain_lod_nodes: Array[MeshInstance3D] = []
 var terrain_lod_dirty: Array[bool] = [true, true, true, true]
+var terrain_moisture_noise: FastNoiseLite
+var terrain_temperature_noise: FastNoiseLite
 var selection_ring: MeshInstance3D
 var terrain_heights: Array = []
 var city_names: Array[String] = ["Asterfall", "Mossreach", "Copper Bay", "New Avalon", "Westhaven", "Emberplain", "Stonebridge", "Northstar", "Rivermark", "Sunfield"]
@@ -205,6 +207,17 @@ func _generate_terrain_heights() -> void:
 	coastline_noise.frequency = 0.052
 	coastline_noise.fractal_octaves = 2
 
+	# Separate climate fields add broad wet/dry and warm/cold regions without
+	# requiring image textures or extra materials.
+	terrain_moisture_noise = FastNoiseLite.new()
+	terrain_moisture_noise.seed = world_seed + 51713
+	terrain_moisture_noise.frequency = 0.032
+	terrain_moisture_noise.fractal_octaves = 2
+	terrain_temperature_noise = FastNoiseLite.new()
+	terrain_temperature_noise.seed = world_seed + 73517
+	terrain_temperature_noise.frequency = 0.024
+	terrain_temperature_noise.fractal_octaves = 2
+
 	# Broad elliptical landmasses create separate continents. Noise roughens
 	# their coastlines, while the elevation fields add hills and high ground.
 	var continent_centers: Array[Vector2] = [
@@ -326,18 +339,52 @@ func _terrain_lod_index_for_distance(distance: float) -> int:
 
 
 func _add_terrain_vertex(surface: SurfaceTool, p: Vector3) -> void:
-	surface.set_color(_terrain_color(p.y))
+	surface.set_color(_terrain_color_at(p))
 	surface.add_vertex(p)
 
 
 func _terrain_color(height: float) -> Color:
+	# Fallback palette retained for callers that only have a height value.
+	if height < WATER_LEVEL - 0.25:
+		return Color(0.12, 0.25, 0.31)
 	if height < WATER_LEVEL + 0.5:
-		return Color(0.67, 0.61, 0.42)
+		return Color(0.72, 0.65, 0.44)
 	if height > 4.6:
 		return Color(0.49, 0.51, 0.48)
 	if height > 3.2:
 		return Color(0.35, 0.51, 0.31)
 	return Color(0.24, 0.48, 0.23)
+
+
+func _terrain_color_at(point: Vector3) -> Color:
+	if point.y < WATER_LEVEL - 0.25:
+		return Color(0.12, 0.25, 0.31)
+	if point.y < WATER_LEVEL + 0.5:
+		return Color(0.72, 0.65, 0.44)
+
+	var moisture: float = 0.5
+	var climate: float = 0.0
+	if terrain_moisture_noise != null:
+		moisture = (terrain_moisture_noise.get_noise_2d(point.x, point.z) + 1.0) * 0.5
+	if terrain_temperature_noise != null:
+		climate = terrain_temperature_noise.get_noise_2d(point.x, point.z)
+	var latitude_cooling: float = abs(point.z) / TERRAIN_SIZE * 0.42
+	var temperature: float = clamp(0.78 - latitude_cooling + climate * 0.24, 0.0, 1.0)
+
+	var grass := Color(0.26, 0.53, 0.25)
+	var lush_grass := Color(0.16, 0.43, 0.22)
+	var dry_soil := Color(0.69, 0.58, 0.36)
+	var rock := Color(0.43, 0.45, 0.43)
+	var snow := Color(0.82, 0.86, 0.88)
+
+	var color: Color = grass.lerp(lush_grass, clamp((moisture - 0.55) * 1.7, 0.0, 0.7))
+	var desert_amount: float = clamp((0.38 - moisture) * 3.4, 0.0, 0.88) * clamp((temperature - 0.36) * 2.2, 0.0, 1.0)
+	color = color.lerp(dry_soil, desert_amount)
+	var rock_amount: float = clamp((point.y - 3.3) * 0.28, 0.0, 0.66)
+	color = color.lerp(rock, rock_amount)
+	var snow_amount: float = clamp((point.y - 4.9) * 0.42 + (0.39 - temperature) * 1.2, 0.0, 0.92)
+	color = color.lerp(snow, snow_amount)
+	return color
 
 
 func _height_at(x: float, z: float) -> float:
