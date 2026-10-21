@@ -80,14 +80,24 @@ jobs:
       - name: Import project and check scripts
         shell: pwsh
         run: |
-          & $env:GODOT_EXE --headless --editor --path . --quit
-          if ($LASTEXITCODE -ne 0) { throw "Godot project import or script validation failed." }
+          & $env:GODOT_EXE --headless --editor --path . --quit *> "godot-validation.log"
+          $validationExitCode = $LASTEXITCODE
+          Get-Content "godot-validation.log"
+          if ($validationExitCode -ne 0) { throw "Godot project import failed with exit code $validationExitCode." }
+          if (Select-String -Path "godot-validation.log" -Pattern "SCRIPT ERROR:|Parse Error:|Failed to load script|ERROR:" -Quiet) {
+            throw "Godot reported a script or project error during validation."
+          }
 
       - name: Smoke-test main scene
         shell: pwsh
         run: |
-          & $env:GODOT_EXE --headless --path . --quit-after 3
-          if ($LASTEXITCODE -ne 0) { throw "Main scene smoke test failed." }
+          & $env:GODOT_EXE --headless --path . --quit-after 3 *> "godot-smoke-test.log"
+          $smokeExitCode = $LASTEXITCODE
+          Get-Content "godot-smoke-test.log"
+          if ($smokeExitCode -ne 0) { throw "Main scene smoke test failed with exit code $smokeExitCode." }
+          if (Select-String -Path "godot-smoke-test.log" -Pattern "SCRIPT ERROR:|Parse Error:|Failed to load script|ERROR:" -Quiet) {
+            throw "Godot reported a script or scene error during startup."
+          }
 
       - name: Export Windows and Linux
         shell: pwsh
