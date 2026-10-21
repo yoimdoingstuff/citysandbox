@@ -2414,7 +2414,9 @@ func _make_button(text: String, callback: Callable, tint: Color) -> Button:
 func _button_style(color: Color) -> StyleBoxFlat:
 	var style := StyleBoxFlat.new()
 	style.bg_color = color
-	style.border_color = Color(color.lightened(0.24).r, color.lightened(0.24).g, color.lightened(0.24).b, 0.82)
+	var border_color: Color = color.lightened(0.24)
+	border_color.a = 0.82
+	style.border_color = border_color
 	style.set_border_width_all(1)
 	style.set_corner_radius_all(9)
 	style.content_margin_left = 10.0
