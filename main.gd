@@ -5,8 +5,8 @@ const TERRAIN_SIZE: float = 160.0
 const TERRAIN_LOD_STEPS: Array[int] = [1, 2, 4, 8]
 const MAX_CITIES: int = 10
 const MAX_PEOPLE: int = 800
-const MAX_CITY_POPULATION: int = 120
-const MAX_CITY_HOUSES: int = 40
+const MAX_CITY_POPULATION: int = 600
+const MAX_CITY_HOUSES: int = 140
 const WATER_LEVEL: float = -0.15
 const STARTING_YEAR: int = 1200
 const SECONDS_PER_YEAR: float = 3.0
@@ -53,6 +53,7 @@ var pending_action: String = ""
 var brush_radius: float = 4.0
 var paused: bool = false
 var sim_speed: float = 1.0
+var pause_on_city_event: bool = false
 var game_clock: float = 0.0
 var last_architecture_era: int = -1
 var world_seed: int = 0
@@ -1242,7 +1243,9 @@ func _refresh_city_development(city_id: int) -> void:
 	_refresh_city_territory(city_id)
 	city = cities[city_id]
 	if is_instance_valid(city["label"]):
-		city["label"].text = "%s\n%s | POP %d" % [city["name"], _city_stage_name(next_stage), population]
+		var status: String = "ABANDONED" if population <= 0 else _city_stage_name(next_stage)
+		city["label"].text = "%s\n%s | POP %d" % [city["name"], status, population]
+		city["label"].modulate = Color(0.66, 0.70, 0.72) if population <= 0 else Color.WHITE
 	cities[city_id] = city
 
 
@@ -1332,8 +1335,9 @@ func _sync_city_buildings(city_id: int) -> void:
 		# preserving street alignment instead of bending the whole district.
 		for attempt in range(64):
 			var plot: Vector2i = _spiral_grid_offset(plot_index)
-			offset_x = float(plot.x) * TERRITORY_CELL_SIZE
-			offset_z = float(plot.y) * TERRITORY_CELL_SIZE
+			# Street grid is spaced out; buildings sit inside the blocks.
+			offset_x = float(plot.x) * 7.5 + 2.35 + randf_range(-0.45, 0.45)
+			offset_z = float(plot.y) * 7.5 + 2.35 + randf_range(-0.45, 0.45)
 			var candidate_x: float = city["pos"].x + offset_x
 			var candidate_z: float = city["pos"].z + offset_z
 			var inside_world: bool = abs(candidate_x) < TERRAIN_SIZE * 0.47 and abs(candidate_z) < TERRAIN_SIZE * 0.47
@@ -1344,7 +1348,7 @@ func _sync_city_buildings(city_id: int) -> void:
 					if not is_instance_valid(existing_house):
 						continue
 					var existing_offset := Vector2(existing_house.position.x, existing_house.position.z)
-					if existing_offset.distance_to(Vector2(offset_x, offset_z)) < 2.25:
+					if existing_offset.distance_to(Vector2(offset_x, offset_z)) < 3.0:
 						overlaps_existing = true
 						break
 			if on_land and not overlaps_existing:
@@ -1497,35 +1501,44 @@ func _rebuild_city_roads(city_id: int) -> void:
 	var road_node: MeshInstance3D = city["roads"]
 	if not is_instance_valid(road_node):
 		return
-	var road_surface := SurfaceTool.new()
-	road_surface.begin(Mesh.PRIMITIVE_TRIANGLES)
+	var surface := SurfaceTool.new()
+	surface.begin(Mesh.PRIMITIVE_TRIANGLES)
 	var city_position: Vector3 = city["pos"]
 	var houses: Array = city["houses"]
-	# A few short avenues connect the central civic building to the nearest
-	# blocks. Most roads then run along the grid between neighbouring parcels.
-	for i in range(mini(4, houses.size())):
+	if houses.is_empty():
+		road_node.mesh = null
+		return
+	var min_x: float = 0.0
+	var max_x: float = 0.0
+	var min_z: float = 0.0
+	var max_z: float = 0.0
+	for house in houses:
+		if not is_instance_valid(house):
+			continue
+		min_x = minf(min_x, house.position.x - 3.0)
+		max_x = maxf(max_x, house.position.x + 3.0)
+		min_z = minf(min_z, house.position.z - 3.0)
+		max_z = maxf(max_z, house.position.z + 3.0)
+	var x: float = floor(min_x / 7.5) * 7.5
+	var last_x: float = ceil(max_x / 7.5) * 7.5
+	var z: float = floor(min_z / 7.5) * 7.5
+	var last_z: float = ceil(max_z / 7.5) * 7.5
+	while x <= last_x:
+		_add_road_segment(surface, city_position, Vector2(x, min_z), Vector2(x, max_z), 0.62)
+		x += 7.5
+	while z <= last_z:
+		_add_road_segment(surface, city_position, Vector2(min_x, z), Vector2(max_x, z), 0.62)
+		z += 7.5
+	# Sparse diagonal connectors keep the plan from looking mechanically perfect.
+	for i in range(0, houses.size(), 9):
 		var house: Node3D = houses[i]
 		if is_instance_valid(house):
-			_add_road_segment(road_surface, city_position, Vector2.ZERO, Vector2(house.position.x, house.position.z), 0.62)
-	for i in range(houses.size()):
-		var first: Node3D = houses[i]
-		if not is_instance_valid(first):
-			continue
-		var a := Vector2(first.position.x, first.position.z)
-		for j in range(i + 1, houses.size()):
-			var second: Node3D = houses[j]
-			if not is_instance_valid(second):
-				continue
-			var b := Vector2(second.position.x, second.position.z)
-			var dx: float = absf(a.x - b.x)
-			var dz: float = absf(a.y - b.y)
-			var distance: float = a.distance_to(b)
-			var cardinal_neighbours: bool = distance >= 3.6 and distance <= 4.5 and (dx < 0.8 or dz < 0.8)
-			var diagonal_neighbours: bool = distance >= 5.0 and distance <= 6.0 and dx > 2.5 and dz > 2.5 and ((i + j) % 4 == 0)
-			if cardinal_neighbours or diagonal_neighbours:
-				_add_road_segment(road_surface, city_position, a, b, 0.48 if cardinal_neighbours else 0.34)
-	road_surface.generate_normals(true)
-	road_node.mesh = road_surface.commit()
+			var p := Vector2(house.position.x, house.position.z)
+			var q := p + Vector2(3.75, 3.75)
+			if q.x <= max_x and q.y <= max_z:
+				_add_road_segment(surface, city_position, p, q, 0.30)
+	surface.generate_normals(true)
+	road_node.mesh = surface.commit()
 
 
 func _seed_resources_around(center: Vector3) -> void:
@@ -2109,8 +2122,21 @@ func _try_city_event(city_id: int) -> bool:
 	return false
 
 
+func _toggle_pause_on_city_event() -> void:
+	pause_on_city_event = not pause_on_city_event
+	for node in ui_root.find_children("*", "Button", true, false):
+		var button: Button = node as Button
+		if button.text.begins_with("Pause on City Event:"):
+			button.text = "Pause on City Event: ON" if pause_on_city_event else "Pause on City Event: OFF"
+	_log("Pause on city events %s." % ("enabled" if pause_on_city_event else "disabled"))
+
+
 func _record_city_event(city_id: int, event_name: String, event_color: Color) -> void:
 	city_events_total += 1
+	if pause_on_city_event:
+		paused = true
+		if is_instance_valid(pause_button):
+			pause_button.text = "Resume Simulation"
 	if city_id < 0 or city_id >= cities.size():
 		return
 	var city: Dictionary = cities[city_id]
@@ -2637,14 +2663,56 @@ func _damage_city(city_id: int, amount: int, cause: String) -> void:
 func _destroy_city_houses(city_id: int, count: int) -> void:
 	if city_id < 0 or city_id >= cities.size():
 		return
-	var houses: Array = cities[city_id]["houses"]
-	for i in range(min(count, houses.size())):
+	var city: Dictionary = cities[city_id]
+	var houses: Array = city["houses"]
+	for i in range(mini(count, houses.size())):
+		if houses.is_empty():
+			break
 		var house_index: int = randi_range(0, houses.size() - 1)
-		var house = houses[house_index]
-		if is_instance_valid(house):
-			house.queue_free()
+		var house: Node3D = houses[house_index]
+		if not is_instance_valid(house):
+			houses.remove_at(house_index)
+			continue
+		var local_position: Vector3 = house.position
+		var was_tall: bool = house.has_node("EraUpgrade") or float(house.scale.y) > 1.35
+		var rubble := Node3D.new()
+		rubble.name = "BuildingRubble"
+		rubble.position = house.global_position
+		add_child(rubble)
+		# Debris remains in the world after the building is destroyed.
+		for debris_index in range(4):
+			var piece := MeshInstance3D.new()
+			var piece_mesh := BoxMesh.new()
+			piece_mesh.size = Vector3(randf_range(0.35, 0.9), randf_range(0.18, 0.55), randf_range(0.35, 0.9))
+			piece.mesh = piece_mesh
+			piece.material_override = _material(Color(0.34, 0.32, 0.29).lerp(city["color"], 0.18))
+			piece.position = Vector3(randf_range(-1.0, 1.0), piece_mesh.size.y * 0.5, randf_range(-1.0, 1.0))
+			piece.rotation.y = randf() * TAU
+			rubble.add_child(piece)
+		house.queue_free()
 		houses.remove_at(house_index)
-	cities[city_id]["houses"] = houses
+		if was_tall:
+			# Nearby structures may also collapse when a tower comes down.
+			for other_index in range(houses.size() - 1, -1, -1):
+				var other: Node3D = houses[other_index]
+				if is_instance_valid(other) and Vector2(other.position.x - local_position.x, other.position.z - local_position.z).length() < 4.8 and randf() < 0.55:
+					var secondary := Node3D.new()
+					secondary.name = "SecondaryCollapseRubble"
+					secondary.position = other.global_position
+					add_child(secondary)
+					var chunk := MeshInstance3D.new()
+					var chunk_mesh := BoxMesh.new()
+					chunk_mesh.size = Vector3(1.0, 0.35, 0.85)
+					chunk.mesh = chunk_mesh
+					chunk.material_override = _material(Color(0.35, 0.34, 0.32))
+					chunk.position.y = 0.18
+					secondary.add_child(chunk)
+					other.queue_free()
+					houses.remove_at(other_index)
+					break
+	city["houses"] = houses
+	cities[city_id] = city
+	_rebuild_city_roads(city_id)
 
 
 func _capture_city(city_id: int, source_id: int) -> void:
@@ -2821,7 +2889,7 @@ func _update_fire_zones(delta: float) -> void:
 				flame.scale.y = pulse
 		if float(fire["tick"]) >= 0.9:
 			fire["tick"] = 0.0
-			_power_damage(fire["pos"], float(fire["radius"]), 2, 0.22, 0)
+			_power_damage(fire["pos"], float(fire["radius"]), 2, 0.22, 1)
 			if fire_zones.size() < 12:
 				for resource in resources:
 					if str(resource["type"]) != "tree" or int(resource["amount"]) <= 0:
@@ -3215,6 +3283,7 @@ func _build_ui() -> void:
 	content.add_child(pause_button)
 	speed_button = _make_button("Simulation Speed: 1×", _cycle_speed, Color(0.13, 0.22, 0.29))
 	content.add_child(speed_button)
+	content.add_child(_make_button("Pause on City Event: OFF", _toggle_pause_on_city_event, Color(0.20, 0.28, 0.34)))
 	content.add_child(_make_button("Save World", _save_world, Color(0.10, 0.29, 0.34)))
 	content.add_child(_make_button("Load World", _load_world, Color(0.12, 0.24, 0.32)))
 	content.add_child(_make_label("CONTROLS", 12, Color(0.46, 0.86, 0.98)))
