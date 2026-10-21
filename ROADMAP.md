@@ -70,7 +70,7 @@ A successful GitHub Actions build confirms that Godot can validate and export th
 - [ ] At close range, show more individual buildings, citizens, vehicles, and activity.
 - [ ] Use smooth transitions between detail levels to avoid obvious popping.
 - [ ] Add readable labels and markers at the appropriate zoom level.
-- [ ] Adjust rendering and simulation detail based on distance while preserving important world events.
+- [x] Add an initial zoom-based LOD pass: four terrain mesh resolutions, culled citizen/resource/neighbourhood visuals, and simple distant city markers. The implementation is intentionally basic and will need refinement as the world grows.
 - [ ] Make selecting cities, vehicles, buildings, and people practical at different zoom levels.
 
 **Done when:** zooming in makes the world meaningfully richer, while zooming out keeps large-scale information readable and performance reasonable.
