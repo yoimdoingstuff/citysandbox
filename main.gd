@@ -903,8 +903,18 @@ func _city_territory_base_radius(city_id: int) -> float:
 		return 0.0
 	var city: Dictionary = cities[city_id]
 	var houses: Array = city["houses"]
+	var house_count: int = houses.size()
 	var stage: int = int(city.get("stage", 0))
-	return 9.0 + float(houses.size()) * 0.68 + float(stage) * 1.5
+	if house_count == 0:
+		return 8.0 + float(stage) * 0.8
+
+	# Match the zone to the outermost housing ring. Each extra house on that
+	# ring pushes the boundary a little farther, and each new ring expands it
+	# more substantially. The stage bonus gives mature cities a wider hinterland.
+	var outer_ring_index: int = int((house_count - 1) / 6)
+	var outer_ring: float = 4.5 + float(outer_ring_index) * 3.4
+	var houses_in_outer_ring: int = ((house_count - 1) % 6) + 1
+	return outer_ring + 3.5 + float(houses_in_outer_ring) * 0.45 + float(stage) * 0.8
 
 
 func _city_territory_radius_at_angle(city_id: int, angle: float, base_radius: float) -> float:
