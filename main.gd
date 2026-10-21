@@ -8,6 +8,8 @@ const MAX_PEOPLE: int = 800
 const MAX_CITY_POPULATION: int = 120
 const MAX_CITY_HOUSES: int = 40
 const WATER_LEVEL: float = -0.15
+const SAVE_PATH: String = "user://civiterra_world.json"
+const SAVE_VERSION: int = 1
 
 var terrain: MeshInstance3D
 var terrain_material: StandardMaterial3D
@@ -2577,6 +2579,8 @@ func _build_ui() -> void:
 	content.add_child(pause_button)
 	speed_button = _make_button("Simulation Speed: 1×", _cycle_speed, Color(0.13, 0.22, 0.29))
 	content.add_child(speed_button)
+	content.add_child(_make_button("Save World", _save_world, Color(0.10, 0.29, 0.34)))
+	content.add_child(_make_button("Load World", _load_world, Color(0.12, 0.24, 0.32)))
 	content.add_child(_make_label("CONTROLS", 12, Color(0.46, 0.86, 0.98)))
 	content.add_child(_make_label("WASD / arrows: move camera\nRight-drag: orbit\nMiddle-drag: pan\nMouse wheel: zoom\nDrag to paint terrain/resources.\nChoose a power, then click the world.", 11, Color(0.68, 0.75, 0.80)))
 
@@ -2840,6 +2844,270 @@ func _update_world_detail_levels() -> void:
 		var resource_node: Node3D = resource["node"]
 		if is_instance_valid(resource_node):
 			resource_node.visible = show_resources and bool(resource.get("alive", true)) and int(resource.get("amount", 1)) > 0
+
+
+func _vector3_to_array(value: Vector3) -> Array:
+	return [value.x, value.y, value.z]
+
+
+func _array_to_vector3(value: Variant, fallback: Vector3 = Vector3.ZERO) -> Vector3:
+	if typeof(value) != TYPE_ARRAY:
+		return fallback
+	var parts: Array = value
+	if parts.size() < 3:
+		return fallback
+	return Vector3(float(parts[0]), float(parts[1]), float(parts[2]))
+
+
+func _save_world() -> void:
+	var saved_cities: Array = []
+	for city in cities:
+		saved_cities.append({
+			"name": str(city["name"]),
+			"pos": _vector3_to_array(city["pos"]),
+			"color": (city["color"] as Color).to_html(true),
+			"owner": int(city["owner"]),
+			"food": float(city["food"]),
+			"wood": float(city["wood"]),
+			"stone": float(city["stone"]),
+			"stability": float(city.get("stability", 72.0)),
+			"security": float(city.get("security", 44.0)),
+			"wealth": float(city.get("wealth", 12.0))
+		})
+
+	var saved_people: Array = []
+	for person in people:
+		var p: Vector3 = person["pos"]
+		var target: Vector3 = person["target"]
+		saved_people.append({
+			"pos": _vector3_to_array(p),
+			"target": _vector3_to_array(target),
+			"city_id": int(person["city_id"]),
+			"alive": bool(person.get("alive", true)),
+			"infected": bool(person.get("infected", false)),
+			"infection_time": float(person.get("infection_time", 0.0)),
+			"spread_timer": float(person.get("spread_timer", 1.0)),
+			"walk_timer": float(person.get("walk_timer", 1.0))
+		})
+
+	var saved_resources: Array = []
+	for resource in resources:
+		if not bool(resource.get("alive", true)) or int(resource.get("amount", 0)) <= 0:
+			continue
+		saved_resources.append({
+			"pos": _vector3_to_array(resource["pos"]),
+			"type": str(resource["type"]),
+			"amount": int(resource["amount"])
+		})
+
+	var save_data: Dictionary = {
+		"version": SAVE_VERSION,
+		"world_seed": world_seed,
+		"game_clock": game_clock,
+		"terrain_heights": terrain_heights,
+		"cities": saved_cities,
+		"people": saved_people,
+		"resources": saved_resources,
+		"selected_city": selected_city,
+		"controlled_city": controlled_city,
+		"camera_target": _vector3_to_array(camera_target),
+		"camera_distance": camera_distance,
+		"camera_yaw": camera_yaw,
+		"camera_pitch": camera_pitch,
+		"sim_speed": sim_speed,
+		"city_events_total": city_events_total
+	}
+
+	var file := FileAccess.open(SAVE_PATH, FileAccess.WRITE)
+	if file == null:
+		_log("SAVE FAILED: Could not open the world save file.")
+		return
+	file.store_string(JSON.stringify(save_data))
+	file.close()
+	_log("WORLD SAVED: Terrain, cities, people, resources, camera, and simulation time saved locally.")
+
+
+func _load_world() -> void:
+	if not FileAccess.file_exists(SAVE_PATH):
+		_log("LOAD FAILED: No saved world exists yet. Use Save World first.")
+		return
+	var file := FileAccess.open(SAVE_PATH, FileAccess.READ)
+	if file == null:
+		_log("LOAD FAILED: Could not read the world save file.")
+		return
+	var parsed: Variant = JSON.parse_string(file.get_as_text())
+	file.close()
+	if typeof(parsed) != TYPE_DICTIONARY:
+		_log("LOAD FAILED: The save file is invalid or corrupted.")
+		return
+	var save_data: Dictionary = parsed
+	if int(save_data.get("version", 0)) != SAVE_VERSION:
+		_log("LOAD FAILED: This save uses an unsupported version.")
+		return
+
+	var raw_heights: Variant = save_data.get("terrain_heights", [])
+	if typeof(raw_heights) != TYPE_ARRAY or raw_heights.size() != TERRAIN_RES:
+		_log("LOAD FAILED: The save has an incompatible terrain grid.")
+		return
+	var restored_heights: Array = []
+	for raw_row in raw_heights:
+		if typeof(raw_row) != TYPE_ARRAY or raw_row.size() != TERRAIN_RES:
+			_log("LOAD FAILED: The saved terrain grid is incomplete.")
+			return
+		var row: Array = []
+		for height_value in raw_row:
+			row.append(float(height_value))
+		restored_heights.append(row)
+
+	var saved_cities: Variant = save_data.get("cities", [])
+	var saved_people: Variant = save_data.get("people", [])
+	var saved_resources: Variant = save_data.get("resources", [])
+	if typeof(saved_cities) != TYPE_ARRAY or typeof(saved_people) != TYPE_ARRAY or typeof(saved_resources) != TYPE_ARRAY:
+		_log("LOAD FAILED: The save is missing world data.")
+		return
+	if saved_cities.is_empty():
+		_log("LOAD FAILED: The save does not contain any cities.")
+		return
+
+	_clear_loaded_world()
+	world_seed = int(save_data.get("world_seed", 14029))
+	seed(world_seed)
+	_generate_terrain_heights() # Refresh climate noise from the saved seed.
+	terrain_heights = restored_heights
+	_rebuild_terrain()
+	game_clock = float(save_data.get("game_clock", 0.0))
+	city_events_total = int(save_data.get("city_events_total", 0))
+	wars.clear()
+	armies.clear()
+	missiles.clear()
+	explosions.clear()
+	god_effects.clear()
+	fire_zones.clear()
+	falling_meteors.clear()
+	tornadoes.clear()
+	log_entries.clear()
+	pending_action = ""
+	camera_auto_zoom_active = false
+
+	for saved_city in saved_cities:
+		if typeof(saved_city) != TYPE_DICTIONARY:
+			continue
+		var city_data: Dictionary = saved_city
+		var position: Vector3 = _array_to_vector3(city_data.get("pos", []))
+		position.y = _height_at(position.x, position.z)
+		var city_color: Color = Color.from_string(str(city_data.get("color", "d8e4e8")), Color(0.20, 0.65, 0.85))
+		var city_name: String = str(city_data.get("name", "New Settlement"))
+		var city_id: int = _create_city(position, city_name, city_color)
+		var city: Dictionary = cities[city_id]
+		city["owner"] = clampi(int(city_data.get("owner", city_id)), 0, saved_cities.size() - 1)
+		city["food"] = float(city_data.get("food", 8.0))
+		city["wood"] = float(city_data.get("wood", 5.0))
+		city["stone"] = float(city_data.get("stone", 3.0))
+		city["stability"] = float(city_data.get("stability", 72.0))
+		city["security"] = float(city_data.get("security", 44.0))
+		city["wealth"] = float(city_data.get("wealth", 12.0))
+		cities[city_id] = city
+
+	for saved_person in saved_people:
+		if typeof(saved_person) != TYPE_DICTIONARY or people.size() >= MAX_PEOPLE:
+			continue
+		var person_data: Dictionary = saved_person
+		var person_position: Vector3 = _array_to_vector3(person_data.get("pos", []))
+		person_position.y = _height_at(person_position.x, person_position.z)
+		var city_id: int = int(person_data.get("city_id", -1))
+		if city_id < 0 or city_id >= cities.size():
+			city_id = -1
+		_spawn_human(person_position, city_id)
+		var person_index: int = people.size() - 1
+		var person: Dictionary = people[person_index]
+		person["target"] = _array_to_vector3(person_data.get("target", _vector3_to_array(person_position)))
+		person["city_id"] = city_id
+		person["alive"] = bool(person_data.get("alive", true))
+		person["infected"] = bool(person_data.get("infected", false))
+		person["infection_time"] = float(person_data.get("infection_time", 0.0))
+		person["spread_timer"] = float(person_data.get("spread_timer", 1.0))
+		person["walk_timer"] = float(person_data.get("walk_timer", 1.0))
+		var infection_marker: MeshInstance3D = person["infection_marker"]
+		if is_instance_valid(infection_marker):
+			infection_marker.visible = bool(person["infected"])
+		people[person_index] = person
+
+	for saved_resource in saved_resources:
+		if typeof(saved_resource) != TYPE_DICTIONARY:
+			continue
+		var resource_data: Dictionary = saved_resource
+		var resource_position: Vector3 = _array_to_vector3(resource_data.get("pos", []))
+		resource_position.y = _height_at(resource_position.x, resource_position.z)
+		var kind: String = str(resource_data.get("type", "tree"))
+		if kind not in ["tree", "stone", "food"]:
+			continue
+		_spawn_resource(resource_position, kind, maxi(1, int(resource_data.get("amount", 1))))
+
+	# Rebuild homes and territory after all people and cities exist, so borders
+	# are calculated against the final city population and neighbouring zones.
+	for city_id in range(cities.size()):
+		cities[city_id]["stage"] = _city_stage_for_population(_city_population(city_id))
+		_apply_city_stage_appearance(city_id)
+	for city_id in range(cities.size()):
+		_refresh_city_development(city_id)
+	for city_id in range(cities.size()):
+		_refresh_city_territory(city_id)
+		_rebuild_city_roads(city_id)
+
+	selected_city = int(save_data.get("selected_city", -1))
+	if selected_city < 0 or selected_city >= cities.size():
+		selected_city = -1
+	controlled_city = int(save_data.get("controlled_city", -1))
+	if controlled_city < 0 or controlled_city >= cities.size():
+		controlled_city = -1
+	camera_target = _array_to_vector3(save_data.get("camera_target", [0.0, 0.0, 0.0]))
+	camera_distance = clampf(float(save_data.get("camera_distance", 94.0)), 24.0, TERRAIN_SIZE * 1.75)
+	camera_yaw = float(save_data.get("camera_yaw", -0.72))
+	camera_pitch = clampf(float(save_data.get("camera_pitch", 0.56)), 0.20, 1.25)
+	sim_speed = clampf(float(save_data.get("sim_speed", 1.0)), 0.5, 3.0)
+	paused = false
+	_update_camera()
+	_update_world_detail_levels()
+	_refresh_ui()
+	_log("WORLD LOADED: Saved terrain, cities, people, resources, and camera restored. Active battles and temporary effects are not saved yet.")
+
+
+func _queue_nodes_from_entries(entries: Array) -> void:
+	for entry in entries:
+		if typeof(entry) != TYPE_DICTIONARY:
+			continue
+		var item: Dictionary = entry
+		if item.has("node") and item["node"] is Node and is_instance_valid(item["node"]):
+			(item["node"] as Node).queue_free()
+
+
+func _clear_loaded_world() -> void:
+	for city in cities:
+		for key in ["node", "zone_fill", "zone_border"]:
+			if city.has(key) and city[key] is Node and is_instance_valid(city[key]):
+				(city[key] as Node).queue_free()
+	_queue_nodes_from_entries(people)
+	_queue_nodes_from_entries(resources)
+	_queue_nodes_from_entries(armies)
+	_queue_nodes_from_entries(missiles)
+	_queue_nodes_from_entries(explosions)
+	_queue_nodes_from_entries(god_effects)
+	_queue_nodes_from_entries(fire_zones)
+	_queue_nodes_from_entries(falling_meteors)
+	_queue_nodes_from_entries(tornadoes)
+	cities.clear()
+	people.clear()
+	resources.clear()
+	armies.clear()
+	missiles.clear()
+	explosions.clear()
+	god_effects.clear()
+	fire_zones.clear()
+	falling_meteors.clear()
+	tornadoes.clear()
+	wars.clear()
+	selected_city = -1
+	controlled_city = -1
 
 
 func _format_time(seconds: float) -> String:
