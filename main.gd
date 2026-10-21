@@ -1095,7 +1095,7 @@ func _sync_city_buildings(city_id: int) -> void:
 	while houses.size() < desired_houses and houses.size() < MAX_CITY_HOUSES:
 		var house_index: int = houses.size()
 		var angle: float = float(house_index) * 2.39996
-		var ring: float = 4.5 + float(house_index / 6) * 4.0
+		var ring: float = 4.5 + float(house_index / 6) * 3.4
 		var offset_x: float = cos(angle) * ring
 		var offset_z: float = sin(angle) * ring
 		var terrain_delta: float = _height_at(city["pos"].x + offset_x, city["pos"].z + offset_z) - city["pos"].y
