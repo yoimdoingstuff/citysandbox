@@ -30,7 +30,10 @@ Open the repository's **Actions** tab and download the latest `Civiterra-desktop
 - Brush-radius preview follows the real terrain surface; terrain/resource tools can be painted by dragging.
 - Humans wander, join nearby settlements, and can spontaneously found towns when enough gather.
 - Cities progress through visible village, town, city, metropolis, and megacity stages as population grows; larger stages add more homes and expand the central landmark.
+- City neighbourhoods now mix homes, apartments, workshops, and civic/commercial buildings with doors, windows, and other small details.
+- New buildings search for open land and avoid obvious overlaps, so coastal towns expand along the available terrain instead of placing houses in the sea.
 - Initial condition-driven city events include protests, strikes, rebellions, bank robberies, rare extremist incidents, and positive festivals, influenced by stability, security, food, and wealth.
+- City incidents display temporary floating alerts above the affected settlement as well as entries in the world chronicle.
 - City roads are generated from the town centre to each home, follow terrain height, and rebuild when terrain is sculpted or new houses appear.
 - Each city has a coloured territory zone that expands as it builds more houses, with shared boundaries calculated when city influence zones meet.
 - Selecting a city smoothly focuses the camera and automatically zooms out when its territory expands; manual camera input overrides auto-zoom.
