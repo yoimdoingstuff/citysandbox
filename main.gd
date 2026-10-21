@@ -1338,7 +1338,7 @@ func _ignite_fire(position: Vector3) -> void:
 	add_child(fire_root)
 	for flame_index in range(7):
 		var flame := MeshInstance3D.new()
-		var cone := ConeMesh.new()
+		var cone := CylinderMesh.new()
 		cone.top_radius = 0.0
 		cone.bottom_radius = randf_range(0.20, 0.34)
 		cone.height = randf_range(0.9, 1.7)
