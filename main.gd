@@ -4,7 +4,9 @@ const TERRAIN_RES: int = 161
 const TERRAIN_SIZE: float = 160.0
 const TERRAIN_LOD_STEPS: Array[int] = [1, 2, 4, 8]
 const MAX_CITIES: int = 10
-const MAX_PEOPLE: int = 500
+const MAX_PEOPLE: int = 800
+const MAX_CITY_POPULATION: int = 120
+const MAX_CITY_HOUSES: int = 40
 const WATER_LEVEL: float = -0.15
 
 var terrain: MeshInstance3D
@@ -991,6 +993,8 @@ func _refresh_city_territory(city_id: int) -> void:
 
 
 func _city_stage_for_population(population: int) -> int:
+	if population >= 75:
+		return 4
 	if population >= 40:
 		return 3
 	if population >= 24:
@@ -1008,6 +1012,8 @@ func _city_stage_name(stage: int) -> String:
 			return "CITY"
 		3:
 			return "METROPOLIS"
+		4:
+			return "MEGACITY"
 		_:
 			return "VILLAGE"
 
@@ -1084,9 +1090,9 @@ func _sync_city_buildings(city_id: int) -> void:
 	var city: Dictionary = cities[city_id]
 	var population: int = _city_population(city_id)
 	var stage: int = int(city.get("stage", 0))
-	var desired_houses: int = min(28, max(1, 1 + int(population / 3) + stage * 2))
+	var desired_houses: int = min(MAX_CITY_HOUSES, max(1, 1 + int(population / 3) + stage * 2))
 	var houses: Array = city["houses"]
-	while houses.size() < desired_houses and houses.size() < 28:
+	while houses.size() < desired_houses and houses.size() < MAX_CITY_HOUSES:
 		var house_index: int = houses.size()
 		var angle: float = float(house_index) * 2.39996
 		var ring: float = 4.5 + float(house_index / 6) * 4.0
@@ -1390,7 +1396,7 @@ func _grow_cities() -> void:
 	for city_id in range(cities.size()):
 		var city: Dictionary = cities[city_id]
 		var population: int = _city_population(city_id)
-		if population > 0 and population < 55 and float(city["food"]) >= 1.0 and float(city.get("stability", 72.0)) >= 28.0 and people.size() < MAX_PEOPLE:
+		if population > 0 and population < MAX_CITY_POPULATION and float(city["food"]) >= 1.0 and float(city.get("stability", 72.0)) >= 28.0 and people.size() < MAX_PEOPLE:
 			city["food"] = max(0.0, float(city["food"]) - 1.0)
 			if float(city["wood"]) > 0.2:
 				city["wood"] = max(0.0, float(city["wood"]) - 0.2)
