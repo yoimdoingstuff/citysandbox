@@ -77,10 +77,12 @@ jobs:
         shell: pwsh
         run: |
           New-Item -ItemType Directory -Force -Path "dist" | Out-Null
-          godot --headless --path . --export-release "Windows Desktop" "dist/Civiterra.exe"
-          if ($LASTEXITCODE -ne 0) { throw "Windows export failed." }
-          godot --headless --path . --export-release "Linux/X11" "dist/Civiterra.x86_64"
-          if ($LASTEXITCODE -ne 0) { throw "Linux export failed." }
+          godot --headless --verbose --path . --export-release "Windows Desktop" "dist/Civiterra.exe" 2>&1 | Tee-Object -FilePath "dist/export-windows.log"
+          $windowsExitCode = $LASTEXITCODE
+          if ($windowsExitCode -ne 0) { Get-Content "dist/export-windows.log"; throw "Windows export failed with exit code $windowsExitCode." }
+          godot --headless --verbose --path . --export-release "Linux/X11" "dist/Civiterra.x86_64" 2>&1 | Tee-Object -FilePath "dist/export-linux.log"
+          $linuxExitCode = $LASTEXITCODE
+          if ($linuxExitCode -ne 0) { Get-Content "dist/export-linux.log"; throw "Linux export failed with exit code $linuxExitCode." }
 
       - name: Upload desktop builds
         uses: actions/upload-artifact@v4
