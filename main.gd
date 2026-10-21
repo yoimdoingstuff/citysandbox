@@ -965,13 +965,11 @@ func _territory_material(color: Color, alpha: float) -> StandardMaterial3D:
 
 
 func _refresh_city_territory(city_id: int) -> void:
-	# Recalculate claims globally so a contested grid tile belongs to exactly
-	# one city. This creates irregular, coast-following polygons from parcels,
-	# rather than expanding a single circular radius around each town centre.
+	# Recalculate all claims so every land tile has one owner and contested
+	# boundaries remain shared instead of overlapping circular influence areas.
 	if cities.is_empty():
 		return
 	var claims: Dictionary = {}
-	var city_candidates: Array = []
 	var directions: Array[Vector2i] = [
 		Vector2i(1, 0), Vector2i(-1, 0), Vector2i(0, 1), Vector2i(0, -1),
 		Vector2i(1, 1), Vector2i(-1, 1), Vector2i(1, -1), Vector2i(-1, -1)
@@ -988,15 +986,14 @@ func _refresh_city_territory(city_id: int) -> void:
 		for house in city["houses"]:
 			if not is_instance_valid(house):
 				continue
-			var world_x: float = centre.x + house.position.x
-			var world_z: float = centre.z + house.position.z
-			var seed_cell := Vector2i(roundi(world_x / TERRITORY_CELL_SIZE), roundi(world_z / TERRITORY_CELL_SIZE))
+			var seed_cell := Vector2i(
+				roundi((centre.x + house.position.x) / TERRITORY_CELL_SIZE),
+				roundi((centre.z + house.position.z) / TERRITORY_CELL_SIZE)
+			)
 			if _territory_cell_is_land(seed_cell) and not cells.has(seed_cell):
 				cells[seed_cell] = 0
 				frontier.append(seed_cell)
 
-		# Each new building adds the capacity to claim an extra landward shell.
-		# Irregular diagonal gaps, shorelines and land elevation create varied shapes.
 		var margin_cells: int = clampi(1 + int(city["houses"].size() / 12), 1, 4)
 		for shell in range(1, margin_cells + 1):
 			var next_frontier: Array[Vector2i] = []
@@ -1008,15 +1005,15 @@ func _refresh_city_territory(city_id: int) -> void:
 					if direction.x != 0 and direction.y != 0 and ((next_cell.x * 7 + next_cell.y * 11 + owner_id + shell) % 5 == 0):
 						continue
 					cells[next_cell] = shell
-				next_frontier.append(next_cell)
+					next_frontier.append(next_cell)
 			frontier = next_frontier
-		city_candidates.append(cells)
-		for cell in cells.keys():
-			if not claims.has(cell):
-				claims[cell] = []
-			var claimers: Array = claims[cell]
+
+		for cell_key in cells.keys():
+			if not claims.has(cell_key):
+				claims[cell_key] = []
+			var claimers: Array = claims[cell_key]
 			claimers.append(owner_id)
-			claims[cell] = claimers
+			claims[cell_key] = claimers
 
 	var owners: Dictionary = {}
 	for cell_key in claims.keys():
@@ -1026,35 +1023,40 @@ func _refresh_city_territory(city_id: int) -> void:
 		var best_score: float = INF
 		for candidate_id in claims[cell]:
 			var candidate: Dictionary = cities[candidate_id]
-			var distance: float = tile_world.distance_to(Vector2(candidate["pos"].x, candidate["pos"].z))
+			var centre_distance: float = tile_world.distance_to(Vector2(candidate["pos"].x, candidate["pos"].z))
 			var house_distance: float = INF
 			for house in candidate["houses"]:
 				if not is_instance_valid(house):
 					continue
-				var house_world_x: float = candidate["pos"].x + house.position.x
-				var house_world_z: float = candidate["pos"].z + house.position.z
-				house_distance = minf(house_distance, tile_world.distance_to(Vector2(house_world_x, house_world_z)))
-			var score: float = minf(distance, house_distance) - float(candidate["houses"].size()) * 0.035
+				var house_x: float = candidate["pos"].x + house.position.x
+				var house_z: float = candidate["pos"].z + house.position.z
+				house_distance = minf(house_distance, tile_world.distance_to(Vector2(house_x, house_z)))
+			var score: float = minf(centre_distance, house_distance) - float(candidate["houses"].size()) * 0.035
 			if score < best_score:
 				best_score = score
 				best_city = candidate_id
 		if best_city >= 0:
 			owners[cell] = best_city
 
+	# Build each city's final mask only after all contested cells have an owner.
+	for owner_id in range(cities.size()):
+		var city: Dictionary = cities[owner_id]
 		var owner_cells: Dictionary = {}
-		for cell_key in owners.keys():
-			if int(owners[cell_key]) == owner_id:
-				owner_cells[cell_key] = true
-		city["territory_cells"] = owner_cells
-		city["zone_area"] = float(owner_cells.size()) * TERRITORY_CELL_SIZE * TERRITORY_CELL_SIZE
 		var max_distance: float = 0.0
-		for owned_cell in owner_cells.keys():
-			var cell: Vector2i = owned_cell
+		for cell_key in owners.keys():
+			if int(owners[cell_key]) != owner_id:
+				continue
+			var cell: Vector2i = cell_key
+			owner_cells[cell] = true
 			var world_pos := Vector2(float(cell.x) * TERRITORY_CELL_SIZE, float(cell.y) * TERRITORY_CELL_SIZE)
 			max_distance = maxf(max_distance, world_pos.distance_to(Vector2(city["pos"].x, city["pos"].z)))
+		city["territory_cells"] = owner_cells
+		city["zone_area"] = float(owner_cells.size()) * TERRITORY_CELL_SIZE * TERRITORY_CELL_SIZE
 		city["zone_radius"] = max_distance
 		cities[owner_id] = city
+	for owner_id in range(cities.size()):
 		_render_city_territory(owner_id, owners)
+
 
 
 func _render_city_territory(city_id: int, all_owners: Dictionary) -> void:
@@ -1122,6 +1124,78 @@ func _add_territory_edge(surface: SurfaceTool, start_point: Vector3, end_point: 
 	surface.add_vertex(b)
 	surface.add_vertex(d)
 	surface.add_vertex(c)
+
+
+func _apply_building_era_appearance(city_id: int, year: int) -> void:
+	if city_id < 0 or city_id >= cities.size():
+		return
+	var city: Dictionary = cities[city_id]
+	var stage: int = int(city.get("stage", 0))
+	for house_index in range((city["houses"] as Array).size()):
+		var house: Node3D = city["houses"][house_index]
+		if not is_instance_valid(house):
+			continue
+		var old_upgrade := house.get_node_or_null("EraUpgrade")
+		if old_upgrade != null:
+			old_upgrade.free()
+		var building_type: int = int(house.get_meta("building_type", house_index % 5))
+		var qualifies_for_tower: bool = building_type == 1 or building_type == 3 or building_type == 5 or building_type == 6 or house_index % 7 == 0
+		if year < 1880 or stage < 2 or not qualifies_for_tower or building_type == 4:
+			continue
+
+		var floors: int = 3
+		if year >= 2000:
+			floors = clampi(14 + int((year - 2000) / 15), 14, 24)
+		elif year >= 1950:
+			floors = clampi(8 + int((year - 1950) / 10), 8, 15)
+		else:
+			floors = clampi(3 + int((year - 1880) / 20), 3, 6)
+		if stage < 3:
+			floors = mini(floors, 6)
+		var base_height: float = 1.2
+		match building_type:
+			1:
+				base_height = 2.15 + float(stage) * 0.18
+			2:
+				base_height = 1.15 + float(stage) * 0.12
+			3:
+				base_height = 1.75 + float(stage) * 0.16
+			4:
+				base_height = 0.72 + float(stage) * 0.08
+			5:
+				base_height = 5.0
+			6:
+				base_height = 10.0
+		var tower_height: float = float(floors) * 0.72
+		var upgrade := Node3D.new()
+		upgrade.name = "EraUpgrade"
+		upgrade.position.y = base_height
+		house.add_child(upgrade)
+		var tower := BoxMesh.new()
+		var width: float = 1.05 if floors < 8 else 1.28
+		tower.size = Vector3(width, tower_height, width)
+		var glass := StandardMaterial3D.new()
+		glass.albedo_color = Color(0.20, 0.43, 0.55) if year < 1950 else Color(0.16, 0.34, 0.46)
+		glass.roughness = 0.25
+		glass.metallic = 0.22
+		glass.emission_enabled = true
+		glass.emission = Color(0.06, 0.12, 0.17)
+		glass.emission_energy_multiplier = 0.25
+		_add_mesh(upgrade, tower, glass, Vector3(0.0, tower_height * 0.5, 0.0))
+		# Horizontal floor bands and visible windows make the tower read as a
+		# stack of floors rather than an oversized single box.
+		for floor_index in range(floors):
+			var floor_y: float = float(floor_index) * 0.72 + 0.32
+			var band := BoxMesh.new()
+			band.size = Vector3(width + 0.055, 0.055, width + 0.055)
+			_add_mesh(upgrade, band, _material(Color(0.60, 0.72, 0.75)), Vector3(0.0, floor_y, 0.0))
+			var window := BoxMesh.new()
+			window.size = Vector3(width * 0.72, 0.28, 0.035)
+			_add_mesh(upgrade, window, _material(Color(0.54, 0.78, 0.91)), Vector3(0.0, floor_y + 0.19, width * 0.5 + 0.025))
+		if floors >= 8:
+			var crown := BoxMesh.new()
+			crown.size = Vector3(width * 0.72, 0.55, width * 0.72)
+			_add_mesh(upgrade, crown, _material(Color(0.26, 0.40, 0.49)), Vector3(0.0, tower_height + 0.22, 0.0))
 
 
 func _city_stage_for_population(population: int) -> int:
