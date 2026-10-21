@@ -1140,6 +1140,9 @@ func _apply_building_era_appearance(city_id: int, year: int) -> void:
 		if year < 1880 or stage < 2 or not qualifies_for_tower or building_type == 4:
 			continue
 
+		# Architecture follows the simulation date: early cities keep low skylines,
+		# industrial cities gain modest towers, and contemporary cities can build
+		# noticeably taller glass buildings.
 		var floors: int = 3
 		if year >= 2000:
 			floors = clampi(14 + int((year - 2000) / 15), 14, 24)
@@ -2048,6 +2051,7 @@ func _try_city_event(city_id: int) -> bool:
 			_record_city_event(city_id, "FOOD RIOT", Color(1.0, 0.42, 0.18))
 		return true
 
+	# Keep modern extremist attacks out of medieval and early industrial eras.
 	if _world_year() >= 1970 and population >= 16 and stage >= 2 and randf() < 0.035:
 		var houses: Array = city["houses"]
 		if not houses.is_empty():
@@ -2067,6 +2071,7 @@ func _try_city_event(city_id: int) -> bool:
 		_record_city_event(city_id, "ATTACK", Color(1.0, 0.30, 0.12))
 		return true
 
+	# Organised bank robberies require an established financial centre and a modern-era city.
 	if _world_year() >= 1800 and population >= 12 and stage >= 2 and wealth >= 5.0 and security < 72.0 and randf() < 0.24:
 		city["wealth"] = maxf(0.0, wealth - randf_range(3.0, 6.0))
 		city["security"] = maxf(0.0, security - randf_range(3.0, 7.0))
@@ -2076,7 +2081,9 @@ func _try_city_event(city_id: int) -> bool:
 		_record_city_event(city_id, "BANK ROBBERY", Color(1.0, 0.48, 0.19))
 		return true
 
-	if _world_year() >= 1750 and population >= 8 and (stability < 58.0 or randf() < 0.13):
+	# Mass public protest movements become a distinct recurring event in the modernising
+	# political era; earlier unrest remains represented by food riots and rebellions.
+	if _world_year() >= 1848 and population >= 8 and (stability < 58.0 or randf() < 0.13):
 		city["stability"] = maxf(0.0, stability - randf_range(4.0, 8.0))
 		city["security"] = maxf(0.0, security - 2.0)
 		cities[city_id] = city
