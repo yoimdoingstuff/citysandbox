@@ -2421,7 +2421,7 @@ func _build_ui() -> void:
 	content.add_child(_make_separator())
 	content.add_child(_make_label("CITY COMMAND", 12, Color(0.46, 0.86, 0.98)))
 	city_info_label = _make_label("Select a city to view its status.", 12, Color(0.86, 0.89, 0.91))
-	city_info_label.custom_minimum_size = Vector2(0, 88)
+	city_info_label.custom_minimum_size = Vector2(0, 142)
 	city_info_label.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
 	content.add_child(city_info_label)
 	control_button = _make_button("CONTROL SELECTED CITY", _take_control, Color(0.12, 0.36, 0.43))
@@ -2615,7 +2615,7 @@ func _joined_logs() -> String:
 func _refresh_ui() -> void:
 	if is_instance_valid(stats_label):
 		var active_wars: int = wars.size()
-		stats_label.text = "CITIES  %02d     PEOPLE  %03d\nWARS  %02d     TIME  %s" % [cities.size(), people.size(), active_wars, _format_time(game_clock)]
+		stats_label.text = "CITIES  %02d     PEOPLE  %03d\nWARS  %02d     TIME  %s\nCITY EVENTS  %03d" % [cities.size(), people.size(), active_wars, _format_time(game_clock), city_events_total]
 	if is_instance_valid(radius_label):
 		radius_label.text = "Radius %.1f" % brush_radius
 	if is_instance_valid(selection_ring):
@@ -2637,7 +2637,7 @@ func _refresh_ui() -> void:
 			var city: Dictionary = cities[selected_city]
 			var owner_id: int = int(city["owner"])
 			var owner_name: String = cities[owner_id]["name"] if owner_id >= 0 and owner_id < cities.size() else city["name"]
-			city_info_label.text = "SELECTED  %s\nDEVELOPMENT  %s\nPOPULATION  %d\nTERRITORY  %.1f m radius\nOWNER  %s\nFOOD  %d   WOOD  %d   STONE  %d" % [city["name"], _city_stage_name(int(city.get("stage", 0))), _city_population(selected_city), float(city.get("zone_radius", 0.0)), owner_name, int(city["food"]), int(city["wood"]), int(city["stone"])]
+			city_info_label.text = "SELECTED  %s\nDEVELOPMENT  %s\nPOPULATION  %d\nTERRITORY  %.1f m radius\nSTABILITY  %.0f%%  SECURITY  %.0f%%\nWEALTH  %d\nOWNER  %s\nFOOD  %d   WOOD  %d   STONE  %d" % [city["name"], _city_stage_name(int(city.get("stage", 0))), _city_population(selected_city), float(city.get("zone_radius", 0.0)), float(city.get("stability", 72.0)), float(city.get("security", 44.0)), int(city.get("wealth", 12.0)), owner_name, int(city["food"]), int(city["wood"]), int(city["stone"])]
 		else:
 			city_info_label.text = "Select a city to view its people, resources and owner."
 	if is_instance_valid(control_button):
