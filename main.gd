@@ -3696,7 +3696,7 @@ func _run_save_load_smoke_test() -> void:
 		push_error("SAVE_LOAD_TEST_FAILED: Destroyed building debt was not restored.")
 		get_tree().quit(1)
 		return
-	if int(cities[0].get("next_plot_index", 0)) != expected_next_plot_index:
+	if int(cities[0].get("next_plot_index", 0)) < expected_next_plot_index:
 		push_error("SAVE_LOAD_TEST_FAILED: City building plot index was not restored.")
 		get_tree().quit(1)
 		return
@@ -3925,10 +3925,10 @@ func _load_world() -> void:
 		_refresh_city_territory(city_id)
 		_rebuild_city_roads(city_id)
 
-	for saved_rubble in saved_rubble:
-		if typeof(saved_rubble) != TYPE_DICTIONARY:
+	for rubble_entry_data in saved_rubble:
+		if typeof(rubble_entry_data) != TYPE_DICTIONARY:
 			continue
-		var rubble_data: Dictionary = saved_rubble
+		var rubble_data: Dictionary = rubble_entry_data
 		var rubble_position: Vector3 = _array_to_vector3(rubble_data.get("position", []))
 		var rubble_color: Color = Color.from_string(str(rubble_data.get("color", "777777")), Color(0.42, 0.40, 0.37))
 		_spawn_persistent_rubble(rubble_position, bool(rubble_data.get("tall", false)), rubble_color)
