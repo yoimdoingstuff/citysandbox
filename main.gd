@@ -219,14 +219,18 @@ func _rebuild_terrain() -> void:
 			var p10 := Vector3(x1, terrain_heights[z_index][x_index + 1], z0)
 			var p01 := Vector3(x0, terrain_heights[z_index + 1][x_index], z1)
 			var p11 := Vector3(x1, terrain_heights[z_index + 1][x_index + 1], z1)
+			# Godot culls triangles by clockwise front-face winding. Keep both
+			# triangles in each terrain cell facing outward, toward the top.
 			_add_terrain_vertex(surface, p00)
-			_add_terrain_vertex(surface, p01)
-			_add_terrain_vertex(surface, p10)
 			_add_terrain_vertex(surface, p10)
 			_add_terrain_vertex(surface, p01)
+			_add_terrain_vertex(surface, p10)
 			_add_terrain_vertex(surface, p11)
+			_add_terrain_vertex(surface, p01)
 	surface.index()
-	surface.generate_normals()
+	# The reversed triangle order also reverses the cross-product normals.
+	# Flip them back so slopes are lit from above instead of looking inside-out.
+	surface.generate_normals(true)
 	terrain.mesh = surface.commit()
 
 
