@@ -3722,6 +3722,7 @@ func _save_world() -> void:
 		"camera_yaw": camera_yaw,
 		"camera_pitch": camera_pitch,
 		"sim_speed": sim_speed,
+		"pause_on_city_event": pause_on_city_event,
 		"city_events_total": city_events_total
 	}
 
@@ -3873,8 +3874,13 @@ func _load_world() -> void:
 	camera_yaw = float(save_data.get("camera_yaw", -0.72))
 	camera_pitch = clampf(float(save_data.get("camera_pitch", 0.56)), 0.20, 1.25)
 	sim_speed = clampf(float(save_data.get("sim_speed", 1.0)), 1.0, 16.0)
+	pause_on_city_event = bool(save_data.get("pause_on_city_event", false))
 	if is_instance_valid(speed_button):
 		speed_button.text = "Simulation Speed: %s×" % str(int(sim_speed))
+	for node in ui_root.find_children("*", "Button", true, false):
+		var button: Button = node as Button
+		if button.text.begins_with("Pause on City Event:"):
+			button.text = "Pause on City Event: ON" if pause_on_city_event else "Pause on City Event: OFF"
 	paused = false
 	_update_camera()
 	_update_world_detail_levels()
