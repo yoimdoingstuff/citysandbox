@@ -8,6 +8,10 @@ This is a prototype, not a finished commercial-scale game. It uses procedural ge
 
 Open the repository's **Actions** tab and download the latest `Civiterra-desktop-builds` artifact from a successful **Build desktop game** run. The artifact includes a Windows x86-64 executable and a Linux x86-64 build. GitHub Actions produces these from the source whenever code is pushed to `main` and can also be run manually.
 
+## Roadmap
+
+See **[ROADMAP.md](ROADMAP.md)** for the development plan, current prototype snapshot, ordered milestones, and checkable tasks. The next priority is validating the recent terrain and input fixes in a normal desktop session before building more systems on top.
+
 ## Run from source
 
 1. Install Godot 4.3 or newer.
