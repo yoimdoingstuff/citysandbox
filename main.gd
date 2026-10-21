@@ -108,6 +108,7 @@ func _process(delta: float) -> void:
 	ui_timer += delta
 	if ui_timer >= 0.35:
 		ui_timer = 0.0
+		_update_world_detail_levels()
 		_refresh_ui()
 
 
@@ -2124,6 +2125,33 @@ func _refresh_ui() -> void:
 			pending_label.text = "Tool: %s" % tool_mode.capitalize()
 	if is_instance_valid(log_label):
 		log_label.text = _joined_logs()
+
+
+func _update_world_detail_levels() -> void:
+	# Hide small scene objects at world scale. Close zoom progressively reveals
+	# city neighbourhoods, resources, and citizens without deleting simulation data.
+	var show_neighbourhoods: bool = camera_distance <= 145.0
+	var show_resources: bool = camera_distance <= 160.0
+	var show_people: bool = camera_distance <= 118.0
+	var show_city_labels: bool = camera_distance >= 32.0
+
+	for city in cities:
+		var city_label: Label3D = city["label"]
+		if is_instance_valid(city_label):
+			city_label.visible = show_city_labels
+		for house in city["houses"]:
+			if is_instance_valid(house):
+				house.visible = show_neighbourhoods
+
+	for person in people:
+		var person_node: Node3D = person["node"]
+		if is_instance_valid(person_node):
+			person_node.visible = show_people and bool(person.get("alive", true))
+
+	for resource in resources:
+		var resource_node: Node3D = resource["node"]
+		if is_instance_valid(resource_node):
+			resource_node.visible = show_resources and bool(resource.get("alive", true)) and int(resource.get("amount", 1)) > 0
 
 
 func _format_time(seconds: float) -> String:
