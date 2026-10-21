@@ -440,6 +440,27 @@ func _update_camera() -> void:
 	camera.look_at(camera_target, Vector3.UP)
 
 
+func _request_city_camera_zoom(city_id: int) -> void:
+	if city_id < 0 or city_id >= cities.size():
+		return
+	var city: Dictionary = cities[city_id]
+	var radius: float = float(city.get("zone_radius", 12.0))
+	camera_auto_focus_target = city["pos"]
+	camera_auto_zoom_target = clamp(maxf(camera_distance, radius * 3.35), camera_distance, TERRAIN_SIZE * 1.65)
+	camera_auto_zoom_active = true
+
+
+func _update_auto_city_camera(delta: float) -> void:
+	if not camera_auto_zoom_active:
+		return
+	var blend: float = 1.0 - exp(-delta * 2.4)
+	camera_target = camera_target.lerp(camera_auto_focus_target, blend)
+	camera_distance = lerpf(camera_distance, camera_auto_zoom_target, blend)
+	_update_camera()
+	if camera_target.distance_to(camera_auto_focus_target) < 0.25 and abs(camera_distance - camera_auto_zoom_target) < 0.35:
+		camera_auto_zoom_active = false
+
+
 func _update_camera_input(delta: float) -> void:
 	var forward := Vector3(-cos(camera_yaw), 0.0, -sin(camera_yaw))
 	var right := Vector3(-forward.z, 0.0, forward.x)
