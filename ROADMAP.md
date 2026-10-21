@@ -52,7 +52,7 @@ A successful GitHub Actions build confirms that Godot can validate and export th
 
 ## Phase 3: Make cities visibly develop over time
 
-- [ ] Give settlements clear development stages: village, town, city, and metropolis.
+- [ ] Give settlements clear development stages: village, town, city, metropolis, and megacity.
 - [ ] Make population, food, resources, safety, location, and elapsed simulation time influence development.
 - [ ] Add distinct buildings and neighbourhoods rather than relying on a single repeated house type.
 - [ ] Introduce roads or paths linking homes, farms, workplaces, resource sites, and city centres.
