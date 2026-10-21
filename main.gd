@@ -2033,15 +2033,16 @@ func _refresh_ui() -> void:
 		var tool_names: Dictionary = {"select": "Select and inspect cities", "raise": "Raise terrain with the brush", "lower": "Lower terrain with the brush", "human": "Spawn humans; clusters can found settlements", "tree": "Plant a wood resource", "stone": "Place a stone deposit", "food": "Place a food resource", "erase": "Erase a nearby human or resource", "lightning": "Strike the ground with lightning", "fire": "Start a spreading fire", "meteor": "Call down a destructive meteor", "tornado": "Send a moving vortex through the world", "plague": "Infect humans and let sickness spread", "heal": "Bless an area with new people", "forest": "Create a grove of trees", "quake": "Shake and deform the land"}
 		tool_label.text = "Active: %s" % str(tool_names.get(tool_mode, tool_mode))
 	for city_index in range(cities.size()):
+		cities[city_index]["population"] = _city_population(city_index)
+		var stage: int = int(cities[city_index].get("stage", 0))
 		if is_instance_valid(cities[city_index]["label"]):
-			cities[city_index]["population"] = _city_population(city_index)
-			cities[city_index]["label"].text = "%s\nPOP %d" % [cities[city_index]["name"], int(cities[city_index]["population"])]
+			cities[city_index]["label"].text = "%s\n%s | POP %d" % [cities[city_index]["name"], _city_stage_name(stage), int(cities[city_index]["population"])]
 	if is_instance_valid(city_info_label):
 		if selected_city >= 0 and selected_city < cities.size():
 			var city: Dictionary = cities[selected_city]
 			var owner_id: int = int(city["owner"])
 			var owner_name: String = cities[owner_id]["name"] if owner_id >= 0 and owner_id < cities.size() else city["name"]
-			city_info_label.text = "SELECTED  %s\nPOPULATION  %d\nOWNER  %s\nFOOD  %d   WOOD  %d   STONE  %d" % [city["name"], _city_population(selected_city), owner_name, int(city["food"]), int(city["wood"]), int(city["stone"])]
+			city_info_label.text = "SELECTED  %s\nDEVELOPMENT  %s\nPOPULATION  %d\nOWNER  %s\nFOOD  %d   WOOD  %d   STONE  %d" % [city["name"], _city_stage_name(int(city.get("stage", 0))), _city_population(selected_city), owner_name, int(city["food"]), int(city["wood"]), int(city["stone"])]
 		else:
 			city_info_label.text = "Select a city to view its people, resources and owner."
 	if is_instance_valid(control_button):
