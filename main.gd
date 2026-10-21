@@ -827,6 +827,15 @@ func _create_city(position: Vector3, city_name: String, color: Color) -> int:
 	far_marker.name = "DistantCityMarker"
 	far_marker.visible = false
 
+	var zone_fill := MeshInstance3D.new()
+	zone_fill.name = "TerritoryFill_%s" % city_name.replace(" ", "")
+	zone_fill.material_override = _territory_material(color, 0.13)
+	add_child(zone_fill)
+	var zone_border := MeshInstance3D.new()
+	zone_border.name = "TerritoryBorder_%s" % city_name.replace(" ", "")
+	zone_border.material_override = _territory_material(color.lightened(0.18), 0.90)
+	add_child(zone_border)
+
 	var city_label := Label3D.new()
 	city_label.text = "%s\nPOP 0" % city_name
 	city_label.position = Vector3(0.0, 6.5, 0.0)
@@ -844,6 +853,9 @@ func _create_city(position: Vector3, city_name: String, color: Color) -> int:
 		"node": town,
 		"label": city_label,
 		"far_marker": far_marker,
+		"zone_fill": zone_fill,
+		"zone_border": zone_border,
+		"zone_radius": 0.0,
 		"plinth": plinth,
 		"body": body,
 		"roof": roof,
@@ -896,6 +908,7 @@ func _refresh_city_development(city_id: int) -> void:
 		if next_stage > previous_stage:
 			_log("%s developed into a %s." % [city["name"], _city_stage_name(next_stage).to_lower()])
 	_sync_city_buildings(city_id)
+	_refresh_city_territory(city_id)
 	city = cities[city_id]
 	if is_instance_valid(city["label"]):
 		city["label"].text = "%s\n%s | POP %d" % [city["name"], _city_stage_name(next_stage), population]
