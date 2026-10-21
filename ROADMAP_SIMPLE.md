@@ -86,6 +86,27 @@ This is the **big-picture roadmap**. For the longer implementation checklist, se
 
 **Goal:** A stable, replayable sandbox where worlds keep evolving and player actions have lasting consequences.
 
+## 9. Bring Civiterra to mobile
+
+- [ ] Adapt the interface for touchscreens, including camera movement, selection, world tools, and readable panels.
+- [ ] Add mobile-friendly graphics and simulation settings for a wider range of devices.
+- [ ] Build and test an Android version after the desktop gameplay loop is stable.
+- [ ] Evaluate an iOS port after the controls, performance, and platform requirements are understood.
+- [ ] Keep saves and core game systems compatible across supported platforms where practical.
+
+**Goal:** Take the same living-world sandbox on the go without turning the screen into a pile of tiny buttons.
+
+## 10. Add multiplayer
+
+- [ ] Let multiple players join the same world and interact with it together.
+- [ ] Synchronise world edits, simulation time, cities, people, events, and wars.
+- [ ] Decide how players share powers and control, with clear permissions and options for cooperative or competitive play.
+- [ ] Handle joining, leaving, reconnecting, saving, and recovering from connection problems.
+- [ ] Test network performance and prevent players from seeing different versions of the same world.
+- [ ] Plan for cross-platform play only after desktop and mobile builds are reliable.
+
+**Goal:** Share a persistent world with other players without desynchronisation turning civilization into parallel universes.
+
 ## Recommended order
 
 1. Build the foundation: larger procedural worlds and reliable terrain and camera controls.
@@ -94,5 +115,7 @@ This is the **big-picture roadmap**. For the longer implementation checklist, se
 4. Add city events and responses so civilizations feel unpredictable and alive.
 5. Redesign the UI around the expanded simulation.
 6. Add direct citizen control as a deeper game mode, then finish save/load and optimisation.
+7. Add mobile controls and a tested Android port, then assess iOS.
+8. Build multiplayer only after the underlying simulation and cross-platform builds are stable.
 
 The roadmap will change as the game improves. Keep these checkboxes unchecked until each result is actually implemented and tested in-game.
