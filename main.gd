@@ -1160,7 +1160,7 @@ func _sync_city_buildings(city_id: int) -> void:
 		city["node"].add_child(house)
 		# Give each neighbourhood a mix of residential and civic buildings.
 		# Later rings become taller and denser as the settlement develops.
-		var building_type: int = house_index % 4
+		var building_type: int = house_index % 5
 		var building_size: Vector3 = Vector3(1.35, 1.2, 1.35)
 		var building_height: float = 1.2
 		match building_type:
@@ -1170,10 +1170,14 @@ func _sync_city_buildings(city_id: int) -> void:
 				building_size = Vector3(1.8, 1.15 + float(stage) * 0.12, 1.45)
 			3:
 				building_size = Vector3(1.65, 1.75 + float(stage) * 0.16, 1.55)
+			4:
+				building_size = Vector3(1.95, 0.72 + float(stage) * 0.08, 1.90)
 		building_height = building_size.y
 		var wall_color: Color = Color(0.70, 0.64, 0.48).lerp(city["color"], 0.24)
 		if building_type == 2:
 			wall_color = wall_color.darkened(0.09)
+		elif building_type == 4:
+			wall_color = Color(0.57, 0.47, 0.31).lerp(city["color"], 0.10)
 		elif building_type == 3:
 			wall_color = wall_color.lerp(city["color"].lightened(0.28), 0.25)
 		var walls := BoxMesh.new()
@@ -1190,7 +1194,10 @@ func _sync_city_buildings(city_id: int) -> void:
 		else:
 			var flat_roof := BoxMesh.new()
 			flat_roof.size = Vector3(building_size.x + 0.12, 0.16, building_size.z + 0.12)
-			_add_mesh(house, flat_roof, _material(city["color"].darkened(0.18)), Vector3(0.0, building_height + 0.08, 0.0))
+			var flat_roof_color: Color = city["color"].darkened(0.18)
+			if building_type == 4:
+				flat_roof_color = Color(0.22, 0.36, 0.21)
+			_add_mesh(house, flat_roof, _material(flat_roof_color), Vector3(0.0, building_height + 0.08, 0.0))
 
 		# Small door and windows give close-up zooms something to reveal.
 		var door_mesh := BoxMesh.new()
@@ -1208,12 +1215,25 @@ func _sync_city_buildings(city_id: int) -> void:
 				upper_window.size = Vector3(0.18, 0.18, 0.045)
 				_add_mesh(house, upper_window, _material(Color(0.45, 0.78, 0.88)), Vector3(window_x, minf(building_height - 0.30, window_y + 0.58), building_size.z * 0.5 + 0.04))
 
+		if building_type == 4:
+			# Small crop beds identify farms at close zoom and tie them to food production.
+			for crop_row in range(3):
+				var bed := BoxMesh.new()
+				bed.size = Vector3(building_size.x * 0.76, 0.07, 0.16)
+				var bed_z: float = (float(crop_row) - 1.0) * 0.43
+				_add_mesh(house, bed, _material(Color(0.33, 0.25, 0.14)), Vector3(0.0, building_height + 0.20, bed_z))
+				for crop_index in range(4):
+					var crop := BoxMesh.new()
+					crop.size = Vector3(0.10, 0.16, 0.11)
+					var crop_x: float = (float(crop_index) - 1.5) * 0.31
+					_add_mesh(house, crop, _material(Color(0.30, 0.62, 0.25)), Vector3(crop_x, building_height + 0.30, bed_z))
 		if building_type == 2:
 			var chimney := CylinderMesh.new()
 			chimney.top_radius = 0.10
 			chimney.bottom_radius = 0.13
 			chimney.height = 0.72
 			_add_mesh(house, chimney, _material(Color(0.38, 0.30, 0.26)), Vector3(building_size.x * 0.28, building_height + 0.42, -building_size.z * 0.18))
+		house.set_meta("building_type", building_type)
 		houses.append(house)
 	city["houses"] = houses
 	cities[city_id] = city
@@ -1445,6 +1465,7 @@ func _update_simulation_timers(delta: float) -> void:
 	if resource_timer >= 4.0:
 		resource_timer = 0.0
 		_collect_resources()
+		_update_city_economies()
 	if growth_timer >= 9.0:
 		growth_timer = 0.0
 		_grow_cities()
@@ -1455,6 +1476,41 @@ func _update_simulation_timers(delta: float) -> void:
 	if auto_war_timer >= 31.0:
 		auto_war_timer = 0.0
 		_try_start_ai_war()
+
+
+func _update_city_economies() -> void:
+	for city_id in range(cities.size()):
+		var city: Dictionary = cities[city_id]
+		var farms: int = 0
+		var workshops: int = 0
+		var commercial: int = 0
+		var apartments: int = 0
+		for house in city["houses"]:
+			if not is_instance_valid(house):
+				continue
+			match int(house.get_meta("building_type", 0)):
+				1:
+					apartments += 1
+				2:
+					workshops += 1
+				3:
+					commercial += 1
+				4:
+					farms += 1
+
+		# Farms provide a slow but reliable food supply. Workshops and shops add
+		# wealth, while civic/commercial buildings help improve local security.
+		city["food"] = minf(42.0, float(city["food"]) + float(farms) * 0.28)
+		var workshop_output: float = float(workshops) * 0.16
+		if workshops > 0 and float(city["wood"]) > 0.0:
+			city["wood"] = maxf(0.0, float(city["wood"]) - minf(float(city["wood"]), float(workshops) * 0.035))
+			city["wealth"] = minf(100.0, float(city["wealth"]) + workshop_output)
+		city["wealth"] = minf(100.0, float(city["wealth"]) + float(commercial) * 0.14 + float(apartments) * 0.025)
+		if commercial > 0:
+			city["security"] = minf(100.0, float(city["security"]) + float(commercial) * 0.025)
+		if farms > 0 and float(city["food"]) >= 7.0:
+			city["stability"] = minf(100.0, float(city["stability"]) + 0.035 * float(farms))
+		cities[city_id] = city
 
 
 func _city_population(city_id: int) -> int:
