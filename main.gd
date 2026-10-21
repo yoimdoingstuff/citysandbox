@@ -2682,22 +2682,8 @@ func _collapse_specific_building(city_id: int, house: Node3D, allow_chain: bool 
 	if house_index < 0:
 		return false
 	var local_position: Vector3 = house.position
-	var world_position: Vector3 = house.global_position
 	var tall_building: bool = house.has_node("EraUpgrade") or float(house.scale.y) > 1.35
-	var rubble := Node3D.new()
-	rubble.name = "BuildingRubble"
-	rubble.position = world_position
-	add_child(rubble)
-	for debris_index in range(6 if tall_building else 4):
-		var piece := MeshInstance3D.new()
-		var piece_mesh := BoxMesh.new()
-		piece_mesh.size = Vector3(randf_range(0.35, 1.0), randf_range(0.16, 0.55), randf_range(0.35, 1.0))
-		piece.mesh = piece_mesh
-		piece.material_override = _material(Color(0.34, 0.32, 0.29).lerp(city["color"], 0.18))
-		piece.position = Vector3(randf_range(-1.5, 1.5), piece_mesh.size.y * 0.5, randf_range(-1.5, 1.5))
-		piece.rotation = Vector3(randf_range(-0.25, 0.25), randf() * TAU, randf_range(-0.25, 0.25))
-		rubble.add_child(piece)
-	house.queue_free()
+	_animate_building_fall(house, tall_building, city["color"])
 	houses.remove_at(house_index)
 	if allow_chain and tall_building:
 		for other_index in range(houses.size() - 1, -1, -1):
@@ -2708,18 +2694,7 @@ func _collapse_specific_building(city_id: int, house: Node3D, allow_chain: bool 
 			var dz: float = other.position.z - local_position.z
 			if dx * dx + dz * dz > 23.04 or randf() >= 0.55:
 				continue
-			var secondary := Node3D.new()
-			secondary.name = "SecondaryCollapseRubble"
-			secondary.position = other.global_position
-			add_child(secondary)
-			var chunk := MeshInstance3D.new()
-			var chunk_mesh := BoxMesh.new()
-			chunk_mesh.size = Vector3(1.0, 0.35, 0.85)
-			chunk.mesh = chunk_mesh
-			chunk.material_override = _material(Color(0.35, 0.34, 0.32))
-			chunk.position.y = 0.18
-			secondary.add_child(chunk)
-			other.queue_free()
+			_animate_building_fall(other, other.has_node("EraUpgrade") or float(other.scale.y) > 1.35, city["color"])
 			houses.remove_at(other_index)
 			break
 	city["houses"] = houses
@@ -2727,6 +2702,41 @@ func _collapse_specific_building(city_id: int, house: Node3D, allow_chain: bool 
 	if rebuild_roads:
 		_rebuild_city_roads(city_id)
 	return true
+
+
+func _animate_building_fall(house: Node3D, tall_building: bool, building_color: Color) -> void:
+	if not is_instance_valid(house):
+		return
+	var duration: float = 0.78 if tall_building else 0.52
+	var fall_angle: float = deg_to_rad(randf_range(72.0, 88.0) if tall_building else randf_range(58.0, 78.0))
+	if randf() < 0.5:
+		fall_angle = -fall_angle
+	var tween := create_tween()
+	tween.set_parallel(true)
+	tween.tween_property(house, "rotation:z", house.rotation.z + fall_angle, duration).set_trans(Tween.TRANS_CUBIC).set_ease(Tween.EASE_IN)
+	tween.tween_property(house, "rotation:x", house.rotation.x + fall_angle * randf_range(0.08, 0.22), duration).set_trans(Tween.TRANS_CUBIC).set_ease(Tween.EASE_IN)
+	tween.tween_property(house, "scale:y", house.scale.y * 0.93, duration)
+	tween.chain().tween_callback(_finish_building_collapse.bind(house, tall_building, building_color))
+
+
+func _finish_building_collapse(house: Node3D, tall_building: bool, building_color: Color) -> void:
+	if not is_instance_valid(house):
+		return
+	var rubble := Node3D.new()
+	rubble.name = "BuildingRubble"
+	rubble.position = house.global_position
+	add_child(rubble)
+	var debris_count: int = 7 if tall_building else 4
+	for debris_index in range(debris_count):
+		var piece := MeshInstance3D.new()
+		var piece_mesh := BoxMesh.new()
+		piece_mesh.size = Vector3(randf_range(0.35, 1.0), randf_range(0.16, 0.55), randf_range(0.35, 1.0))
+		piece.mesh = piece_mesh
+		piece.material_override = _material(Color(0.34, 0.32, 0.29).lerp(building_color, 0.18))
+		piece.position = Vector3(randf_range(-1.5, 1.5), piece_mesh.size.y * 0.5, randf_range(-1.5, 1.5))
+		piece.rotation = Vector3(randf_range(-0.25, 0.25), randf() * TAU, randf_range(-0.25, 0.25))
+		rubble.add_child(piece)
+	house.queue_free()
 
 
 func _destroy_city_houses(city_id: int, count: int) -> void:
