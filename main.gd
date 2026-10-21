@@ -962,6 +962,9 @@ func _refresh_city_territory(city_id: int) -> void:
 	if cities.is_empty():
 		return
 	var claims: Dictionary = {}
+	var old_radii: Array[float] = []
+	for existing_city in cities:
+		old_radii.append(float(existing_city.get("zone_radius", 0.0)))
 	var directions: Array[Vector2i] = [
 		Vector2i(1, 0), Vector2i(-1, 0), Vector2i(0, 1), Vector2i(0, -1),
 		Vector2i(1, 1), Vector2i(-1, 1), Vector2i(1, -1), Vector2i(-1, -1)
@@ -1046,6 +1049,8 @@ func _refresh_city_territory(city_id: int) -> void:
 		city["zone_area"] = float(owner_cells.size()) * TERRITORY_CELL_SIZE * TERRITORY_CELL_SIZE
 		city["zone_radius"] = max_distance
 		cities[owner_id] = city
+	if selected_city >= 0 and selected_city < cities.size() and float(cities[selected_city].get("zone_radius", 0.0)) > old_radii[selected_city] + 0.25:
+		_request_city_camera_zoom(selected_city)
 	for owner_id in range(cities.size()):
 		_render_city_territory(owner_id, owners)
 
@@ -3446,6 +3451,12 @@ func _update_world_detail_levels() -> void:
 			var city_visual: MeshInstance3D = city[visual_key]
 			if is_instance_valid(city_visual):
 				city_visual.visible = show_city_models
+		var zone_fill: MeshInstance3D = city["zone_fill"]
+		var zone_border: MeshInstance3D = city["zone_border"]
+		if is_instance_valid(zone_fill):
+			zone_fill.visible = camera_distance <= 165.0
+		if is_instance_valid(zone_border):
+			zone_border.visible = camera_distance <= TERRAIN_SIZE * 2.0
 		var far_marker: MeshInstance3D = city["far_marker"]
 		if is_instance_valid(far_marker):
 			far_marker.visible = show_far_markers
