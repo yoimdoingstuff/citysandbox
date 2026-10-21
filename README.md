@@ -31,6 +31,7 @@ Open the repository's **Actions** tab and download the latest `Civiterra-desktop
 - Humans wander, join nearby settlements, and can spontaneously found towns when enough gather.
 - Cities progress through visible village, town, city, metropolis, and megacity stages as population grows; larger stages add more homes and expand the central landmark.
 - City neighbourhoods now mix homes, apartments, workshops, and civic/commercial buildings with doors, windows, and other small details.
+- Farms provide food, workshops convert a little wood into wealth, apartments and commercial buildings contribute to prosperity, and commercial buildings gradually improve city security.
 - New buildings search for open land and avoid obvious overlaps, so coastal towns expand along the available terrain instead of placing houses in the sea.
 - Initial condition-driven city events include protests, strikes, rebellions, bank robberies, rare extremist incidents, and positive festivals, influenced by stability, security, food, and wealth.
 - City incidents display temporary floating alerts above the affected settlement as well as entries in the world chronicle.
