@@ -25,6 +25,7 @@ var explosions: Array = []
 var god_effects: Array = []
 var fire_zones: Array = []
 var falling_meteors: Array = []
+var tornadoes: Array = []
 var wars: Array = []
 var log_entries: Array[String] = []
 
@@ -52,6 +53,10 @@ var panning_camera: bool = false
 var last_mouse_position: Vector2 = Vector2.ZERO
 var last_paint_position: Vector3 = Vector3.ZERO
 var last_paint_valid: bool = false
+var brush_preview: MeshInstance3D
+var brush_preview_mesh: TorusMesh
+var brush_preview_material: StandardMaterial3D
+var preview_timer: float = 0.0
 
 var ui_root: Control
 var stats_label: Label
@@ -79,6 +84,10 @@ func _ready() -> void:
 
 func _process(delta: float) -> void:
 	_update_camera_input(delta)
+	preview_timer += delta
+	if preview_timer >= 0.10:
+		preview_timer = 0.0
+		_update_brush_preview()
 	var sim_delta: float = 0.0
 	if not paused:
 		sim_delta = delta * sim_speed
@@ -90,6 +99,8 @@ func _process(delta: float) -> void:
 		_update_god_effects(sim_delta)
 		_update_fire_zones(sim_delta)
 		_update_falling_meteors(sim_delta)
+		_update_tornadoes(sim_delta)
+		_update_plague(sim_delta)
 		_update_simulation_timers(sim_delta)
 	ui_timer += delta
 	if ui_timer >= 0.35:
@@ -152,6 +163,24 @@ func _build_world() -> void:
 	selection_ring.material_override = _material(Color(0.36, 0.92, 1.0), 0.35)
 	selection_ring.visible = false
 	add_child(selection_ring)
+
+	brush_preview = MeshInstance3D.new()
+	brush_preview.name = "GodPowerBrushPreview"
+	brush_preview_mesh = TorusMesh.new()
+	brush_preview_mesh.outer_radius = 1.0
+	brush_preview_mesh.inner_radius = 0.94
+	brush_preview_mesh.rings = 6
+	brush_preview_mesh.ring_segments = 48
+	brush_preview.mesh = brush_preview_mesh
+	brush_preview_material = StandardMaterial3D.new()
+	brush_preview_material.albedo_color = Color(0.28, 0.86, 1.0, 0.80)
+	brush_preview_material.transparency = BaseMaterial3D.TRANSPARENCY_ALPHA
+	brush_preview_material.shading_mode = BaseMaterial3D.SHADING_MODE_UNSHADED
+	brush_preview_material.emission_enabled = true
+	brush_preview_material.emission = Color(0.15, 0.58, 0.88)
+	brush_preview.material_override = brush_preview_material
+	brush_preview.visible = false
+	add_child(brush_preview)
 	_update_camera()
 
 
@@ -426,6 +455,10 @@ func _apply_world_tool(world_position: Vector3) -> void:
 			_god_fire(world_position)
 		"meteor":
 			_god_meteor(world_position)
+		"tornado":
+			_god_tornado(world_position)
+		"plague":
+			_god_plague(world_position)
 		"heal":
 			_god_heal(world_position)
 		"forest":
@@ -643,6 +676,20 @@ func _spawn_human(position: Vector3, city_id: int) -> void:
 	hair_mesh.radius = 0.225
 	hair_mesh.height = 0.21
 	_add_mesh(human, hair_mesh, _material(Color(0.22, 0.17, 0.13)), Vector3(0.0, 1.44, 0.01))
+	var infection_marker := MeshInstance3D.new()
+	var marker_mesh := SphereMesh.new()
+	marker_mesh.radius = 0.13
+	marker_mesh.height = 0.26
+	infection_marker.mesh = marker_mesh
+	infection_marker.position = Vector3(0.0, 1.75, 0.0)
+	var marker_material := StandardMaterial3D.new()
+	marker_material.albedo_color = Color(0.52, 1.0, 0.28)
+	marker_material.emission_enabled = true
+	marker_material.emission = Color(0.35, 1.0, 0.15)
+	marker_material.emission_energy_multiplier = 1.3
+	infection_marker.material_override = marker_material
+	infection_marker.visible = false
+	human.add_child(infection_marker)
 	add_child(human)
 	var p: Vector3 = position
 	p.y = _height_at(p.x, p.z)
@@ -653,7 +700,11 @@ func _spawn_human(position: Vector3, city_id: int) -> void:
 		"city_id": assigned_city,
 		"target": p,
 		"walk_timer": randf_range(0.4, 2.2),
-		"alive": true
+		"alive": true,
+		"infected": false,
+		"infection_marker": infection_marker,
+		"infection_time": 0.0,
+		"spread_timer": randf_range(0.5, 1.5)
 	})
 
 
@@ -1280,7 +1331,7 @@ func _god_lightning(position: Vector3) -> void:
 	_log("Lightning tears into the ground. Nature has submitted a strongly worded complaint.")
 
 
-func _god_fire(position: Vector3) -> void:
+func _ignite_fire(position: Vector3) -> void:
 	var fire_root := Node3D.new()
 	fire_root.name = "GodFire"
 	fire_root.position = position
@@ -1303,8 +1354,12 @@ func _god_fire(position: Vector3) -> void:
 		flame.position = Vector3(randf_range(-1.5, 1.5), cone.height * 0.5, randf_range(-1.5, 1.5))
 		fire_root.add_child(flame)
 	fire_zones.append({"node": fire_root, "pos": position, "radius": max(2.4, brush_radius * 0.75), "age": 0.0, "tick": 0.0})
+
+
+func _god_fire(position: Vector3) -> void:
+	_ignite_fire(position)
 	_spawn_god_effect(position, Color(1.0, 0.28, 0.035), max(2.0, brush_radius * 0.6), 0.65)
-	_log("A wildfire has begun. Trees, supplies and nearby people are in danger.")
+	_log("A wildfire has begun. It can spread through nearby trees and threaten settlements.")
 
 
 func _update_fire_zones(delta: float) -> void:
@@ -1322,6 +1377,20 @@ func _update_fire_zones(delta: float) -> void:
 		if float(fire["tick"]) >= 0.9:
 			fire["tick"] = 0.0
 			_power_damage(fire["pos"], float(fire["radius"]), 2, 0.22, 0)
+			if fire_zones.size() < 12:
+				for resource in resources:
+					if str(resource["type"]) != "tree" or int(resource["amount"]) <= 0:
+						continue
+					var tree_position: Vector3 = resource["pos"]
+					var spread_distance: float = Vector2(tree_position.x - float(fire["pos"].x), tree_position.z - float(fire["pos"].z)).length()
+					if spread_distance <= float(fire["radius"]) + 2.2 and randf() < 0.22:
+						resource["amount"] = 0
+						resource["alive"] = false
+						if is_instance_valid(resource["node"]):
+							resource["node"].visible = false
+						_ignite_fire(_surface_position(tree_position.x, tree_position.z))
+						_log("The wildfire has spread to a nearby tree.")
+						break
 		if float(fire["age"]) >= 8.0:
 			if is_instance_valid(node):
 				node.queue_free()
@@ -1374,6 +1443,17 @@ func _update_falling_meteors(delta: float) -> void:
 
 func _god_heal(position: Vector3) -> void:
 	var city_id: int = _find_city_at(position, 9.0)
+	var cured: int = 0
+	for i in range(people.size()):
+		var person_position: Vector3 = people[i]["pos"]
+		var distance: float = Vector2(person_position.x - position.x, person_position.z - position.z).length()
+		if distance <= max(4.0, brush_radius) and bool(people[i].get("infected", false)):
+			people[i]["infected"] = false
+			people[i]["infection_time"] = 0.0
+			var marker: MeshInstance3D = people[i]["infection_marker"]
+			if is_instance_valid(marker):
+				marker.visible = false
+			cured += 1
 	var spawned: int = 0
 	for person_index in range(5):
 		if people.size() >= MAX_PEOPLE:
@@ -1390,7 +1470,7 @@ func _god_heal(position: Vector3) -> void:
 		cities[city_id]["food"] = float(cities[city_id]["food"]) + 6.0
 		_sync_city_buildings(city_id)
 	_spawn_god_effect(position, Color(0.24, 1.0, 0.56), 4.0, 0.8)
-	_log("Blessing bestowed: %d new people appear, and nearby stores feel a little less doomed." % spawned)
+	_log("Blessing bestowed: %d new people appear and %d infection(s) are cured." % [spawned, cured])
 
 
 func _god_forest(position: Vector3) -> void:
@@ -1409,6 +1489,153 @@ func _god_earthquake(position: Vector3) -> void:
 	_power_damage(position, max(4.0, brush_radius * 1.3), MAX_PEOPLE, 0.8, 3)
 	_sculpt_terrain(position, -0.8)
 	_log("Earthquake! The terrain shifts and nearby settlements take damage.")
+
+
+func _god_plague(position: Vector3) -> void:
+	var infected_count: int = 0
+	var radius: float = max(3.0, brush_radius * 1.15)
+	for i in range(people.size()):
+		var person_position: Vector3 = people[i]["pos"]
+		var distance: float = Vector2(person_position.x - position.x, person_position.z - position.z).length()
+		if distance <= radius:
+			if not bool(people[i]["infected"]):
+				infected_count += 1
+			people[i]["infected"] = true
+			people[i]["infection_time"] = 0.0
+			people[i]["spread_timer"] = randf_range(0.25, 1.0)
+			var marker: MeshInstance3D = people[i]["infection_marker"]
+			if is_instance_valid(marker):
+				marker.visible = true
+	_spawn_god_effect(position, Color(0.54, 0.88, 0.16), radius, 0.9)
+	_log("Plague released: %d nearby human(s) infected. It will spread through crowds." % infected_count)
+
+
+func _update_plague(delta: float) -> void:
+	for i in range(people.size() - 1, -1, -1):
+		var person: Dictionary = people[i]
+		if not bool(person.get("infected", false)):
+			continue
+		person["infection_time"] = float(person["infection_time"]) + delta
+		person["spread_timer"] = float(person["spread_timer"]) + delta
+		if float(person["spread_timer"]) >= 1.25:
+			person["spread_timer"] = 0.0
+			var infected_position: Vector3 = person["pos"]
+			for neighbour_index in range(people.size()):
+				if neighbour_index == i:
+					continue
+				var neighbour: Dictionary = people[neighbour_index]
+				if bool(neighbour.get("infected", false)):
+					continue
+				var neighbour_position: Vector3 = neighbour["pos"]
+				var distance: float = Vector2(neighbour_position.x - infected_position.x, neighbour_position.z - infected_position.z).length()
+				if distance <= 2.25 and randf() < 0.24:
+					neighbour["infected"] = true
+					neighbour["infection_time"] = 0.0
+					neighbour["spread_timer"] = randf_range(0.3, 1.0)
+					var neighbour_marker: MeshInstance3D = neighbour["infection_marker"]
+					if is_instance_valid(neighbour_marker):
+						neighbour_marker.visible = true
+					people[neighbour_index] = neighbour
+		if float(person["infection_time"]) >= 12.0:
+			if is_instance_valid(person["node"]):
+				person["node"].queue_free()
+			people.remove_at(i)
+		else:
+			people[i] = person
+
+
+func _god_tornado(position: Vector3) -> void:
+	var tornado_node := Node3D.new()
+	tornado_node.name = "GodTornado"
+	tornado_node.position = position
+	add_child(tornado_node)
+	for ring_index in range(4):
+		var ring := MeshInstance3D.new()
+		var ring_mesh := TorusMesh.new()
+		ring_mesh.outer_radius = 1.0 + float(ring_index) * 0.45
+		ring_mesh.inner_radius = ring_mesh.outer_radius - 0.12
+		ring_mesh.rings = 6
+		ring_mesh.ring_segments = 24
+		ring.mesh = ring_mesh
+		var ring_material := StandardMaterial3D.new()
+		ring_material.albedo_color = Color(0.64, 0.70, 0.76, 0.52)
+		ring_material.transparency = BaseMaterial3D.TRANSPARENCY_ALPHA
+		ring_material.shading_mode = BaseMaterial3D.SHADING_MODE_UNSHADED
+		ring_material.emission_enabled = true
+		ring_material.emission = Color(0.24, 0.34, 0.43)
+		ring.material_override = ring_material
+		ring.position = Vector3(0.0, 0.7 + float(ring_index) * 0.8, 0.0)
+		ring.rotation.x = 0.12 * float(ring_index)
+		tornado_node.add_child(ring)
+	var target_x: float = clamp(position.x + randf_range(-20.0, 20.0), -TERRAIN_SIZE * 0.45, TERRAIN_SIZE * 0.45)
+	var target_z: float = clamp(position.z + randf_range(-20.0, 20.0), -TERRAIN_SIZE * 0.45, TERRAIN_SIZE * 0.45)
+	tornadoes.append({"node": tornado_node, "pos": position, "target": _surface_position(target_x, target_z), "age": 0.0, "tick": 0.0})
+	_spawn_god_effect(position, Color(0.61, 0.70, 0.82), 3.5, 0.7)
+	_log("Tornado spawned. It's heading somewhere with absolutely no regard for zoning laws.")
+
+
+func _update_tornadoes(delta: float) -> void:
+	for i in range(tornadoes.size() - 1, -1, -1):
+		var tornado: Dictionary = tornadoes[i]
+		tornado["age"] = float(tornado["age"]) + delta
+		tornado["tick"] = float(tornado["tick"]) + delta
+		var position: Vector3 = tornado["pos"]
+		var target: Vector3 = tornado["target"]
+		var direction := Vector3(target.x - position.x, 0.0, target.z - position.z)
+		if direction.length() < 1.4:
+			var target_x: float = clamp(position.x + randf_range(-18.0, 18.0), -TERRAIN_SIZE * 0.46, TERRAIN_SIZE * 0.46)
+			var target_z: float = clamp(position.z + randf_range(-18.0, 18.0), -TERRAIN_SIZE * 0.46, TERRAIN_SIZE * 0.46)
+			tornado["target"] = _surface_position(target_x, target_z)
+		else:
+			var step: Vector3 = direction.normalized() * delta * 3.8
+			position.x = clamp(position.x + step.x, -TERRAIN_SIZE * 0.47, TERRAIN_SIZE * 0.47)
+			position.z = clamp(position.z + step.z, -TERRAIN_SIZE * 0.47, TERRAIN_SIZE * 0.47)
+			position.y = _height_at(position.x, position.z)
+			tornado["pos"] = position
+		var node: Node3D = tornado["node"]
+		if is_instance_valid(node):
+			node.position = position
+			for ring_index in range(node.get_child_count()):
+				var ring: Node3D = node.get_child(ring_index)
+				ring.rotate_y(delta * (2.5 + float(ring_index) * 1.1))
+		if float(tornado["tick"]) >= 0.75:
+			tornado["tick"] = 0.0
+			_power_damage(position, 2.8, 2, 0.25, 1)
+		if float(tornado["age"]) >= 10.0:
+			if is_instance_valid(node):
+				node.queue_free()
+			tornadoes.remove_at(i)
+		else:
+			tornadoes[i] = tornado
+
+
+func _update_brush_preview() -> void:
+	if not is_instance_valid(brush_preview):
+		return
+	if tool_mode == "select" and pending_action == "":
+		brush_preview.visible = false
+		return
+	var mouse_position: Vector2 = get_viewport().get_mouse_position()
+	var world_position: Vector3 = _get_ground_position(mouse_position)
+	if abs(world_position.x) > TERRAIN_SIZE * 0.5 or abs(world_position.z) > TERRAIN_SIZE * 0.5:
+		brush_preview.visible = false
+		return
+	brush_preview.visible = true
+	brush_preview.position = world_position + Vector3(0.0, 0.09, 0.0)
+	brush_preview.scale = Vector3(brush_radius, 1.0, brush_radius)
+	var preview_colors: Dictionary = {
+		"raise": Color(0.66, 0.90, 0.32, 0.80),
+		"lower": Color(0.37, 0.72, 1.0, 0.80),
+		"fire": Color(1.0, 0.28, 0.06, 0.80),
+		"meteor": Color(1.0, 0.38, 0.10, 0.80),
+		"plague": Color(0.62, 1.0, 0.22, 0.80),
+		"heal": Color(0.22, 1.0, 0.58, 0.80),
+		"forest": Color(0.20, 0.92, 0.36, 0.80),
+		"quake": Color(0.82, 0.60, 0.29, 0.80),
+		"tornado": Color(0.72, 0.80, 0.91, 0.80),
+		"lightning": Color(0.30, 0.82, 1.0, 0.80)
+	}
+	brush_preview_material.albedo_color = preview_colors.get(tool_mode, Color(0.28, 0.86, 1.0, 0.80))
 
 
 func _erase_near(position: Vector3) -> void:
@@ -1498,6 +1725,8 @@ func _build_ui() -> void:
 	_add_tool_button(grid, "Lightning", "lightning", Color(0.14, 0.36, 0.57))
 	_add_tool_button(grid, "Fire", "fire", Color(0.58, 0.23, 0.09))
 	_add_tool_button(grid, "Meteor", "meteor", Color(0.52, 0.16, 0.12))
+	_add_tool_button(grid, "Tornado", "tornado", Color(0.31, 0.35, 0.43))
+	_add_tool_button(grid, "Plague", "plague", Color(0.34, 0.26, 0.40))
 	_add_tool_button(grid, "Heal / Bless", "heal", Color(0.12, 0.42, 0.30))
 	_add_tool_button(grid, "Create Forest", "forest", Color(0.10, 0.36, 0.19))
 	_add_tool_button(grid, "Earthquake", "quake", Color(0.42, 0.30, 0.16))
@@ -1534,7 +1763,7 @@ func _build_ui() -> void:
 	speed_button = _make_button("Simulation Speed: 1×", _cycle_speed, Color(0.13, 0.22, 0.29))
 	content.add_child(speed_button)
 	content.add_child(_make_label("CONTROLS", 12, Color(0.46, 0.86, 0.98)))
-	content.add_child(_make_label("WASD / arrows: move camera\nRight-drag: rotate\nMiddle-drag: pan\nMouse wheel: zoom\nHold left mouse to paint terrain and resources.\nChoose a power, then click the world.", 11, Color(0.68, 0.75, 0.80)))
+	content.add_child(_make_label("WASD / arrows: move camera\nRight-drag: orbit\nMiddle-drag: pan\nMouse wheel: zoom\nDrag to paint terrain/resources.\nChoose a power, then click the world.", 11, Color(0.68, 0.75, 0.80)))
 
 	var right_panel := PanelContainer.new()
 	right_panel.anchor_left = 1.0
@@ -1583,6 +1812,7 @@ func _change_brush(amount: float) -> void:
 	brush_radius = clamp(brush_radius + amount, 1.5, 9.0)
 	if is_instance_valid(radius_label):
 		radius_label.text = "Radius %.1f" % brush_radius
+	_update_brush_preview()
 
 
 func _take_control() -> void:
@@ -1706,7 +1936,7 @@ func _refresh_ui() -> void:
 		else:
 			selection_ring.visible = false
 	if is_instance_valid(tool_label):
-		var tool_names: Dictionary = {"select": "Select and inspect cities", "raise": "Raise terrain with the brush", "lower": "Lower terrain with the brush", "human": "Spawn humans; clusters can found settlements", "tree": "Plant a wood resource", "stone": "Place a stone deposit", "food": "Place a food resource", "erase": "Erase a nearby human or resource", "lightning": "Strike the ground with lightning", "fire": "Start a spreading fire", "meteor": "Call down a destructive meteor", "heal": "Bless an area with new people", "forest": "Create a grove of trees", "quake": "Shake and deform the land"}
+		var tool_names: Dictionary = {"select": "Select and inspect cities", "raise": "Raise terrain with the brush", "lower": "Lower terrain with the brush", "human": "Spawn humans; clusters can found settlements", "tree": "Plant a wood resource", "stone": "Place a stone deposit", "food": "Place a food resource", "erase": "Erase a nearby human or resource", "lightning": "Strike the ground with lightning", "fire": "Start a spreading fire", "meteor": "Call down a destructive meteor", "tornado": "Send a moving vortex through the world", "plague": "Infect humans and let sickness spread", "heal": "Bless an area with new people", "forest": "Create a grove of trees", "quake": "Shake and deform the land"}
 		tool_label.text = "Active: %s" % str(tool_names.get(tool_mode, tool_mode))
 	for city_index in range(cities.size()):
 		if is_instance_valid(cities[city_index]["label"]):
