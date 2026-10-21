@@ -1390,7 +1390,7 @@ func _grow_cities() -> void:
 	for city_id in range(cities.size()):
 		var city: Dictionary = cities[city_id]
 		var population: int = _city_population(city_id)
-		if population > 0 and population < 55 and float(city["food"]) >= 1.0 and people.size() < MAX_PEOPLE:
+		if population > 0 and population < 55 and float(city["food"]) >= 1.0 and float(city.get("stability", 72.0)) >= 28.0 and people.size() < MAX_PEOPLE:
 			city["food"] = max(0.0, float(city["food"]) - 1.0)
 			if float(city["wood"]) > 0.2:
 				city["wood"] = max(0.0, float(city["wood"]) - 0.2)
