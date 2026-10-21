@@ -871,6 +871,110 @@ func _create_city(position: Vector3, city_name: String, color: Color) -> int:
 	return index
 
 
+func _territory_material(color: Color, alpha: float) -> StandardMaterial3D:
+	var material := StandardMaterial3D.new()
+	material.albedo_color = Color(color.r, color.g, color.b, alpha)
+	material.transparency = BaseMaterial3D.TRANSPARENCY_ALPHA
+	material.shading_mode = BaseMaterial3D.SHADING_MODE_UNSHADED
+	material.cull_mode = BaseMaterial3D.CULL_DISABLED
+	material.roughness = 1.0
+	return material
+
+
+func _city_territory_base_radius(city_id: int) -> float:
+	if city_id < 0 or city_id >= cities.size():
+		return 0.0
+	var city: Dictionary = cities[city_id]
+	var houses: Array = city["houses"]
+	var stage: int = int(city.get("stage", 0))
+	return 9.0 + float(houses.size()) * 0.68 + float(stage) * 1.5
+
+
+func _city_territory_radius_at_angle(city_id: int, angle: float, base_radius: float) -> float:
+	var city_position: Vector3 = cities[city_id]["pos"]
+	var direction := Vector2(cos(angle), sin(angle))
+	var radius: float = base_radius
+	for other_id in range(cities.size()):
+		if other_id == city_id:
+			continue
+		var other_position: Vector3 = cities[other_id]["pos"]
+		var offset := Vector2(other_position.x - city_position.x, other_position.z - city_position.z)
+		var distance: float = offset.length()
+		if distance < 0.1:
+			continue
+		var other_radius: float = _city_territory_base_radius(other_id)
+		# Once both influence zones reach each other, use the shared bisector as
+		# the border. The border shifts towards the smaller zone until balanced.
+		if distance > base_radius + other_radius:
+			continue
+		var along: float = offset.dot(direction)
+		if along <= 0.001:
+			continue
+		var facing_amount: float = along / distance
+		var border_offset: float = clamp((distance + base_radius - other_radius) * 0.5, 0.0, distance)
+		var border_radius: float = border_offset / maxf(facing_amount, 0.05)
+		radius = minf(radius, border_radius)
+	return maxf(radius, 1.0)
+
+
+func _refresh_city_territory(city_id: int) -> void:
+	if city_id < 0 or city_id >= cities.size():
+		return
+	var city: Dictionary = cities[city_id]
+	var old_radius: float = float(city.get("zone_radius", 0.0))
+	var base_radius: float = _city_territory_base_radius(city_id)
+	var segment_count: int = 96
+	var fill_surface := SurfaceTool.new()
+	fill_surface.begin(Mesh.PRIMITIVE_TRIANGLES)
+	var border_surface := SurfaceTool.new()
+	border_surface.begin(Mesh.PRIMITIVE_TRIANGLES)
+	var center: Vector3 = city["pos"]
+	center.y = _height_at(center.x, center.z) + 0.13
+	var previous_outer := Vector3.ZERO
+	var previous_inner := Vector3.ZERO
+	var previous_valid: bool = false
+
+	for segment in range(segment_count + 1):
+		var angle: float = TAU * float(segment) / float(segment_count)
+		var radius: float = _city_territory_radius_at_angle(city_id, angle, base_radius)
+		var direction := Vector2(cos(angle), sin(angle))
+		var outer := Vector3(center.x + direction.x * radius, 0.0, center.z + direction.y * radius)
+		outer.y = _height_at(outer.x, outer.z) + 0.15
+		var inner_radius: float = maxf(0.25, radius - 0.42)
+		var inner := Vector3(center.x + direction.x * inner_radius, 0.0, center.z + direction.y * inner_radius)
+		inner.y = _height_at(inner.x, inner.z) + 0.16
+		var outer_land: bool = outer.y > WATER_LEVEL + 0.08
+
+		if segment > 0 and previous_valid and outer_land:
+			# A faint translucent surface makes the whole city influence area
+			# readable; a thicker ribbon marks its boundary.
+			fill_surface.add_vertex(center)
+			fill_surface.add_vertex(previous_outer)
+			fill_surface.add_vertex(outer)
+			border_surface.add_vertex(previous_inner)
+			border_surface.add_vertex(previous_outer)
+			border_surface.add_vertex(inner)
+			border_surface.add_vertex(previous_outer)
+			border_surface.add_vertex(outer)
+			border_surface.add_vertex(inner)
+
+		previous_outer = outer
+		previous_inner = inner
+		previous_valid = outer_land
+
+	fill_surface.generate_normals(true)
+	border_surface.generate_normals(true)
+	var fill_node: MeshInstance3D = city["zone_fill"]
+	var border_node: MeshInstance3D = city["zone_border"]
+	fill_node.mesh = fill_surface.commit()
+	border_node.mesh = border_surface.commit()
+	city["zone_radius"] = base_radius
+	cities[city_id] = city
+
+	if selected_city == city_id and base_radius > old_radius + 0.25:
+		_request_city_camera_zoom(city_id)
+
+
 func _city_stage_for_population(population: int) -> int:
 	if population >= 40:
 		return 3
