@@ -138,6 +138,7 @@ func _process(delta: float) -> void:
 		_update_tornadoes(sim_delta)
 		_update_plague(sim_delta)
 		_update_simulation_timers(sim_delta)
+		_update_city_event_markers(sim_delta)
 	ui_timer += delta
 	if ui_timer >= 0.35:
 		ui_timer = 0.0
@@ -859,6 +860,18 @@ func _create_city(position: Vector3, city_name: String, color: Color) -> int:
 	city_label.modulate = Color(1.0, 1.0, 1.0)
 	town.add_child(city_label)
 
+	var event_marker := Label3D.new()
+	event_marker.name = "CityEventMarker"
+	event_marker.text = ""
+	event_marker.position = Vector3(3.2, 9.0, 0.0)
+	event_marker.billboard = BaseMaterial3D.BILLBOARD_ENABLED
+	event_marker.font_size = 42
+	event_marker.pixel_size = 0.012
+	event_marker.outline_size = 10
+	event_marker.modulate = Color(1.0, 0.76, 0.28)
+	event_marker.visible = false
+	town.add_child(event_marker)
+
 	cities.append({
 		"name": city_name,
 		"pos": position,
@@ -866,6 +879,8 @@ func _create_city(position: Vector3, city_name: String, color: Color) -> int:
 		"node": town,
 		"roads": road_network,
 		"label": city_label,
+		"event_marker": event_marker,
+		"event_timer": 0.0,
 		"far_marker": far_marker,
 		"zone_fill": zone_fill,
 		"zone_border": zone_border,
@@ -1616,8 +1631,10 @@ func _try_city_event(city_id: int) -> bool:
 		if became_independent:
 			city["owner"] = city_id
 			_log("REBELLION: %s has declared independence after unrest overwhelmed its government." % city["name"])
+		_record_city_event(city_id, "REBELLION", Color(0.98, 0.24, 0.27))
 		else:
 			_log("REBELLION: Unrest overthrew the local administration in %s. Emergency leadership has taken over." % city["name"])
+		_record_city_event(city_id, "REBELLION", Color(0.98, 0.24, 0.27))
 		city["stability"] = 36.0
 		city["security"] = maxf(12.0, security - 12.0)
 		city["wealth"] = maxf(0.0, wealth - 5.0)
@@ -1630,6 +1647,7 @@ func _try_city_event(city_id: int) -> bool:
 		city["security"] = maxf(0.0, security - 2.0)
 		cities[city_id] = city
 		_log("FOOD PROTEST: Residents in %s are demonstrating over dwindling food supplies." % city["name"])
+		_record_city_event(city_id, "FOOD SHORTAGE", Color(1.0, 0.65, 0.22))
 		_record_city_event()
 		return true
 
@@ -1649,6 +1667,7 @@ func _try_city_event(city_id: int) -> bool:
 		city["wealth"] = maxf(0.0, wealth - 6.0)
 		cities[city_id] = city
 		_log("SECURITY INCIDENT: An extremist attack damaged property in %s. Security is being reviewed." % city["name"])
+		_record_city_event(city_id, "ATTACK", Color(1.0, 0.30, 0.12))
 		_record_city_event()
 		return true
 
@@ -1658,6 +1677,7 @@ func _try_city_event(city_id: int) -> bool:
 		city["stability"] = maxf(0.0, stability - 2.0)
 		cities[city_id] = city
 		_log("BANK ROBBERY: A bank was robbed in %s. The city lost funds and authorities increased patrols." % city["name"])
+		_record_city_event(city_id, "BANK ROBBERY", Color(1.0, 0.48, 0.19))
 		_record_city_event()
 		return true
 
@@ -1666,6 +1686,7 @@ func _try_city_event(city_id: int) -> bool:
 		city["security"] = maxf(0.0, security - 2.0)
 		cities[city_id] = city
 		_log("PROTEST: A crowd gathered in %s over local conditions. The city is less stable." % city["name"])
+		_record_city_event(city_id, "PROTEST", Color(0.98, 0.78, 0.30))
 		_record_city_event()
 		return true
 
@@ -1674,6 +1695,7 @@ func _try_city_event(city_id: int) -> bool:
 		city["stability"] = maxf(0.0, stability - 4.0)
 		cities[city_id] = city
 		_log("WORKERS' STRIKE: Work has slowed in %s amid shortages and public frustration." % city["name"])
+		_record_city_event(city_id, "STRIKE", Color(1.0, 0.61, 0.22))
 		_record_city_event()
 		return true
 
@@ -1682,13 +1704,38 @@ func _try_city_event(city_id: int) -> bool:
 		city["stability"] = minf(100.0, stability + 2.0)
 		cities[city_id] = city
 		_log("CITY FESTIVAL: A successful public celebration boosted morale in %s." % city["name"])
+		_record_city_event(city_id, "FESTIVAL", Color(0.28, 0.96, 0.70))
 		_record_city_event()
 		return true
 	return false
 
 
-func _record_city_event() -> void:
+func _record_city_event(city_id: int, event_name: String, event_color: Color) -> void:
 	city_events_total += 1
+	if city_id < 0 or city_id >= cities.size():
+		return
+	var city: Dictionary = cities[city_id]
+	var marker: Label3D = city["event_marker"]
+	if is_instance_valid(marker):
+		marker.text = event_name
+		marker.modulate = event_color
+		marker.visible = true
+	city["event_timer"] = 12.0
+	cities[city_id] = city
+
+
+func _update_city_event_markers(delta: float) -> void:
+	for city_id in range(cities.size()):
+		var city: Dictionary = cities[city_id]
+		var time_left: float = float(city.get("event_timer", 0.0))
+		if time_left <= 0.0:
+			continue
+		time_left = maxf(0.0, time_left - delta)
+		city["event_timer"] = time_left
+		var marker: Label3D = city["event_marker"]
+		if is_instance_valid(marker) and time_left <= 0.0:
+			marker.visible = false
+		cities[city_id] = city
 
 
 func _try_start_ai_war() -> void:
