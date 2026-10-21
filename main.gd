@@ -43,6 +43,7 @@ var fire_zones: Array = []
 var falling_meteors: Array = []
 var tornadoes: Array = []
 var wars: Array = []
+var city_event_scenes: Array = []
 var log_entries: Array[String] = []
 
 var selected_city: int = -1
@@ -149,6 +150,7 @@ func _process(delta: float) -> void:
 		_update_plague(sim_delta)
 		_update_simulation_timers(sim_delta)
 		_update_city_event_markers(sim_delta)
+		_update_city_event_scenes(sim_delta)
 		_update_historical_era()
 	ui_timer += delta
 	if ui_timer >= 0.35:
@@ -2107,6 +2109,237 @@ func _record_city_event(city_id: int, event_name: String, event_color: Color) ->
 		marker.visible = true
 	city["event_timer"] = 12.0
 	cities[city_id] = city
+	_spawn_city_event_visual(city_id, event_name)
+
+
+func _spawn_city_event_visual(city_id: int, event_name: String) -> void:
+	if city_id < 0 or city_id >= cities.size():
+		return
+	var city: Dictionary = cities[city_id]
+	var centre: Vector3 = city["pos"]
+	if event_name in ["PROTEST", "FOOD PROTEST", "FOOD RIOT", "STRIKE", "REBELLION", "FESTIVAL"]:
+		var crowd_root := Node3D.new()
+		crowd_root.name = "CityEventCrowd"
+		crowd_root.position = centre
+		add_child(crowd_root)
+		var actors: Array = []
+		var crowd_count: int = 12 if event_name == "FESTIVAL" else 18
+		var shirt_colors: Array[Color] = [Color(0.85, 0.25, 0.20), Color(0.92, 0.76, 0.30), Color(0.25, 0.52, 0.82), Color(0.77, 0.78, 0.76)]
+		for person_index in range(crowd_count):
+			var local_x: float = float(person_index % 6 - 2.5) * 1.25
+			var local_z: float = 5.2 + float(person_index / 6) * 1.0
+			var ground: Vector3 = _surface_position(centre.x + local_x, centre.z + local_z)
+			var garment: Color = shirt_colors[person_index % shirt_colors.size()]
+			if event_name == "REBELLION":
+				garment = Color(0.55, 0.12, 0.15) if person_index % 2 == 0 else shirt_colors[person_index % shirt_colors.size()]
+			if event_name == "FESTIVAL":
+				garment = city["color"].lightened(float(person_index % 3) * 0.10)
+			var visuals: Dictionary = _create_roblox_character(crowd_root, garment, Color(0.85, 0.66, 0.49))
+			var character: Node3D = visuals["node"]
+			character.position = Vector3(local_x, ground.y - centre.y, local_z)
+			actors.append(visuals)
+
+		# Large placards make protests legible from the usual isometric camera.
+		if event_name != "FESTIVAL":
+			var sign_text: String = "FOOD" if event_name == "FOOD PROTEST" or event_name == "FOOD RIOT" else ("WAGES" if event_name == "STRIKE" else ("RESIST" if event_name == "REBELLION" else "JUSTICE"))
+			for sign_index in range(3):
+				var sign_root := Node3D.new()
+				var sign_x: float = float(sign_index - 1) * 3.1
+				var sign_ground: Vector3 = _surface_position(centre.x + sign_x, centre.z + 3.7)
+				sign_root.position = Vector3(sign_x, sign_ground.y - centre.y, 3.7)
+				crowd_root.add_child(sign_root)
+				var pole := BoxMesh.new()
+				pole.size = Vector3(0.09, 1.45, 0.09)
+				_add_mesh(sign_root, pole, _material(Color(0.28, 0.19, 0.12)), Vector3(0.0, 0.72, 0.0))
+				var board := BoxMesh.new()
+				board.size = Vector3(1.3, 0.68, 0.12)
+				_add_mesh(sign_root, board, _material(Color(0.88, 0.78, 0.56)), Vector3(0.0, 1.35, 0.0))
+				var lettering := Label3D.new()
+				lettering.text = sign_text
+				lettering.position = Vector3(0.0, 1.34, 0.075)
+				lettering.font_size = 32
+				lettering.pixel_size = 0.009
+				lettering.outline_size = 5
+				lettering.modulate = Color(0.15, 0.14, 0.12)
+				sign_root.add_child(lettering)
+		city_event_scenes.append({
+			"node": crowd_root,
+			"kind": "crowd",
+			"actors": actors,
+			"age": 0.0,
+			"duration": 18.0
+		})
+		return
+
+	if event_name == "ATTACK":
+		var target_house: Node3D = null
+		if not (city["houses"] as Array).is_empty():
+			target_house = city["houses"][randi_range(0, city["houses"].size() - 1)]
+		var target_position: Vector3 = target_house.global_position if is_instance_valid(target_house) else centre
+		var blast_root := Node3D.new()
+		blast_root.name = "CityExplosion"
+		blast_root.position = target_position
+		add_child(blast_root)
+		var fireball := MeshInstance3D.new()
+		var fireball_mesh := SphereMesh.new()
+		fireball_mesh.radius = 1.35
+		fireball_mesh.height = 2.7
+		fireball.mesh = fireball_mesh
+		var blast_material := StandardMaterial3D.new()
+		blast_material.albedo_color = Color(1.0, 0.30, 0.055, 0.88)
+		blast_material.transparency = BaseMaterial3D.TRANSPARENCY_ALPHA
+		blast_material.emission_enabled = true
+		blast_material.emission = Color(1.0, 0.14, 0.02)
+		blast_material.emission_energy_multiplier = 2.5
+		fireball.material_override = blast_material
+		fireball.position = Vector3(0.0, 1.4, 0.0)
+		blast_root.add_child(fireball)
+		var smoke := MeshInstance3D.new()
+		var smoke_mesh := SphereMesh.new()
+		smoke_mesh.radius = 1.8
+		smoke_mesh.height = 3.6
+		smoke.mesh = smoke_mesh
+		var smoke_material := StandardMaterial3D.new()
+		smoke_material.albedo_color = Color(0.19, 0.18, 0.17, 0.55)
+		smoke_material.transparency = BaseMaterial3D.TRANSPARENCY_ALPHA
+		smoke_material.shading_mode = BaseMaterial3D.SHADING_MODE_UNSHADED
+		smoke.material_override = smoke_material
+		smoke.position = Vector3(0.0, 2.2, 0.0)
+		blast_root.add_child(smoke)
+		if is_instance_valid(target_house):
+			city_event_scenes.append({
+				"node": blast_root,
+				"kind": "attack",
+				"flash": fireball,
+				"smoke": smoke,
+				"house": target_house,
+				"start_rotation": target_house.rotation,
+				"age": 0.0,
+				"duration": 3.0
+			})
+		else:
+			city_event_scenes.append({"node": blast_root, "kind": "effect", "age": 0.0, "duration": 3.0})
+		return
+
+	if event_name == "BANK ROBBERY":
+		var chase_root := Node3D.new()
+		chase_root.name = "BankRobberyChase"
+		chase_root.position = centre
+		add_child(chase_root)
+		var robber_visuals: Dictionary = _create_roblox_character(chase_root, Color(0.12, 0.14, 0.17), Color(0.66, 0.47, 0.32))
+		var robber: Node3D = robber_visuals["node"]
+		robber.position = Vector3(-3.0, _height_at(centre.x - 3.0, centre.z) - centre.y, 0.0)
+		var sack := BoxMesh.new()
+		sack.size = Vector3(0.23, 0.24, 0.23)
+		_add_mesh(robber, sack, _material(Color(0.47, 0.31, 0.17)), Vector3(0.24, 0.0, 0.0))
+
+		var car := Node3D.new()
+		car.name = "PoliceChaseCar"
+		chase_root.add_child(car)
+		var car_body := BoxMesh.new()
+		car_body.size = Vector3(2.8, 0.72, 1.35)
+		_add_mesh(car, car_body, _material(Color(0.88, 0.90, 0.92)), Vector3(0.0, 0.64, 0.0))
+		var car_roof := BoxMesh.new()
+		car_roof.size = Vector3(1.35, 0.47, 1.08)
+		_add_mesh(car, car_roof, _material(Color(0.12, 0.24, 0.36)), Vector3(-0.05, 1.20, 0.0))
+		var front_window := BoxMesh.new()
+		front_window.size = Vector3(0.065, 0.32, 0.80)
+		_add_mesh(car, front_window, _material(Color(0.30, 0.62, 0.78)), Vector3(0.66, 1.22, 0.0))
+		for wheel_x in [-0.92, 0.92]:
+			for wheel_z in [-0.61, 0.61]:
+				var wheel := MeshInstance3D.new()
+				var wheel_mesh := CylinderMesh.new()
+				wheel_mesh.top_radius = 0.27
+				wheel_mesh.bottom_radius = 0.27
+				wheel_mesh.height = 0.16
+				wheel.mesh = wheel_mesh
+				wheel.rotation.z = PI * 0.5
+				wheel.position = Vector3(wheel_x, 0.30, wheel_z)
+				wheel.material_override = _material(Color(0.08, 0.09, 0.10))
+				car.add_child(wheel)
+		var red_light := BoxMesh.new()
+		red_light.size = Vector3(0.25, 0.12, 0.20)
+		_add_mesh(car, red_light, _material(Color(1.0, 0.12, 0.08)), Vector3(-0.05, 1.49, -0.23))
+		var blue_light := BoxMesh.new()
+		blue_light.size = Vector3(0.25, 0.12, 0.20)
+		_add_mesh(car, blue_light, _material(Color(0.10, 0.38, 1.0)), Vector3(-0.05, 1.49, 0.23))
+		car.position = Vector3(-7.0, _height_at(centre.x - 7.0, centre.z + 1.7) - centre.y, 1.7)
+		city_event_scenes.append({
+			"node": chase_root,
+			"kind": "robbery",
+			"robber": robber,
+			"car": car,
+			"age": 0.0,
+			"duration": 12.0
+		})
+
+
+func _update_city_event_scenes(delta: float) -> void:
+	for scene_index in range(city_event_scenes.size() - 1, -1, -1):
+		var scene: Dictionary = city_event_scenes[scene_index]
+		scene["age"] = float(scene.get("age", 0.0)) + delta
+		var age: float = float(scene["age"])
+		var kind: String = str(scene.get("kind", "effect"))
+		if kind == "crowd":
+			var actors: Array = scene.get("actors", [])
+			for actor_index in range(actors.size()):
+				var actor: Dictionary = actors[actor_index]
+				var gait: float = sin(age * 6.5 + float(actor_index) * 1.7) * 0.72
+				var left_arm: Node3D = actor["left_arm"]
+				var right_arm: Node3D = actor["right_arm"]
+				if is_instance_valid(left_arm):
+					left_arm.rotation.x = gait
+				if is_instance_valid(right_arm):
+					right_arm.rotation.x = -gait * 0.8
+		elif kind == "attack":
+			var flash: MeshInstance3D = scene["flash"]
+			var smoke: MeshInstance3D = scene["smoke"]
+			var flash_scale: float = 0.25 + minf(age, 0.8) * 2.0
+			if is_instance_valid(flash):
+				flash.scale = Vector3.ONE * flash_scale
+				flash.visible = age < 1.0
+			if is_instance_valid(smoke):
+				smoke.scale = Vector3.ONE * (0.35 + age * 0.58)
+				smoke.position.y = 1.7 + age * 0.55
+				smoke.visible = age < 2.7
+			var house: Node3D = scene.get("house")
+			if is_instance_valid(house):
+				var original_rotation: Vector3 = scene["start_rotation"]
+				var fall_amount: float = clampf((age - 0.15) / 0.9, 0.0, 1.0)
+				house.rotation = Vector3(original_rotation.x, original_rotation.y, original_rotation.z + fall_amount * 1.12)
+				if age > 0.75:
+					house.set_meta("damaged", true)
+		elif kind == "robbery":
+			var robber: Node3D = scene["robber"]
+			var car: Node3D = scene["car"]
+			var progress: float = clampf(age / float(scene["duration"]), 0.0, 1.0)
+			if is_instance_valid(robber):
+				robber.position.x = -3.0 + progress * 20.0
+				robber.position.z = sin(age * 2.0) * 0.75
+				var phase: float = sin(age * 9.0) * 0.56
+				var left_arm: Node3D = robber.get_node_or_null("LeftArmPivot")
+				var right_arm: Node3D = robber.get_node_or_null("RightArmPivot")
+				var left_leg: Node3D = robber.get_node_or_null("LeftLegPivot")
+				var right_leg: Node3D = robber.get_node_or_null("RightLegPivot")
+				if is_instance_valid(left_arm):
+					left_arm.rotation.x = phase
+				if is_instance_valid(right_arm):
+					right_arm.rotation.x = -phase
+				if is_instance_valid(left_leg):
+					left_leg.rotation.x = -phase
+				if is_instance_valid(right_leg):
+					right_leg.rotation.x = phase
+			if is_instance_valid(car):
+				car.position.x = -7.0 + progress * 18.0
+				car.position.z = 1.7 + cos(age * 1.4) * 0.28
+				car.rotation.y = 0.0
+		if age >= float(scene.get("duration", 10.0)):
+			var node: Node = scene.get("node")
+			if is_instance_valid(node):
+				node.queue_free()
+			city_event_scenes.remove_at(scene_index)
+		else:
+			city_event_scenes[scene_index] = scene
 
 
 func _update_city_event_markers(delta: float) -> void:
@@ -3533,6 +3766,8 @@ func _clear_loaded_world() -> void:
 	_queue_nodes_from_entries(fire_zones)
 	_queue_nodes_from_entries(falling_meteors)
 	_queue_nodes_from_entries(tornadoes)
+	_queue_nodes_from_entries(city_event_scenes)
+	city_event_scenes.clear()
 	cities.clear()
 	people.clear()
 	resources.clear()
