@@ -1391,6 +1391,9 @@ func _try_found_cities() -> void:
 			for member_id in members:
 				people[member_id]["city_id"] = new_city_id
 			_refresh_city_development(new_city_id)
+			for affected_city_id in range(cities.size()):
+				if affected_city_id != new_city_id:
+					_refresh_city_territory(affected_city_id)
 			_seed_resources_around(cities[new_city_id]["pos"])
 			_log("A new settlement, %s, has been founded by %d humans." % [new_name, members.size()])
 			return
