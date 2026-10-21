@@ -7,6 +7,8 @@ const MAX_CITIES: int = 10
 const MAX_PEOPLE: int = 800
 const MAX_CITY_POPULATION: int = 600
 const MAX_CITY_HOUSES: int = 140
+const MAX_CARS: int = 36
+const ROAD_GRID_SIZE: float = 7.5
 const WATER_LEVEL: float = -0.15
 const STARTING_YEAR: int = 1200
 const SECONDS_PER_YEAR: float = 3.0
@@ -34,7 +36,13 @@ var city_colors: Array[Color] = [
 ]
 var cities: Array = []
 var people: Array = []
+var cars: Array = []
 var resources: Array = []
+var _material_cache: Dictionary = {}
+var _box_mesh_cache: Dictionary = {}
+var citizen_infection_marker_mesh: SphereMesh
+var citizen_infection_marker_material: StandardMaterial3D
+var last_detail_signature: String = ""
 var armies: Array = []
 var missiles: Array = []
 var explosions: Array = []
@@ -59,6 +67,8 @@ var game_clock: float = 0.0
 var last_architecture_era: int = -1
 var world_seed: int = 0
 var people_update_accumulator: float = 0.0
+var car_update_accumulator: float = 0.0
+var traffic_spawn_timer: float = 0.0
 var growth_timer: float = 0.0
 var city_event_timer: float = 16.0
 var city_events_total: int = 0
@@ -125,22 +135,35 @@ func _process(delta: float) -> void:
 		sim_delta = delta * sim_speed
 		game_clock += sim_delta
 
-		# Citizens are tiny or invisible at world scale, so update their movement
-		# less often at distance. The accumulated delta preserves movement speed
-		# and timers instead of making the population run in slow motion.
+		# Throttle the full crowd update as populations grow, while preserving game-time motion.
 		var people_update_interval: float = 0.0
 		if camera_distance > 165.0:
-			people_update_interval = 0.55
+			people_update_interval = 0.65
 		elif camera_distance > 100.0:
-			people_update_interval = 0.18
+			people_update_interval = 0.24
+		elif people.size() > 500:
+			people_update_interval = 0.12
+		elif people.size() > 260:
+			people_update_interval = 0.08
+		elif people.size() > 120:
+			people_update_interval = 0.04
 		if people_update_interval <= 0.0:
 			people_update_accumulator = 0.0
 			_update_people(sim_delta)
 		else:
 			people_update_accumulator += sim_delta
 			if people_update_accumulator >= people_update_interval:
-				_update_people(people_update_accumulator)
-				people_update_accumulator = 0.0
+				var people_delta: float = people_update_accumulator
+				people_update_accumulator = fmod(people_update_accumulator, people_update_interval)
+				_update_people(people_delta)
+
+		if not cars.is_empty():
+			var car_update_interval: float = 0.09 if camera_distance <= 85.0 else (0.18 if camera_distance <= 165.0 else 0.42)
+			car_update_accumulator += sim_delta
+			if car_update_accumulator >= car_update_interval:
+				var cars_delta: float = car_update_accumulator
+				car_update_accumulator = fmod(car_update_accumulator, car_update_interval)
+				_update_cars(cars_delta)
 
 		_update_armies(sim_delta)
 		_update_missiles(sim_delta)
@@ -743,6 +766,18 @@ func _update_placed_object_heights() -> void:
 		resource["pos"] = p
 		if is_instance_valid(resource["node"]):
 			resource["node"].position = p
+	for car_index in range(cars.size()):
+		var car: Dictionary = cars[car_index]
+		var car_position: Vector3 = car["pos"]
+		car_position.y = _height_at(car_position.x, car_position.z)
+		car["pos"] = car_position
+		var car_node: Node3D = car["node"]
+		if is_instance_valid(car_node):
+			car_node.position = car_position
+		var waypoint: Vector3 = car["waypoint"]
+		waypoint.y = _height_at(waypoint.x, waypoint.z)
+		car["waypoint"] = waypoint
+		cars[car_index] = car
 	for city in cities:
 		var p: Vector3 = city["pos"]
 		p.y = _height_at(p.x, p.z)
@@ -929,6 +964,11 @@ func _create_city(position: Vector3, city_name: String, color: Color) -> int:
 		"flag": flag,
 		"stage": 0,
 		"houses": [],
+		"development_population": -1,
+		"road_grid_min_x": -7.5,
+		"road_grid_max_x": 7.5,
+		"road_grid_min_z": -7.5,
+		"road_grid_max_z": 7.5,
 		"owner": index,
 		"food": 8.0,
 		"wood": 5.0,
@@ -1244,13 +1284,16 @@ func _refresh_city_development(city_id: int) -> void:
 	var next_stage: int = _city_stage_for_population(population)
 	city["stage"] = next_stage
 	city["population"] = population
+	city["development_population"] = population
 	cities[city_id] = city
-	if next_stage != previous_stage:
+	var stage_changed: bool = next_stage != previous_stage
+	if stage_changed:
 		_apply_city_stage_appearance(city_id)
 		if next_stage > previous_stage:
 			_log("%s developed into a %s." % [city["name"], _city_stage_name(next_stage).to_lower()])
-	_sync_city_buildings(city_id)
-	_refresh_city_territory(city_id)
+	var houses_changed: bool = _sync_city_buildings(city_id)
+	if houses_changed or stage_changed:
+		_refresh_city_territory(city_id)
 	city = cities[city_id]
 	if is_instance_valid(city["label"]):
 		var status: String = "ABANDONED" if population <= 0 else _city_stage_name(next_stage)
@@ -1326,9 +1369,9 @@ func _spiral_grid_offset(index: int) -> Vector2i:
 	return Vector2i(x, z)
 
 
-func _sync_city_buildings(city_id: int) -> void:
+func _sync_city_buildings(city_id: int) -> bool:
 	if city_id < 0 or city_id >= cities.size():
-		return
+		return false
 	var city: Dictionary = cities[city_id]
 	var population: int = _city_population(city_id)
 	var stage: int = int(city.get("stage", 0))
@@ -1459,9 +1502,11 @@ func _sync_city_buildings(city_id: int) -> void:
 	city["houses"] = houses
 	city["next_plot_index"] = plot_index
 	cities[city_id] = city
-	_rebuild_city_roads(city_id)
-	if houses.size() > houses_before:
+	var houses_changed: bool = houses.size() != houses_before
+	if houses_changed:
+		_rebuild_city_roads(city_id)
 		_apply_building_era_appearance(city_id, _world_year())
+	return houses_changed
 
 
 func house_index_to_building_type(index: int, stage: int) -> int:
@@ -1519,6 +1564,11 @@ func _rebuild_city_roads(city_id: int) -> void:
 	var houses: Array = city["houses"]
 	if houses.is_empty():
 		road_node.mesh = null
+		city["road_grid_min_x"] = -7.5
+		city["road_grid_max_x"] = 7.5
+		city["road_grid_min_z"] = -7.5
+		city["road_grid_max_z"] = 7.5
+		cities[city_id] = city
 		return
 	var min_x: float = 0.0
 	var max_x: float = 0.0
@@ -1531,10 +1581,21 @@ func _rebuild_city_roads(city_id: int) -> void:
 		max_x = maxf(max_x, house.position.x + 3.0)
 		min_z = minf(min_z, house.position.z - 3.0)
 		max_z = maxf(max_z, house.position.z + 3.0)
-	var x: float = floor(min_x / 7.5) * 7.5
-	var last_x: float = ceil(max_x / 7.5) * 7.5
-	var z: float = floor(min_z / 7.5) * 7.5
-	var last_z: float = ceil(max_z / 7.5) * 7.5
+	var x: float = floor(min_x / ROAD_GRID_SIZE) * ROAD_GRID_SIZE
+	var last_x: float = ceil(max_x / ROAD_GRID_SIZE) * ROAD_GRID_SIZE
+	var z: float = floor(min_z / ROAD_GRID_SIZE) * ROAD_GRID_SIZE
+	var last_z: float = ceil(max_z / ROAD_GRID_SIZE) * ROAD_GRID_SIZE
+	city["road_grid_min_x"] = ceil(min_x / ROAD_GRID_SIZE) * ROAD_GRID_SIZE
+	city["road_grid_max_x"] = floor(max_x / ROAD_GRID_SIZE) * ROAD_GRID_SIZE
+	city["road_grid_min_z"] = ceil(min_z / ROAD_GRID_SIZE) * ROAD_GRID_SIZE
+	city["road_grid_max_z"] = floor(max_z / ROAD_GRID_SIZE) * ROAD_GRID_SIZE
+	if float(city["road_grid_min_x"]) > float(city["road_grid_max_x"]):
+		city["road_grid_min_x"] = 0.0
+		city["road_grid_max_x"] = 0.0
+	if float(city["road_grid_min_z"]) > float(city["road_grid_max_z"]):
+		city["road_grid_min_z"] = 0.0
+		city["road_grid_max_z"] = 0.0
+	cities[city_id] = city
 	while x <= last_x:
 		_add_road_segment(surface, city_position, Vector2(x, min_z), Vector2(x, max_z), 0.62)
 		x += 7.5
@@ -1577,85 +1638,48 @@ func _seed_resources_around(center: Vector3) -> void:
 
 
 func _create_roblox_character(parent: Node, garment: Color, skin: Color) -> Dictionary:
-	# Block-shaped body parts with separate arm and leg pivots allow walk,
-	# idle, wave, and panic animations later without replacing the character.
+	# A chunky citizen silhouette with shared meshes/materials; omit separate
+	# eyes, mouth, hands, and feet to keep late-game render cost manageable.
 	var human := Node3D.new()
 	human.name = "RobloxStyleCitizen"
 	parent.add_child(human)
-	var torso := BoxMesh.new()
-	torso.size = Vector3(0.48, 0.52, 0.28)
-	_add_mesh(human, torso, _material(garment), Vector3(0.0, 0.87, 0.0))
-	var head := BoxMesh.new()
-	head.size = Vector3(0.36, 0.36, 0.36)
-	_add_mesh(human, head, _material(skin), Vector3(0.0, 1.34, 0.0))
-	var hair := BoxMesh.new()
-	hair.size = Vector3(0.39, 0.12, 0.39)
-	_add_mesh(human, hair, _material(Color(0.22, 0.17, 0.13)), Vector3(0.0, 1.56, 0.0))
-
-	for eye_x in [-0.085, 0.085]:
-		var eye := BoxMesh.new()
-		eye.size = Vector3(0.052, 0.060, 0.025)
-		_add_mesh(human, eye, _material(Color(0.08, 0.09, 0.10)), Vector3(eye_x, 1.36, 0.194))
-	var mouth := BoxMesh.new()
-	mouth.size = Vector3(0.095, 0.025, 0.026)
-	_add_mesh(human, mouth, _material(Color(0.35, 0.13, 0.12)), Vector3(0.0, 1.275, 0.195))
-
+	_add_mesh(human, _cached_box_mesh(Vector3(0.48, 0.52, 0.28)), _material(garment), Vector3(0.0, 0.87, 0.0))
+	_add_mesh(human, _cached_box_mesh(Vector3(0.36, 0.36, 0.36)), _material(skin), Vector3(0.0, 1.34, 0.0))
+	_add_mesh(human, _cached_box_mesh(Vector3(0.39, 0.12, 0.39)), _material(Color(0.22, 0.17, 0.13)), Vector3(0.0, 1.56, 0.0))
 	var left_arm := Node3D.new()
 	left_arm.name = "LeftArmPivot"
 	left_arm.position = Vector3(-0.31, 1.08, 0.0)
 	human.add_child(left_arm)
-	var arm_mesh := BoxMesh.new()
-	arm_mesh.size = Vector3(0.16, 0.46, 0.18)
-	_add_mesh(left_arm, arm_mesh, _material(garment), Vector3(0.0, -0.23, 0.0))
-	var left_hand := BoxMesh.new()
-	left_hand.size = Vector3(0.15, 0.15, 0.16)
-	_add_mesh(left_arm, left_hand, _material(skin), Vector3(0.0, -0.49, 0.0))
-
+	_add_mesh(left_arm, _cached_box_mesh(Vector3(0.16, 0.46, 0.18)), _material(garment), Vector3(0.0, -0.23, 0.0))
 	var right_arm := Node3D.new()
 	right_arm.name = "RightArmPivot"
 	right_arm.position = Vector3(0.31, 1.08, 0.0)
 	human.add_child(right_arm)
-	var right_arm_mesh := BoxMesh.new()
-	right_arm_mesh.size = Vector3(0.16, 0.46, 0.18)
-	_add_mesh(right_arm, right_arm_mesh, _material(garment), Vector3(0.0, -0.23, 0.0))
-	var right_hand := BoxMesh.new()
-	right_hand.size = Vector3(0.15, 0.15, 0.16)
-	_add_mesh(right_arm, right_hand, _material(skin), Vector3(0.0, -0.49, 0.0))
-
+	_add_mesh(right_arm, _cached_box_mesh(Vector3(0.16, 0.46, 0.18)), _material(garment), Vector3(0.0, -0.23, 0.0))
 	var left_leg := Node3D.new()
 	left_leg.name = "LeftLegPivot"
 	left_leg.position = Vector3(-0.13, 0.61, 0.0)
 	human.add_child(left_leg)
-	var leg_mesh := BoxMesh.new()
-	leg_mesh.size = Vector3(0.19, 0.46, 0.20)
-	_add_mesh(left_leg, leg_mesh, _material(Color(0.18, 0.24, 0.31)), Vector3(0.0, -0.23, 0.0))
-	var left_foot := BoxMesh.new()
-	left_foot.size = Vector3(0.21, 0.12, 0.29)
-	_add_mesh(left_leg, left_foot, _material(Color(0.11, 0.13, 0.15)), Vector3(0.0, -0.48, -0.035))
-
+	_add_mesh(left_leg, _cached_box_mesh(Vector3(0.19, 0.46, 0.20)), _material(Color(0.18, 0.24, 0.31)), Vector3(0.0, -0.23, 0.0))
 	var right_leg := Node3D.new()
 	right_leg.name = "RightLegPivot"
 	right_leg.position = Vector3(0.13, 0.61, 0.0)
 	human.add_child(right_leg)
-	var right_leg_mesh := BoxMesh.new()
-	right_leg_mesh.size = Vector3(0.19, 0.46, 0.20)
-	_add_mesh(right_leg, right_leg_mesh, _material(Color(0.18, 0.24, 0.31)), Vector3(0.0, -0.23, 0.0))
-	var right_foot := BoxMesh.new()
-	right_foot.size = Vector3(0.21, 0.12, 0.29)
-	_add_mesh(right_leg, right_foot, _material(Color(0.11, 0.13, 0.15)), Vector3(0.0, -0.48, -0.035))
-
+	_add_mesh(right_leg, _cached_box_mesh(Vector3(0.19, 0.46, 0.20)), _material(Color(0.18, 0.24, 0.31)), Vector3(0.0, -0.23, 0.0))
+	if citizen_infection_marker_mesh == null:
+		citizen_infection_marker_mesh = SphereMesh.new()
+		citizen_infection_marker_mesh.radius = 0.13
+		citizen_infection_marker_mesh.height = 0.26
+	if citizen_infection_marker_material == null:
+		citizen_infection_marker_material = StandardMaterial3D.new()
+		citizen_infection_marker_material.albedo_color = Color(0.52, 1.0, 0.28)
+		citizen_infection_marker_material.emission_enabled = true
+		citizen_infection_marker_material.emission = Color(0.35, 1.0, 0.15)
+		citizen_infection_marker_material.emission_energy_multiplier = 1.3
 	var infection_marker := MeshInstance3D.new()
-	var marker_mesh := SphereMesh.new()
-	marker_mesh.radius = 0.13
-	marker_mesh.height = 0.26
-	infection_marker.mesh = marker_mesh
+	infection_marker.mesh = citizen_infection_marker_mesh
+	infection_marker.material_override = citizen_infection_marker_material
 	infection_marker.position = Vector3(0.0, 1.84, 0.0)
-	var marker_material := StandardMaterial3D.new()
-	marker_material.albedo_color = Color(0.52, 1.0, 0.28)
-	marker_material.emission_enabled = true
-	marker_material.emission = Color(0.35, 1.0, 0.15)
-	marker_material.emission_energy_multiplier = 1.3
-	infection_marker.material_override = marker_material
 	infection_marker.visible = false
 	human.add_child(infection_marker)
 	return {
@@ -1692,12 +1716,24 @@ func _spawn_human(position: Vector3, city_id: int) -> void:
 	var visuals: Dictionary = _create_roblox_character(self, garment, skin_palette[randi_range(0, skin_palette.size() - 1)])
 	var human: Node3D = visuals["node"]
 	var p: Vector3 = position
+	var home_offset: Vector2 = Vector2.ZERO
+	if assigned_city >= 0 and assigned_city < cities.size():
+		var city_position: Vector3 = cities[assigned_city]["pos"]
+		var radius_limit: float = clampf(10.0 + float(cities[assigned_city]["houses"].size()) * 0.20 + float(cities[assigned_city].get("stage", 0)) * 2.0, 12.0, 38.0)
+		for home_attempt in range(8):
+			var home_angle: float = randf() * TAU
+			var home_radius: float = randf_range(4.0, radius_limit)
+			var candidate_offset := Vector2(cos(home_angle), sin(home_angle)) * home_radius
+			if _height_at(city_position.x + candidate_offset.x, city_position.z + candidate_offset.y) > WATER_LEVEL + 0.20:
+				home_offset = candidate_offset
+				break
 	p.y = _height_at(p.x, p.z)
 	human.position = p
 	people.append({
 		"node": human,
 		"pos": p,
 		"city_id": assigned_city,
+		"home_offset": home_offset,
 		"target": p,
 		"walk_timer": randf_range(0.4, 2.2),
 		"walk_phase": randf() * TAU,
@@ -1756,10 +1792,29 @@ func _spawn_resource(position: Vector3, kind: String, amount: int = 8) -> void:
 
 
 func _material(color: Color, roughness: float = 0.82) -> StandardMaterial3D:
+	# City blocks, citizens, and debris reuse a small palette instead of duplicating resources.
+	var key: String = "%s|%.3f" % [color.to_html(true), roughness]
+	if _material_cache.has(key):
+		var cached: StandardMaterial3D = _material_cache[key] as StandardMaterial3D
+		if is_instance_valid(cached):
+			return cached
 	var material := StandardMaterial3D.new()
 	material.albedo_color = color
 	material.roughness = roughness
+	_material_cache[key] = material
 	return material
+
+
+func _cached_box_mesh(size: Vector3) -> BoxMesh:
+	var key: String = "%.3f|%.3f|%.3f" % [size.x, size.y, size.z]
+	if _box_mesh_cache.has(key):
+		var cached: BoxMesh = _box_mesh_cache[key] as BoxMesh
+		if is_instance_valid(cached):
+			return cached
+	var mesh := BoxMesh.new()
+	mesh.size = size
+	_box_mesh_cache[key] = mesh
+	return mesh
 
 
 func _add_mesh(parent: Node3D, mesh: Mesh, material: Material, local_position: Vector3 = Vector3.ZERO, local_scale: Vector3 = Vector3.ONE) -> MeshInstance3D:
@@ -1773,43 +1828,58 @@ func _add_mesh(parent: Node3D, mesh: Mesh, material: Material, local_position: V
 
 
 func _update_people(delta: float) -> void:
+	var animate_citizens: bool = camera_distance <= 85.0 and people.size() <= 320
 	for i in range(people.size()):
 		var person: Dictionary = people[i]
 		var position: Vector3 = person["pos"]
-		person["walk_timer"] -= delta
-		if person["walk_timer"] <= 0.0 or Vector2(position.x - person["target"].x, position.z - person["target"].z).length() < 0.45:
+		person["walk_timer"] = float(person.get("walk_timer", 1.0)) - delta
+		var target: Vector3 = person["target"]
+		var distance_to_target: float = Vector2(position.x - target.x, position.z - target.z).length()
+		if person["walk_timer"] <= 0.0 or distance_to_target < 0.55:
 			var destination_center: Vector3 = position
 			var city_id: int = int(person["city_id"])
+			var local_wander_radius: float = 5.0
 			if city_id >= 0 and city_id < cities.size():
-				destination_center = cities[city_id]["pos"]
-			var angle: float = randf() * TAU
-			var radius: float = randf_range(1.5, 6.5) if city_id >= 0 else randf_range(1.0, 5.0)
-			var target_x: float = clamp(destination_center.x + cos(angle) * radius, -TERRAIN_SIZE * 0.47, TERRAIN_SIZE * 0.47)
-			var target_z: float = clamp(destination_center.z + sin(angle) * radius, -TERRAIN_SIZE * 0.47, TERRAIN_SIZE * 0.47)
-			person["target"] = _surface_position(target_x, target_z)
-			person["walk_timer"] = randf_range(1.2, 3.8)
-		var target: Vector3 = person["target"]
+				var city: Dictionary = cities[city_id]
+				var home_offset: Vector2 = person.get("home_offset", Vector2.ZERO)
+				destination_center = city["pos"] + Vector3(home_offset.x, 0.0, home_offset.y)
+				local_wander_radius = clampf(4.5 + float(city["houses"].size()) * 0.045, 5.0, 10.5)
+			var chosen_target := Vector3(position.x, position.y, position.z)
+			for destination_attempt in range(6):
+				var angle: float = randf() * TAU
+				var radius: float = randf_range(2.0, local_wander_radius)
+				var target_x: float = clampf(destination_center.x + cos(angle) * radius, -TERRAIN_SIZE * 0.47, TERRAIN_SIZE * 0.47)
+				var target_z: float = clampf(destination_center.z + sin(angle) * radius, -TERRAIN_SIZE * 0.47, TERRAIN_SIZE * 0.47)
+				if _height_at(target_x, target_z) > WATER_LEVEL + 0.15:
+					chosen_target = _surface_position(target_x, target_z)
+					break
+			person["target"] = chosen_target
+			person["walk_timer"] = randf_range(1.6, 4.6)
+			target = chosen_target
+		else:
+			target = person["target"]
 		var horizontal_target := Vector3(target.x, position.y, target.z)
 		var distance_before_move: float = Vector2(position.x - target.x, position.z - target.z).length()
 		var is_walking: bool = distance_before_move > 0.45
-		position = position.move_toward(horizontal_target, delta * 1.05)
+		position = position.move_toward(horizontal_target, delta * 2.0)
 		position.y = _height_at(position.x, position.z)
 		person["pos"] = position
-		var walk_phase: float = float(person.get("walk_phase", 0.0)) + delta * (7.2 if is_walking else 1.5)
-		person["walk_phase"] = walk_phase
-		var gait: float = sin(walk_phase) * (0.52 if is_walking else 0.035)
-		var left_arm: Node3D = person["left_arm"]
-		var right_arm: Node3D = person["right_arm"]
-		var left_leg: Node3D = person["left_leg"]
-		var right_leg: Node3D = person["right_leg"]
-		if is_instance_valid(left_arm):
-			left_arm.rotation.x = gait
-		if is_instance_valid(right_arm):
-			right_arm.rotation.x = -gait
-		if is_instance_valid(left_leg):
-			left_leg.rotation.x = -gait
-		if is_instance_valid(right_leg):
-			right_leg.rotation.x = gait
+		if animate_citizens:
+			var walk_phase: float = float(person.get("walk_phase", 0.0)) + delta * (7.2 if is_walking else 1.5)
+			person["walk_phase"] = walk_phase
+			var gait: float = sin(walk_phase) * (0.52 if is_walking else 0.035)
+			var left_arm: Node3D = person["left_arm"]
+			var right_arm: Node3D = person["right_arm"]
+			var left_leg: Node3D = person["left_leg"]
+			var right_leg: Node3D = person["right_leg"]
+			if is_instance_valid(left_arm):
+				left_arm.rotation.x = gait
+			if is_instance_valid(right_arm):
+				right_arm.rotation.x = -gait
+			if is_instance_valid(left_leg):
+				left_leg.rotation.x = -gait
+			if is_instance_valid(right_leg):
+				right_leg.rotation.x = gait
 		if is_instance_valid(person["node"]):
 			person["node"].position = position
 			if is_walking:
@@ -1817,7 +1887,161 @@ func _update_people(delta: float) -> void:
 		people[i] = person
 
 
+func _spawn_car(city_id: int) -> void:
+	if city_id < 0 or city_id >= cities.size() or cars.size() >= MAX_CARS:
+		return
+	var city: Dictionary = cities[city_id]
+	var city_position: Vector3 = city["pos"]
+	var min_x: float = float(city.get("road_grid_min_x", -7.5))
+	var max_x: float = float(city.get("road_grid_max_x", 7.5))
+	var min_z: float = float(city.get("road_grid_min_z", -7.5))
+	var max_z: float = float(city.get("road_grid_max_z", 7.5))
+	var x_steps: int = maxi(0, roundi((max_x - min_x) / ROAD_GRID_SIZE))
+	var z_steps: int = maxi(0, roundi((max_z - min_z) / ROAD_GRID_SIZE))
+	var spawn_position := Vector3.ZERO
+	for attempt in range(10):
+		var local_x: float = min_x + float(randi_range(0, x_steps)) * ROAD_GRID_SIZE
+		var local_z: float = min_z + float(randi_range(0, z_steps)) * ROAD_GRID_SIZE
+		spawn_position = _surface_position(city_position.x + local_x, city_position.z + local_z)
+		var space_free: bool = true
+		for existing_car in cars:
+			if int(existing_car["city_id"]) != city_id:
+				continue
+			var existing_position: Vector3 = existing_car["pos"]
+			if Vector2(existing_position.x - spawn_position.x, existing_position.z - spawn_position.z).length() < 4.0:
+				space_free = false
+				break
+		if space_free:
+			break
+	var paint_colors: Array[Color] = [
+		Color(0.76, 0.16, 0.13), Color(0.12, 0.31, 0.72), Color(0.80, 0.81, 0.77),
+		Color(0.16, 0.18, 0.20), Color(0.88, 0.58, 0.12), Color(0.22, 0.48, 0.31)
+	]
+	var car := Node3D.new()
+	car.name = "CityCar"
+	car.position = spawn_position
+	add_child(car)
+	_add_mesh(car, _cached_box_mesh(Vector3(1.08, 0.28, 1.90)), _material(paint_colors[randi_range(0, paint_colors.size() - 1)]), Vector3(0.0, 0.38, 0.0))
+	_add_mesh(car, _cached_box_mesh(Vector3(0.78, 0.36, 0.82)), _material(Color(0.16, 0.22, 0.26)), Vector3(0.0, 0.66, -0.04))
+	_add_mesh(car, _cached_box_mesh(Vector3(0.62, 0.20, 0.035)), _material(Color(0.40, 0.70, 0.82)), Vector3(0.0, 0.70, -0.47))
+	var wheel_material: StandardMaterial3D = _material(Color(0.07, 0.075, 0.08))
+	var wheel_mesh: BoxMesh = _cached_box_mesh(Vector3(0.20, 0.26, 0.34))
+	for wheel_x in [-0.55, 0.55]:
+		for wheel_z in [-0.62, 0.62]:
+			_add_mesh(car, wheel_mesh, wheel_material, Vector3(wheel_x, 0.19, wheel_z))
+	var route: Dictionary = _choose_next_car_waypoint(city_id, spawn_position, Vector2i.ZERO)
+	var direction: Vector2i = route["direction"]
+	if direction != Vector2i.ZERO:
+		car.rotation.y = atan2(-float(direction.x), -float(direction.y))
+	var current_count: int = 0
+	for existing_car in cars:
+		if int(existing_car["city_id"]) == city_id:
+			current_count += 1
+	cars.append({
+		"node": car, "city_id": city_id, "pos": spawn_position,
+		"waypoint": route["waypoint"], "direction": direction, "speed": randf_range(3.2, 4.8)
+	})
+	car.visible = camera_distance <= 135.0
+	if current_count == 0:
+		_log("%s now has motor traffic on its street grid." % city["name"])
+
+
+func _choose_next_car_waypoint(city_id: int, position: Vector3, previous_direction: Vector2i) -> Dictionary:
+	if city_id < 0 or city_id >= cities.size():
+		return {"direction": Vector2i.ZERO, "waypoint": position}
+	var city: Dictionary = cities[city_id]
+	var city_position: Vector3 = city["pos"]
+	var grid_x: float = round((position.x - city_position.x) / ROAD_GRID_SIZE) * ROAD_GRID_SIZE
+	var grid_z: float = round((position.z - city_position.z) / ROAD_GRID_SIZE) * ROAD_GRID_SIZE
+	var min_x: float = float(city.get("road_grid_min_x", -7.5))
+	var max_x: float = float(city.get("road_grid_max_x", 7.5))
+	var min_z: float = float(city.get("road_grid_min_z", -7.5))
+	var max_z: float = float(city.get("road_grid_max_z", 7.5))
+	var directions: Array[Vector2i] = [Vector2i(1, 0), Vector2i(-1, 0), Vector2i(0, 1), Vector2i(0, -1)]
+	var options: Array[Vector2i] = []
+	for option in directions:
+		var next_x: float = grid_x + float(option.x) * ROAD_GRID_SIZE
+		var next_z: float = grid_z + float(option.y) * ROAD_GRID_SIZE
+		if next_x < min_x - 0.1 or next_x > max_x + 0.1 or next_z < min_z - 0.1 or next_z > max_z + 0.1:
+			continue
+		options.append(option)
+	if options.is_empty():
+		return {"direction": Vector2i.ZERO, "waypoint": position}
+	var chosen: Vector2i
+	if previous_direction != Vector2i.ZERO and options.has(previous_direction) and randf() < 0.70:
+		chosen = previous_direction
+	else:
+		var turn_options: Array[Vector2i] = []
+		for option in options:
+			if previous_direction == Vector2i.ZERO or option != -previous_direction:
+				turn_options.append(option)
+		if turn_options.is_empty():
+			turn_options = options
+		chosen = turn_options[randi_range(0, turn_options.size() - 1)]
+	var target_x: float = grid_x + float(chosen.x) * ROAD_GRID_SIZE
+	var target_z: float = grid_z + float(chosen.y) * ROAD_GRID_SIZE
+	return {"direction": chosen, "waypoint": _surface_position(city_position.x + target_x, city_position.z + target_z)}
+
+
+func _update_cars(delta: float) -> void:
+	for i in range(cars.size() - 1, -1, -1):
+		var car: Dictionary = cars[i]
+		var node: Node3D = car["node"]
+		if not is_instance_valid(node):
+			cars.remove_at(i)
+			continue
+		var city_id: int = int(car["city_id"])
+		if city_id < 0 or city_id >= cities.size():
+			node.queue_free()
+			cars.remove_at(i)
+			continue
+		var position: Vector3 = car["pos"]
+		var waypoint: Vector3 = car["waypoint"]
+		var offset := Vector2(waypoint.x - position.x, waypoint.z - position.z)
+		var distance: float = offset.length()
+		var step: float = float(car["speed"]) * delta
+		if distance <= 0.40 or step >= distance:
+			position = _surface_position(waypoint.x, waypoint.z)
+			var route: Dictionary = _choose_next_car_waypoint(city_id, position, car["direction"])
+			car["direction"] = route["direction"]
+			car["waypoint"] = route["waypoint"]
+			if Vector2(route["waypoint"].x - position.x, route["waypoint"].z - position.z).length() > 0.01:
+				node.rotation.y = atan2(-(route["waypoint"].x - position.x), -(route["waypoint"].z - position.z))
+		else:
+			var movement: Vector2 = offset / maxf(distance, 0.001) * step
+			position.x += movement.x
+			position.z += movement.y
+			position.y = _height_at(position.x, position.z)
+			if step > 0.01:
+				node.rotation.y = atan2(-offset.x, -offset.y)
+		car["pos"] = position
+		node.position = position
+		cars[i] = car
+
+
+func _update_traffic_population() -> void:
+	if _world_year() < 1900 or cars.size() >= MAX_CARS:
+		return
+	for city_id in range(cities.size()):
+		var city: Dictionary = cities[city_id]
+		var population: int = int(city.get("population", 0))
+		if population < 24 or int(city.get("stage", 0)) < 2:
+			continue
+		var desired_cars: int = clampi(int(population / 28), 1, 8)
+		var current_cars: int = 0
+		for car in cars:
+			if int(car["city_id"]) == city_id:
+				current_cars += 1
+		if current_cars < desired_cars:
+			_spawn_car(city_id)
+			return
+
+
 func _update_simulation_timers(delta: float) -> void:
+	traffic_spawn_timer += delta
+	if traffic_spawn_timer >= 2.6:
+		traffic_spawn_timer = fmod(traffic_spawn_timer, 2.6)
+		_update_traffic_population()
 	growth_timer += delta
 	city_event_timer += delta
 	resource_timer += delta
@@ -1877,7 +2101,20 @@ func _update_city_economies() -> void:
 		cities[city_id] = city
 
 
+func _population_counts_by_city() -> Array[int]:
+	var counts: Array[int] = []
+	for city_id in range(cities.size()):
+		counts.append(0)
+	for person in people:
+		var city_id: int = int(person.get("city_id", -1))
+		if city_id >= 0 and city_id < counts.size():
+			counts[city_id] += 1
+	return counts
+
+
 func _city_population(city_id: int) -> int:
+	if city_id < 0 or city_id >= cities.size():
+		return 0
 	var total: int = 0
 	for person in people:
 		if int(person["city_id"]) == city_id:
@@ -1914,19 +2151,28 @@ func _collect_resources() -> void:
 
 
 func _grow_cities() -> void:
+	var population_counts: Array[int] = _population_counts_by_city()
 	for city_id in range(cities.size()):
 		var city: Dictionary = cities[city_id]
-		var population: int = _city_population(city_id)
+		var population: int = population_counts[city_id]
+		var previous_development_population: int = int(city.get("development_population", -1))
 		if population > 0 and population < MAX_CITY_POPULATION and float(city["food"]) >= 1.0 and float(city.get("stability", 72.0)) >= 28.0 and people.size() < MAX_PEOPLE:
-			city["food"] = max(0.0, float(city["food"]) - 1.0)
+			city["food"] = maxf(0.0, float(city["food"]) - 1.0)
 			if float(city["wood"]) > 0.2:
-				city["wood"] = max(0.0, float(city["wood"]) - 0.2)
+				city["wood"] = maxf(0.0, float(city["wood"]) - 0.2)
 				var angle: float = randf() * TAU
-				var spawn_pos: Vector3 = _surface_position(city["pos"].x + cos(angle) * 2.2, city["pos"].z + sin(angle) * 2.2)
+				var radius: float = randf_range(5.0, minf(24.0, 10.0 + float(city["houses"].size()) * 0.12))
+				var spawn_pos: Vector3 = _surface_position(city["pos"].x + cos(angle) * radius, city["pos"].z + sin(angle) * radius)
+				var people_before: int = people.size()
 				_spawn_human(spawn_pos, city_id)
-				_log("%s grew to %d citizens." % [city["name"], population + 1])
+				if people.size() > people_before:
+					population += 1
+					population_counts[city_id] = population
+					_log("%s grew to %d citizens." % [city["name"], population])
+		city["population"] = population
 		cities[city_id] = city
-		_refresh_city_development(city_id)
+		if population != previous_development_population:
+			_refresh_city_development(city_id)
 
 
 func _assign_wild_people() -> void:
@@ -1951,18 +2197,37 @@ func _assign_wild_people() -> void:
 func _try_found_cities() -> void:
 	if cities.size() >= MAX_CITIES or people.size() < 4:
 		return
-	for i in range(people.size()):
-		if int(people[i]["city_id"]) >= 0:
+	var wild_buckets: Dictionary = {}
+	for person_index in range(people.size()):
+		if int(people[person_index]["city_id"]) >= 0:
 			continue
-		var members: Array[int] = []
-		var anchor: Vector3 = people[i]["pos"]
-		for j in range(people.size()):
-			if int(people[j]["city_id"]) >= 0:
+		var position: Vector3 = people[person_index]["pos"]
+		var cell := Vector2i(floori(position.x / 8.0), floori(position.z / 8.0))
+		if not wild_buckets.has(cell):
+			wild_buckets[cell] = []
+		var cell_members: Array = wild_buckets[cell]
+		cell_members.append(person_index)
+		wild_buckets[cell] = cell_members
+	for cell_key in wild_buckets.keys():
+		var cell: Vector2i = cell_key
+		var anchor_indices: Array = wild_buckets[cell]
+		for anchor_index in anchor_indices:
+			var anchor: Vector3 = people[anchor_index]["pos"]
+			var members: Array[int] = []
+			for cell_x in range(-1, 2):
+				for cell_z in range(-1, 2):
+					var nearby_cell: Vector2i = cell + Vector2i(cell_x, cell_z)
+					if not wild_buckets.has(nearby_cell):
+						continue
+					var nearby_members: Array = wild_buckets[nearby_cell]
+					for candidate_index in nearby_members:
+						var candidate: Vector3 = people[candidate_index]["pos"]
+						var dx: float = anchor.x - candidate.x
+						var dz: float = anchor.z - candidate.z
+						if dx * dx + dz * dz <= 64.0:
+							members.append(candidate_index)
+			if members.size() < 4:
 				continue
-			var candidate: Vector3 = people[j]["pos"]
-			if Vector2(anchor.x - candidate.x, anchor.z - candidate.z).length() < 8.0:
-				members.append(j)
-		if members.size() >= 4:
 			var center_x: float = 0.0
 			var center_z: float = 0.0
 			for member_id in members:
@@ -1979,6 +2244,10 @@ func _try_found_cities() -> void:
 			cities[new_city_id]["stone"] = 3.0
 			for member_id in members:
 				people[member_id]["city_id"] = new_city_id
+				var member: Dictionary = people[member_id]
+				var city_position: Vector3 = cities[new_city_id]["pos"]
+				member["home_offset"] = Vector2(member["pos"].x - city_position.x, member["pos"].z - city_position.z)
+				people[member_id] = member
 			_refresh_city_development(new_city_id)
 			for affected_city_id in range(cities.size()):
 				if affected_city_id != new_city_id:
@@ -2085,9 +2354,11 @@ func _try_city_event(city_id: int) -> bool:
 				damaged_house.set_meta("damaged", true)
 				for visual in damaged_house.get_children():
 					if visual is MeshInstance3D:
-						var mat: StandardMaterial3D = (visual as MeshInstance3D).material_override as StandardMaterial3D
-						if mat != null:
-							mat.albedo_color = mat.albedo_color.darkened(0.34)
+						var original_material: StandardMaterial3D = (visual as MeshInstance3D).material_override as StandardMaterial3D
+						if original_material != null:
+							var damaged_material := original_material.duplicate() as StandardMaterial3D
+							damaged_material.albedo_color = original_material.albedo_color.darkened(0.34)
+							(visual as MeshInstance3D).material_override = damaged_material
 		city["stability"] = maxf(0.0, stability - 7.0)
 		city["security"] = maxf(0.0, security - 9.0)
 		city["wealth"] = maxf(0.0, wealth - 6.0)
@@ -3544,9 +3815,10 @@ func _joined_logs() -> String:
 
 
 func _refresh_ui() -> void:
+	var population_counts: Array[int] = _population_counts_by_city()
 	if is_instance_valid(stats_label):
 		var active_wars: int = wars.size()
-		stats_label.text = "YEAR %d  •  %s\nCITIES %02d   PEOPLE %03d   WARS %02d\nEVENTS %03d   TIME %s" % [_world_year(), _historical_era_name(_world_year()), cities.size(), people.size(), active_wars, city_events_total, _format_time(game_clock)]
+		stats_label.text = "YEAR %d  •  %s\nCITIES %02d   PEOPLE %03d   CARS %02d\nWARS %02d   EVENTS %03d   TIME %s" % [_world_year(), _historical_era_name(_world_year()), cities.size(), people.size(), cars.size(), active_wars, city_events_total, _format_time(game_clock)]
 	if is_instance_valid(radius_label):
 		radius_label.text = "Radius %.1f" % brush_radius
 	if is_instance_valid(selection_ring):
@@ -3559,13 +3831,17 @@ func _refresh_ui() -> void:
 		var tool_names: Dictionary = {"select": "Select and inspect cities", "raise": "Raise terrain with the brush", "lower": "Lower terrain with the brush", "human": "Spawn humans; clusters can found settlements", "tree": "Plant a wood resource", "stone": "Place a stone deposit", "food": "Place a food resource", "erase": "Erase a nearby human or resource", "lightning": "Strike the ground with lightning", "fire": "Start a spreading fire", "meteor": "Call down a destructive meteor", "tornado": "Send a moving vortex through the world", "plague": "Infect humans and let sickness spread", "heal": "Bless an area with new people", "forest": "Create a grove of trees", "quake": "Shake and deform the land"}
 		tool_label.text = "Active: %s" % str(tool_names.get(tool_mode, tool_mode))
 	for city_index in range(cities.size()):
-		cities[city_index]["population"] = _city_population(city_index)
+		var population_now: int = population_counts[city_index]
+		cities[city_index]["population"] = population_now
 		var stage: int = int(cities[city_index].get("stage", 0))
 		if is_instance_valid(cities[city_index]["label"]):
-			var population_now: int = int(cities[city_index]["population"])
 			var city_status: String = "ABANDONED" if population_now <= 0 else _city_stage_name(stage)
-			cities[city_index]["label"].text = "%s\n%s | POP %d" % [cities[city_index]["name"], city_status, population_now]
-			cities[city_index]["label"].modulate = Color(0.66, 0.70, 0.72) if population_now <= 0 else Color.WHITE
+			var label_text: String = "%s\n%s | POP %d" % [cities[city_index]["name"], city_status, population_now]
+			if cities[city_index]["label"].text != label_text:
+				cities[city_index]["label"].text = label_text
+			var label_color: Color = Color(0.66, 0.70, 0.72) if population_now <= 0 else Color.WHITE
+			if cities[city_index]["label"].modulate != label_color:
+				cities[city_index]["label"].modulate = label_color
 	if is_instance_valid(city_info_label):
 		if selected_city >= 0 and selected_city < cities.size():
 			var city: Dictionary = cities[selected_city]
@@ -3593,21 +3869,28 @@ func _refresh_ui() -> void:
 
 
 func _update_world_detail_levels() -> void:
-	# Render a progressively simpler version of the world as the camera pulls
-	# back: terrain LOD, city markers, houses, resources, and citizens.
 	var active_lod: int = _terrain_lod_index_for_distance(camera_distance)
 	if active_lod < terrain_lod_dirty.size() and terrain_lod_dirty[active_lod]:
 		_build_terrain_lod(active_lod)
 	for lod_index in range(terrain_lod_nodes.size()):
 		terrain_lod_nodes[lod_index].visible = lod_index == active_lod
-
 	var show_city_models: bool = camera_distance <= 165.0
 	var show_neighbourhoods: bool = camera_distance <= 135.0
 	var show_resources: bool = camera_distance <= 110.0
 	var show_people: bool = camera_distance <= 85.0
 	var show_city_labels: bool = camera_distance >= 48.0
 	var show_far_markers: bool = not show_city_models
-
+	var building_count: int = 0
+	for city in cities:
+		building_count += city["houses"].size()
+	var detail_signature: String = "%d|%d|%d|%d|%d|%d|%d|%d|%d|%d|%d|%d" % [
+		active_lod, int(show_city_models), int(show_neighbourhoods), int(show_resources),
+		int(show_people), int(show_city_labels), int(show_far_markers), cities.size(),
+		building_count, people.size(), resources.size(), cars.size() + rubble_records.size()
+	]
+	if detail_signature == last_detail_signature:
+		return
+	last_detail_signature = detail_signature
 	for city in cities:
 		for visual_key in ["plinth", "body", "roof", "flag_pole", "flag"]:
 			var city_visual: MeshInstance3D = city[visual_key]
@@ -3631,12 +3914,14 @@ func _update_world_detail_levels() -> void:
 		for house in city["houses"]:
 			if is_instance_valid(house):
 				house.visible = show_neighbourhoods
-
 	for person in people:
 		var person_node: Node3D = person["node"]
 		if is_instance_valid(person_node):
 			person_node.visible = show_people and bool(person.get("alive", true))
-
+	for car in cars:
+		var car_node: Node3D = car["node"]
+		if is_instance_valid(car_node):
+			car_node.visible = show_neighbourhoods
 	for resource in resources:
 		var resource_node: Node3D = resource["node"]
 		if is_instance_valid(resource_node):
@@ -3760,6 +4045,7 @@ func _save_world() -> void:
 			"pos": _vector3_to_array(p),
 			"target": _vector3_to_array(target),
 			"city_id": int(person["city_id"]),
+			"home_offset": [float(person.get("home_offset", Vector2.ZERO).x), float(person.get("home_offset", Vector2.ZERO).y)],
 			"alive": bool(person.get("alive", true)),
 			"infected": bool(person.get("infected", false)),
 			"infection_time": float(person.get("infection_time", 0.0)),
@@ -3905,6 +4191,9 @@ func _load_world() -> void:
 		var person: Dictionary = people[person_index]
 		person["target"] = _array_to_vector3(person_data.get("target", _vector3_to_array(person_position)))
 		person["city_id"] = city_id
+		var saved_home_offset: Variant = person_data.get("home_offset", [])
+		if typeof(saved_home_offset) == TYPE_ARRAY and saved_home_offset.size() >= 2:
+			person["home_offset"] = Vector2(float(saved_home_offset[0]), float(saved_home_offset[1]))
 		person["alive"] = bool(person_data.get("alive", true))
 		person["infected"] = bool(person_data.get("infected", false))
 		person["infection_time"] = float(person_data.get("infection_time", 0.0))
@@ -3989,6 +4278,7 @@ func _clear_loaded_world() -> void:
 			if city.has(key) and city[key] is Node and is_instance_valid(city[key]):
 				(city[key] as Node).queue_free()
 	_queue_nodes_from_entries(people)
+	_queue_nodes_from_entries(cars)
 	_queue_nodes_from_entries(resources)
 	_queue_nodes_from_entries(armies)
 	_queue_nodes_from_entries(missiles)
@@ -4001,7 +4291,9 @@ func _clear_loaded_world() -> void:
 	city_event_scenes.clear()
 	cities.clear()
 	people.clear()
+	cars.clear()
 	resources.clear()
+	last_detail_signature = ""
 	armies.clear()
 	missiles.clear()
 	explosions.clear()
