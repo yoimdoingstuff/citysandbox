@@ -1631,7 +1631,6 @@ func _try_city_event(city_id: int) -> bool:
 		if became_independent:
 			city["owner"] = city_id
 			_log("REBELLION: %s has declared independence after unrest overwhelmed its government." % city["name"])
-		_record_city_event(city_id, "REBELLION", Color(0.98, 0.24, 0.27))
 		else:
 			_log("REBELLION: Unrest overthrew the local administration in %s. Emergency leadership has taken over." % city["name"])
 		_record_city_event(city_id, "REBELLION", Color(0.98, 0.24, 0.27))
@@ -1639,7 +1638,6 @@ func _try_city_event(city_id: int) -> bool:
 		city["security"] = maxf(12.0, security - 12.0)
 		city["wealth"] = maxf(0.0, wealth - 5.0)
 		cities[city_id] = city
-		_record_city_event()
 		return true
 
 	if population >= 5 and food < 1.5:
@@ -1648,7 +1646,6 @@ func _try_city_event(city_id: int) -> bool:
 		cities[city_id] = city
 		_log("FOOD PROTEST: Residents in %s are demonstrating over dwindling food supplies." % city["name"])
 		_record_city_event(city_id, "FOOD SHORTAGE", Color(1.0, 0.65, 0.22))
-		_record_city_event()
 		return true
 
 	if population >= 16 and stage >= 2 and randf() < 0.035:
@@ -1668,7 +1665,6 @@ func _try_city_event(city_id: int) -> bool:
 		cities[city_id] = city
 		_log("SECURITY INCIDENT: An extremist attack damaged property in %s. Security is being reviewed." % city["name"])
 		_record_city_event(city_id, "ATTACK", Color(1.0, 0.30, 0.12))
-		_record_city_event()
 		return true
 
 	if population >= 12 and stage >= 2 and wealth >= 5.0 and security < 72.0 and randf() < 0.24:
@@ -1678,7 +1674,6 @@ func _try_city_event(city_id: int) -> bool:
 		cities[city_id] = city
 		_log("BANK ROBBERY: A bank was robbed in %s. The city lost funds and authorities increased patrols." % city["name"])
 		_record_city_event(city_id, "BANK ROBBERY", Color(1.0, 0.48, 0.19))
-		_record_city_event()
 		return true
 
 	if population >= 8 and (stability < 58.0 or randf() < 0.13):
@@ -1687,7 +1682,6 @@ func _try_city_event(city_id: int) -> bool:
 		cities[city_id] = city
 		_log("PROTEST: A crowd gathered in %s over local conditions. The city is less stable." % city["name"])
 		_record_city_event(city_id, "PROTEST", Color(0.98, 0.78, 0.30))
-		_record_city_event()
 		return true
 
 	if population >= 8 and (wood < 1.0 or stability < 43.0) and randf() < 0.38:
@@ -1696,7 +1690,6 @@ func _try_city_event(city_id: int) -> bool:
 		cities[city_id] = city
 		_log("WORKERS' STRIKE: Work has slowed in %s amid shortages and public frustration." % city["name"])
 		_record_city_event(city_id, "STRIKE", Color(1.0, 0.61, 0.22))
-		_record_city_event()
 		return true
 
 	if population >= 8 and stability >= 82.0 and randf() < 0.12:
@@ -1705,7 +1698,6 @@ func _try_city_event(city_id: int) -> bool:
 		cities[city_id] = city
 		_log("CITY FESTIVAL: A successful public celebration boosted morale in %s." % city["name"])
 		_record_city_event(city_id, "FESTIVAL", Color(0.28, 0.96, 0.70))
-		_record_city_event()
 		return true
 	return false
 
