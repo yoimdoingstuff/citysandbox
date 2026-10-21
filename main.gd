@@ -2413,9 +2413,12 @@ func _make_button(text: String, callback: Callable, tint: Color) -> Button:
 
 func _button_style(color: Color) -> StyleBoxFlat:
 	var style := StyleBoxFlat.new()
-	style.bg_color = color
-	var border_color: Color = color.lightened(0.24)
-	border_color.a = 0.82
+	# Keep the buttons in one dark design system while retaining each tool's
+	# colour as a subdued accent rather than a row of unrelated bright blocks.
+	var base_color := Color(0.045, 0.065, 0.082)
+	style.bg_color = base_color.lerp(color, 0.40)
+	var border_color: Color = base_color.lerp(color.lightened(0.20), 0.66)
+	border_color.a = 0.88
 	style.border_color = border_color
 	style.set_border_width_all(1)
 	style.set_corner_radius_all(9)
