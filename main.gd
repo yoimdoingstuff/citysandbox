@@ -100,6 +100,8 @@ func _ready() -> void:
 	_log("The world is alive. Select a city to inspect it, then take control to issue orders.")
 	_log("Tip: spawn humans in a cluster and they can found a new settlement on their own.")
 	_refresh_ui()
+	if OS.get_cmdline_user_args().has("--civiterra-save-load-smoke-test"):
+		call_deferred("_run_save_load_smoke_test")
 
 
 func _process(delta: float) -> void:
@@ -2844,6 +2846,52 @@ func _update_world_detail_levels() -> void:
 		var resource_node: Node3D = resource["node"]
 		if is_instance_valid(resource_node):
 			resource_node.visible = show_resources and bool(resource.get("alive", true)) and int(resource.get("amount", 1)) > 0
+
+
+func _run_save_load_smoke_test() -> void:
+	var expected_city_count: int = cities.size()
+	var expected_people_count: int = people.size()
+	var expected_resource_count: int = 0
+	for resource in resources:
+		if bool(resource.get("alive", true)) and int(resource.get("amount", 0)) > 0:
+			expected_resource_count += 1
+	var expected_height: float = float(terrain_heights[7][11])
+	var expected_food: float = float(cities[0]["food"])
+
+	_save_world()
+	if not FileAccess.file_exists(SAVE_PATH):
+		push_error("SAVE_LOAD_TEST_FAILED: Save World did not create a save file.")
+		get_tree().quit(1)
+		return
+
+	terrain_heights[7][11] = expected_height + 3.0
+	cities[0]["food"] = 0.0
+	_rebuild_terrain()
+	_load_world()
+
+	if cities.size() != expected_city_count:
+		push_error("SAVE_LOAD_TEST_FAILED: City count changed during load.")
+		get_tree().quit(1)
+		return
+	if people.size() != expected_people_count:
+		push_error("SAVE_LOAD_TEST_FAILED: Population count changed during load.")
+		get_tree().quit(1)
+		return
+	if resources.size() != expected_resource_count:
+		push_error("SAVE_LOAD_TEST_FAILED: Active resource count changed during load.")
+		get_tree().quit(1)
+		return
+	if absf(float(terrain_heights[7][11]) - expected_height) > 0.001:
+		push_error("SAVE_LOAD_TEST_FAILED: Terrain height was not restored.")
+		get_tree().quit(1)
+		return
+	if absf(float(cities[0]["food"]) - expected_food) > 0.001:
+		push_error("SAVE_LOAD_TEST_FAILED: City stock was not restored.")
+		get_tree().quit(1)
+		return
+
+	print("CIVITERRA_SAVE_LOAD_TEST_PASSED")
+	get_tree().quit(0)
 
 
 func _vector3_to_array(value: Vector3) -> Array:
