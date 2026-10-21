@@ -21,6 +21,9 @@ This is the **big-picture roadmap**. For the longer implementation checklist, se
 - [ ] Make settlements progress visibly from villages to towns, cities, and eventually metropolises.
 - [ ] Let population, resources, safety, location, and history influence growth.
 - [ ] Add roads, neighbourhoods, farms, workplaces, landmarks, and varied buildings.
+- [ ] Expand city territory as new buildings push out towards the edge of the settlement.
+- [ ] Show each city's territory with a distinct coloured zone; when neighbouring zones meet, create a shared border.
+- [ ] Let the camera smoothly zoom out to show the selected city's larger footprint as it expands, while allowing manual camera control to override it.
 - [ ] Make cities look and behave differently based on their environment and development.
 - [ ] Let trade, migration, wars, disasters, and city events change a city's future.
 
