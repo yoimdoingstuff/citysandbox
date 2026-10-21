@@ -474,6 +474,7 @@ func _update_camera_input(delta: float) -> void:
 	if Input.is_key_pressed(KEY_A) or Input.is_key_pressed(KEY_LEFT):
 		movement -= right
 	if movement.length_squared() > 0.0:
+		camera_auto_zoom_active = false
 		camera_target += movement.normalized() * delta * max(12.0, camera_distance * 0.30)
 		var camera_limit: float = TERRAIN_SIZE * 0.5 - 8.0
 		camera_target.x = clamp(camera_target.x, -camera_limit, camera_limit)
@@ -485,18 +486,22 @@ func _unhandled_input(event: InputEvent) -> void:
 	if event is InputEventMouseButton:
 		var mouse_event := event as InputEventMouseButton
 		if mouse_event.button_index == MOUSE_BUTTON_RIGHT:
+			camera_auto_zoom_active = false
 			rotating_camera = mouse_event.pressed
 			last_mouse_position = mouse_event.position
 			get_viewport().set_input_as_handled()
 		elif mouse_event.button_index == MOUSE_BUTTON_MIDDLE:
+			camera_auto_zoom_active = false
 			panning_camera = mouse_event.pressed
 			last_mouse_position = mouse_event.position
 			get_viewport().set_input_as_handled()
 		elif mouse_event.button_index == MOUSE_BUTTON_WHEEL_UP and mouse_event.pressed:
+			camera_auto_zoom_active = false
 			camera_distance = clamp(camera_distance - 6.0, 24.0, TERRAIN_SIZE * 1.75)
 			_update_camera()
 			get_viewport().set_input_as_handled()
 		elif mouse_event.button_index == MOUSE_BUTTON_WHEEL_DOWN and mouse_event.pressed:
+			camera_auto_zoom_active = false
 			camera_distance = clamp(camera_distance + 6.0, 24.0, TERRAIN_SIZE * 1.75)
 			_update_camera()
 			get_viewport().set_input_as_handled()
@@ -633,6 +638,7 @@ func _apply_world_tool(world_position: Vector3) -> void:
 			var city_id: int = _find_city_at(world_position, 5.5)
 			if city_id >= 0:
 				selected_city = city_id
+				_request_city_camera_zoom(city_id)
 				_log("Selected %s. Take control to issue orders." % cities[city_id]["name"])
 			else:
 				selected_city = -1
