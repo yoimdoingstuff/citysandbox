@@ -24,6 +24,7 @@ A successful GitHub Actions build confirms that Godot can validate and export th
 - [x] Existing strategic actions: missile strikes, invasions, armies, city capture, and AI wars.
 - [x] Camera orbit, pan, zoom, pause, and simulation-speed controls.
 - [x] GitHub Actions validates the project and exports Windows and Linux builds.
+- [x] Initial local save/load restores terrain edits, world seed, city data, citizen state, active resources, camera view, and simulation time; automated regression coverage is in GitHub Actions.
 
 ## Phase 1: Make the world dependable
 
@@ -128,7 +129,8 @@ This is a major later feature. It should extend the god-game rather than replace
 
 ## Phase 8: Add saving, loading, and settings
 
-- [ ] Save and restore terrain edits, world-generation data, resources, people, cities, buildings, military units, and ongoing events.
+- [x] Add initial local save/load for terrain edits, world-generation data, city ownership and resources, people, active resource nodes, camera state, and simulation time.
+- [ ] Extend saves to persist exact building/territory state if it becomes independent data, plus military units, wars, missiles, ongoing events, fires, tornadoes, and other temporary effects.
 - [ ] Save the active mode and controlled citizen safely, or return to god mode when a saved character is no longer valid.
 - [ ] Add multiple save slots and clear feedback before overwriting a world.
 - [ ] Add settings for simulation speed, camera sensitivity, graphics, effects, and audio when audio exists.
