@@ -30,6 +30,8 @@ Open the repository's **Actions** tab and download the latest `Civiterra-desktop
 - Brush-radius preview follows the real terrain surface; terrain/resource tools can be painted by dragging.
 - Humans wander, join nearby settlements, and can spontaneously found towns when enough gather.
 - Cities progress through visible village, town, city, and metropolis stages as population grows; central landmarks and neighbourhoods expand with development.
+- Each city has a coloured territory zone that expands as it builds more houses, with shared boundaries calculated when city influence zones meet.
+- Selecting a city smoothly focuses the camera and automatically zooms out when its territory expands; manual camera input overrides auto-zoom.
 - Select any city and take control of it.
 - Order missile strikes and invasions against rival cities.
 - Armies march, fight, capture cities, and trigger AI wars.
