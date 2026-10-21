@@ -48,6 +48,8 @@ var game_clock: float = 0.0
 var world_seed: int = 0
 var people_update_accumulator: float = 0.0
 var growth_timer: float = 0.0
+var city_event_timer: float = 16.0
+var city_events_total: int = 0
 var resource_timer: float = 0.0
 var founding_timer: float = 0.0
 var auto_war_timer: float = 24.0
@@ -876,7 +878,10 @@ func _create_city(position: Vector3, city_name: String, color: Color) -> int:
 		"owner": index,
 		"food": 8.0,
 		"wood": 5.0,
-		"stone": 3.0
+		"stone": 3.0,
+		"stability": 72.0,
+		"security": 44.0,
+		"wealth": 12.0
 	})
 	return index
 
@@ -1323,9 +1328,13 @@ func _update_people(delta: float) -> void:
 
 func _update_simulation_timers(delta: float) -> void:
 	growth_timer += delta
+	city_event_timer += delta
 	resource_timer += delta
 	founding_timer += delta
 	auto_war_timer += delta
+	if city_event_timer >= 22.0:
+		city_event_timer = 0.0
+		_process_city_events()
 	if resource_timer >= 4.0:
 		resource_timer = 0.0
 		_collect_resources()
