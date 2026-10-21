@@ -1151,8 +1151,16 @@ func _apply_building_era_appearance(city_id: int, year: int) -> void:
 			floors = clampi(8 + int((year - 1950) / 10), 8, 15)
 		else:
 			floors = clampi(3 + int((year - 1880) / 20), 3, 6)
-		if stage < 3:
-			floors = mini(floors, 6)
+		var current_population: int = _city_population(city_id)
+		var city_wealth: float = float(city.get("wealth", 0.0))
+		# A modern calendar unlocks the technology; it does not instantly create
+		# a Manhattan skyline in a poor village.
+		if stage < 3 or current_population < 35 or city_wealth < 18.0:
+			floors = mini(floors, 4)
+		elif stage < 4 or current_population < 75 or city_wealth < 38.0:
+			floors = mini(floors, 8)
+		else:
+			floors = mini(floors, 24)
 		var base_height: float = 1.2
 		match building_type:
 			1:
