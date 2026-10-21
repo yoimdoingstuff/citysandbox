@@ -448,7 +448,7 @@ func _request_city_camera_zoom(city_id: int) -> void:
 	var city: Dictionary = cities[city_id]
 	var radius: float = float(city.get("zone_radius", 12.0))
 	camera_auto_focus_target = city["pos"]
-	camera_auto_zoom_target = maxf(camera_distance, minf(TERRAIN_SIZE * 1.65, radius * 3.35))
+	camera_auto_zoom_target = maxf(camera_distance, minf(TERRAIN_SIZE * 1.65, radius * 4.25))
 	camera_auto_zoom_active = true
 
 
