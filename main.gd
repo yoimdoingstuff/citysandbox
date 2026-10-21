@@ -1541,6 +1541,98 @@ func _seed_resources_around(center: Vector3) -> void:
 			_spawn_resource(resource_position, "stone", 8)
 
 
+func _create_roblox_character(parent: Node, garment: Color, skin: Color) -> Dictionary:
+	# Block-shaped body parts with separate arm and leg pivots allow walk,
+	# idle, wave, and panic animations later without replacing the character.
+	var human := Node3D.new()
+	human.name = "RobloxStyleCitizen"
+	parent.add_child(human)
+	var torso := BoxMesh.new()
+	torso.size = Vector3(0.48, 0.52, 0.28)
+	_add_mesh(human, torso, _material(garment), Vector3(0.0, 0.87, 0.0))
+	var head := BoxMesh.new()
+	head.size = Vector3(0.36, 0.36, 0.36)
+	_add_mesh(human, head, _material(skin), Vector3(0.0, 1.34, 0.0))
+	var hair := BoxMesh.new()
+	hair.size = Vector3(0.39, 0.12, 0.39)
+	_add_mesh(human, hair, _material(Color(0.22, 0.17, 0.13)), Vector3(0.0, 1.56, 0.0))
+
+	for eye_x in [-0.085, 0.085]:
+		var eye := BoxMesh.new()
+		eye.size = Vector3(0.052, 0.060, 0.025)
+		_add_mesh(human, eye, _material(Color(0.08, 0.09, 0.10)), Vector3(eye_x, 1.36, 0.194))
+	var mouth := BoxMesh.new()
+	mouth.size = Vector3(0.095, 0.025, 0.026)
+	_add_mesh(human, mouth, _material(Color(0.35, 0.13, 0.12)), Vector3(0.0, 1.275, 0.195))
+
+	var left_arm := Node3D.new()
+	left_arm.name = "LeftArmPivot"
+	left_arm.position = Vector3(-0.31, 1.08, 0.0)
+	human.add_child(left_arm)
+	var arm_mesh := BoxMesh.new()
+	arm_mesh.size = Vector3(0.16, 0.46, 0.18)
+	_add_mesh(left_arm, arm_mesh, _material(garment), Vector3(0.0, -0.23, 0.0))
+	var left_hand := BoxMesh.new()
+	left_hand.size = Vector3(0.15, 0.15, 0.16)
+	_add_mesh(left_arm, left_hand, _material(skin), Vector3(0.0, -0.49, 0.0))
+
+	var right_arm := Node3D.new()
+	right_arm.name = "RightArmPivot"
+	right_arm.position = Vector3(0.31, 1.08, 0.0)
+	human.add_child(right_arm)
+	var right_arm_mesh := BoxMesh.new()
+	right_arm_mesh.size = Vector3(0.16, 0.46, 0.18)
+	_add_mesh(right_arm, right_arm_mesh, _material(garment), Vector3(0.0, -0.23, 0.0))
+	var right_hand := BoxMesh.new()
+	right_hand.size = Vector3(0.15, 0.15, 0.16)
+	_add_mesh(right_arm, right_hand, _material(skin), Vector3(0.0, -0.49, 0.0))
+
+	var left_leg := Node3D.new()
+	left_leg.name = "LeftLegPivot"
+	left_leg.position = Vector3(-0.13, 0.61, 0.0)
+	human.add_child(left_leg)
+	var leg_mesh := BoxMesh.new()
+	leg_mesh.size = Vector3(0.19, 0.46, 0.20)
+	_add_mesh(left_leg, leg_mesh, _material(Color(0.18, 0.24, 0.31)), Vector3(0.0, -0.23, 0.0))
+	var left_foot := BoxMesh.new()
+	left_foot.size = Vector3(0.21, 0.12, 0.29)
+	_add_mesh(left_leg, left_foot, _material(Color(0.11, 0.13, 0.15)), Vector3(0.0, -0.48, -0.035))
+
+	var right_leg := Node3D.new()
+	right_leg.name = "RightLegPivot"
+	right_leg.position = Vector3(0.13, 0.61, 0.0)
+	human.add_child(right_leg)
+	var right_leg_mesh := BoxMesh.new()
+	right_leg_mesh.size = Vector3(0.19, 0.46, 0.20)
+	_add_mesh(right_leg, right_leg_mesh, _material(Color(0.18, 0.24, 0.31)), Vector3(0.0, -0.23, 0.0))
+	var right_foot := BoxMesh.new()
+	right_foot.size = Vector3(0.21, 0.12, 0.29)
+	_add_mesh(right_leg, right_foot, _material(Color(0.11, 0.13, 0.15)), Vector3(0.0, -0.48, -0.035))
+
+	var infection_marker := MeshInstance3D.new()
+	var marker_mesh := SphereMesh.new()
+	marker_mesh.radius = 0.13
+	marker_mesh.height = 0.26
+	infection_marker.mesh = marker_mesh
+	infection_marker.position = Vector3(0.0, 1.84, 0.0)
+	var marker_material := StandardMaterial3D.new()
+	marker_material.albedo_color = Color(0.52, 1.0, 0.28)
+	marker_material.emission_enabled = true
+	marker_material.emission = Color(0.35, 1.0, 0.15)
+	marker_material.emission_energy_multiplier = 1.3
+	infection_marker.material_override = marker_material
+	infection_marker.visible = false
+	human.add_child(infection_marker)
+	return {
+		"node": human,
+		"left_arm": left_arm,
+		"right_arm": right_arm,
+		"left_leg": left_leg,
+		"right_leg": right_leg,
+		"infection_marker": infection_marker
+	}
+
+
 func _spawn_human(position: Vector3, city_id: int) -> void:
 	if people.size() >= MAX_PEOPLE:
 		return
@@ -1553,40 +1645,17 @@ func _spawn_human(position: Vector3, city_id: int) -> void:
 			if distance < nearest_distance:
 				nearest_distance = distance
 				assigned_city = i
-	var garment: Color = Color(0.60, 0.64, 0.69)
+	var garment: Color
 	if assigned_city >= 0 and assigned_city < cities.size():
 		garment = cities[assigned_city]["color"].lightened(0.08)
 	else:
 		garment = city_colors[randi_range(0, city_colors.size() - 1)].darkened(0.12)
-	var human := Node3D.new()
-	human.name = "Human"
-	var body_mesh := CapsuleMesh.new()
-	body_mesh.radius = 0.22
-	body_mesh.height = 0.96
-	_add_mesh(human, body_mesh, _material(garment), Vector3(0.0, 0.70, 0.0))
-	var head_mesh := SphereMesh.new()
-	head_mesh.radius = 0.22
-	head_mesh.height = 0.44
-	_add_mesh(human, head_mesh, _material(Color(0.88, 0.70, 0.53)), Vector3(0.0, 1.30, 0.0))
-	var hair_mesh := SphereMesh.new()
-	hair_mesh.radius = 0.225
-	hair_mesh.height = 0.21
-	_add_mesh(human, hair_mesh, _material(Color(0.22, 0.17, 0.13)), Vector3(0.0, 1.44, 0.01))
-	var infection_marker := MeshInstance3D.new()
-	var marker_mesh := SphereMesh.new()
-	marker_mesh.radius = 0.13
-	marker_mesh.height = 0.26
-	infection_marker.mesh = marker_mesh
-	infection_marker.position = Vector3(0.0, 1.75, 0.0)
-	var marker_material := StandardMaterial3D.new()
-	marker_material.albedo_color = Color(0.52, 1.0, 0.28)
-	marker_material.emission_enabled = true
-	marker_material.emission = Color(0.35, 1.0, 0.15)
-	marker_material.emission_energy_multiplier = 1.3
-	infection_marker.material_override = marker_material
-	infection_marker.visible = false
-	human.add_child(infection_marker)
-	add_child(human)
+	var skin_palette: Array[Color] = [
+		Color(0.92, 0.74, 0.60), Color(0.71, 0.48, 0.32),
+		Color(0.84, 0.62, 0.45), Color(0.96, 0.82, 0.68)
+	]
+	var visuals: Dictionary = _create_roblox_character(self, garment, skin_palette[randi_range(0, skin_palette.size() - 1)])
+	var human: Node3D = visuals["node"]
 	var p: Vector3 = position
 	p.y = _height_at(p.x, p.z)
 	human.position = p
@@ -1596,12 +1665,18 @@ func _spawn_human(position: Vector3, city_id: int) -> void:
 		"city_id": assigned_city,
 		"target": p,
 		"walk_timer": randf_range(0.4, 2.2),
+		"walk_phase": randf() * TAU,
 		"alive": true,
 		"infected": false,
-		"infection_marker": infection_marker,
+		"infection_marker": visuals["infection_marker"],
+		"left_arm": visuals["left_arm"],
+		"right_arm": visuals["right_arm"],
+		"left_leg": visuals["left_leg"],
+		"right_leg": visuals["right_leg"],
 		"infection_time": 0.0,
 		"spread_timer": randf_range(0.5, 1.5)
 	})
+
 
 
 func _spawn_resource(position: Vector3, kind: String, amount: int = 8) -> void:
@@ -1680,11 +1755,30 @@ func _update_people(delta: float) -> void:
 			person["walk_timer"] = randf_range(1.2, 3.8)
 		var target: Vector3 = person["target"]
 		var horizontal_target := Vector3(target.x, position.y, target.z)
-		position = position.move_toward(horizontal_target, delta * randf_range(0.8, 1.35))
+		var distance_before_move: float = Vector2(position.x - target.x, position.z - target.z).length()
+		var is_walking: bool = distance_before_move > 0.45
+		position = position.move_toward(horizontal_target, delta * 1.05)
 		position.y = _height_at(position.x, position.z)
 		person["pos"] = position
+		var walk_phase: float = float(person.get("walk_phase", 0.0)) + delta * (7.2 if is_walking else 1.5)
+		person["walk_phase"] = walk_phase
+		var gait: float = sin(walk_phase) * (0.52 if is_walking else 0.035)
+		var left_arm: Node3D = person["left_arm"]
+		var right_arm: Node3D = person["right_arm"]
+		var left_leg: Node3D = person["left_leg"]
+		var right_leg: Node3D = person["right_leg"]
+		if is_instance_valid(left_arm):
+			left_arm.rotation.x = gait
+		if is_instance_valid(right_arm):
+			right_arm.rotation.x = -gait
+		if is_instance_valid(left_leg):
+			left_leg.rotation.x = -gait
+		if is_instance_valid(right_leg):
+			right_leg.rotation.x = gait
 		if is_instance_valid(person["node"]):
 			person["node"].position = position
+			if is_walking:
+				person["node"].rotation.y = atan2(target.x - position.x, target.z - position.z)
 		people[i] = person
 
 
