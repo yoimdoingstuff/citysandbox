@@ -19,6 +19,7 @@ var terrain_moisture_noise: FastNoiseLite
 var terrain_temperature_noise: FastNoiseLite
 var selection_ring: MeshInstance3D
 var camera_auto_zoom_active: bool = false
+var camera_auto_zoom_follow_city: bool = false
 var camera_auto_zoom_target: float = 94.0
 var camera_auto_focus_target: Vector3 = Vector3.ZERO
 var terrain_heights: Array = []
@@ -449,7 +450,11 @@ func _update_camera() -> void:
 	camera.look_at(camera_target, Vector3.UP)
 
 
-func _request_city_camera_zoom(city_id: int) -> void:
+func _request_city_camera_zoom(city_id: int, force_follow: bool = false) -> void:
+	if force_follow:
+		camera_auto_zoom_follow_city = true
+	if not camera_auto_zoom_follow_city:
+		return
 	if city_id < 0 or city_id >= cities.size():
 		return
 	var city: Dictionary = cities[city_id]
@@ -468,6 +473,7 @@ func _update_auto_city_camera(delta: float) -> void:
 	_update_camera()
 	if camera_target.distance_to(camera_auto_focus_target) < 0.25 and abs(camera_distance - camera_auto_zoom_target) < 0.35:
 		camera_auto_zoom_active = false
+		camera_auto_zoom_follow_city = false
 
 
 func _update_camera_input(delta: float) -> void:
@@ -484,6 +490,7 @@ func _update_camera_input(delta: float) -> void:
 		movement -= right
 	if movement.length_squared() > 0.0:
 		camera_auto_zoom_active = false
+		camera_auto_zoom_follow_city = false
 		camera_target += movement.normalized() * delta * max(12.0, camera_distance * 0.30)
 		var camera_limit: float = TERRAIN_SIZE * 0.5 - 8.0
 		camera_target.x = clamp(camera_target.x, -camera_limit, camera_limit)
@@ -496,21 +503,25 @@ func _unhandled_input(event: InputEvent) -> void:
 		var mouse_event := event as InputEventMouseButton
 		if mouse_event.button_index == MOUSE_BUTTON_RIGHT:
 			camera_auto_zoom_active = false
+		camera_auto_zoom_follow_city = false
 			rotating_camera = mouse_event.pressed
 			last_mouse_position = mouse_event.position
 			get_viewport().set_input_as_handled()
 		elif mouse_event.button_index == MOUSE_BUTTON_MIDDLE:
 			camera_auto_zoom_active = false
+		camera_auto_zoom_follow_city = false
 			panning_camera = mouse_event.pressed
 			last_mouse_position = mouse_event.position
 			get_viewport().set_input_as_handled()
 		elif mouse_event.button_index == MOUSE_BUTTON_WHEEL_UP and mouse_event.pressed:
 			camera_auto_zoom_active = false
+		camera_auto_zoom_follow_city = false
 			camera_distance = clamp(camera_distance - 6.0, 24.0, TERRAIN_SIZE * 1.75)
 			_update_camera()
 			get_viewport().set_input_as_handled()
 		elif mouse_event.button_index == MOUSE_BUTTON_WHEEL_DOWN and mouse_event.pressed:
 			camera_auto_zoom_active = false
+		camera_auto_zoom_follow_city = false
 			camera_distance = clamp(camera_distance + 6.0, 24.0, TERRAIN_SIZE * 1.75)
 			_update_camera()
 			get_viewport().set_input_as_handled()
@@ -647,7 +658,7 @@ func _apply_world_tool(world_position: Vector3) -> void:
 			var city_id: int = _find_city_at(world_position, 5.5)
 			if city_id >= 0:
 				selected_city = city_id
-				_request_city_camera_zoom(city_id)
+				_request_city_camera_zoom(city_id, true)
 				_log("Selected %s. Take control to issue orders." % cities[city_id]["name"])
 			else:
 				selected_city = -1
@@ -3092,6 +3103,7 @@ func _load_world() -> void:
 	log_entries.clear()
 	pending_action = ""
 	camera_auto_zoom_active = false
+		camera_auto_zoom_follow_city = false
 
 	for saved_city in saved_cities:
 		if typeof(saved_city) != TYPE_DICTIONARY:
