@@ -2,66 +2,97 @@
 
 ## The vision
 
-Civiterra should feel like a living world, not a small test island. Leave the simulation running and watch little settlements become towns, towns become cities, and cities turn into sprawling, changing places. Pull back to see entire continents, then zoom in to discover more of what is happening on the ground. All of it should be wrapped in a clean, modern interface.
+Civiterra should feel like a living, evolving world. Leave the simulation running and watch villages become towns, towns become cities, and cities grow into sprawling metropolises. Pull back to see whole continents, zoom in to discover detailed streets and buildings, unleash wars and disasters, or take direct control of a person living in the world. The whole experience should have a polished, modern interface.
 
-This is the **big-picture roadmap**. For the longer engineering checklist, see [ROADMAP.md](ROADMAP.md).
+This is the **big-picture roadmap**. For the longer implementation checklist, see [ROADMAP.md](ROADMAP.md).
 
 ## 1. Bigger, more interesting worlds
 
 - [ ] Generate much larger maps with multiple continents, islands, seas, and coastlines.
-- [ ] Add more natural variety: mountains, plains, forests, deserts, rivers, and other biomes.
+- [ ] Add mountains, plains, forests, deserts, rivers, and varied biomes.
 - [ ] Place settlements in sensible locations based on terrain, water, and resources.
-- [ ] Make worlds feel different each time, while keeping terrain editing and god powers usable.
+- [ ] Make every new world feel different while keeping terrain editing and god powers usable.
 - [ ] Keep large worlds smooth to explore and simulate.
 
-**Goal:** Pull the camera back and see a world with room for many distinct civilizations, not just a single island.
+**Goal:** Pull back and see a whole world with space for many civilizations, not just one small island.
 
 ## 2. Cities that develop as the world ages
 
-- [ ] Make settlements progress through visible stages, from small villages to towns, cities, and eventually metropolises.
-- [ ] Let population, food, resources, safety, location, and time influence how each place grows.
-- [ ] Add roads, neighbourhoods, farms, workplaces, landmarks, and more varied buildings as cities develop.
-- [ ] Make cities look and behave differently depending on their wealth, environment, culture, and history.
-- [ ] Let wars, disasters, shortages, trade, and migration change a city's future.
+- [ ] Make settlements progress visibly from villages to towns, cities, and eventually metropolises.
+- [ ] Let population, resources, safety, location, and history influence growth.
+- [ ] Add roads, neighbourhoods, farms, workplaces, landmarks, and varied buildings.
+- [ ] Make cities look and behave differently based on their environment and development.
+- [ ] Let trade, migration, wars, disasters, and city events change a city's future.
 
-**Goal:** Every world tells a story, and leaving it running creates noticeable changes rather than just bigger population numbers.
+**Goal:** Leave the world running and come back to cities that have visibly changed, not just gained a few numbers.
 
 ## 3. More detail when you zoom in
 
-- [ ] At world scale, show continents, biomes, borders, and city locations clearly.
+- [ ] At world scale, show continents, biomes, borders, and city locations.
 - [ ] At regional scale, reveal roads, districts, farms, suburbs, and city layouts.
-- [ ] Up close, show more individual buildings, citizens, and everyday activity.
-- [ ] Make zoom transitions feel smooth, with detail appearing at the right distance.
-- [ ] Adjust detail behind the scenes so large worlds remain performant.
+- [ ] Up close, show more individual buildings, citizens, vehicles, and everyday activity.
+- [ ] Make zoom transitions smooth and adjust detail to keep performance reasonable.
 
-**Goal:** The closer you look, the more there is to discover. Zooming out should still make the whole world easy to understand.
+**Goal:** The closer you look, the more there is to discover.
 
-## 4. Redesign the UI to feel like a finished game
+## 4. Bigger wars and advanced destruction
 
-- [ ] Create a consistent modern visual style with better typography, spacing, colours, icons, and subtle animations.
-- [ ] Replace the prototype-like tool layout with a clear toolbar for terrain tools and god powers.
-- [ ] Give selected cities a polished information panel for population, growth, resources, buildings, and relationships.
-- [ ] Add useful hover hints and contextual controls, so the screen is not crowded with buttons all the time.
-- [ ] Make menus, settings, alerts, and the event log match the same design.
-- [ ] Keep controls readable at different window sizes and resolutions.
+- [ ] Expand wars beyond basic armies with tanks, aircraft, and attack helicopters.
+- [ ] Give vehicles different strengths, roles, movement, weapons, and counters.
+- [ ] Let battles damage roads and buildings, start fires, and visibly reshape cities.
+- [ ] Add structural damage so weakened buildings can collapse and knock into nearby structures.
+- [ ] Make destruction readable and satisfying without bringing the whole simulation to a crawl.
 
-**Goal:** The interface should feel cohesive and intentional, with the world remaining the main attraction.
+**Goal:** Wars should feel like large events that can change the map and leave lasting scars on a city.
 
-## 5. Make it all work together
+## 5. Cities with unexpected events
 
-- [ ] Add save and load so worlds can keep developing between sessions.
-- [ ] Improve performance with large populations, sprawling cities, and long-running simulations.
-- [ ] Make the important systems work together: terrain, resources, city growth, disasters, diplomacy, and war.
-- [ ] Test the real desktop game as well as automated builds, and fix visible bugs before adding more complexity.
+- [ ] Add a stream of contextual city events based on what is happening in the simulation.
+- [ ] Include protests, strikes, unrest, rebellions, crime, bank robberies, and fictional terrorist or insurgent attacks.
+- [ ] Make events depend on conditions such as poverty, public satisfaction, security, shortages, and war.
+- [ ] Let citizens and city leaders respond, and show outcomes through the world and event feed.
+- [ ] Give the player ways to intervene, help the city recover, or make a bad situation worse.
 
-**Goal:** A stable, replayable god game where players can create a world, watch it evolve, interfere with it, and return to it later.
+**Goal:** Cities should have their own stories and occasional surprises instead of behaving like identical population counters.
+
+## 6. Play as any person in the world
+
+- [ ] Let the player select and directly control any ordinary citizen.
+- [ ] Add a close-up third-person view with movement and basic interactions.
+- [ ] Allow the player to explore the city, visit places, work, meet people, and take part in everyday life.
+- [ ] Let players cause harmless mischief or serious in-game chaos, with consequences inside the simulation.
+- [ ] Make switching between person mode and god mode smooth, without stopping the world's simulation.
+
+**Goal:** Move from watching a civilization from above to actually living inside it, while keeping the god-game powers.
+
+## 7. Redesign the UI to feel like a finished game
+
+- [ ] Create a consistent modern style with better typography, spacing, colours, icons, and subtle animation.
+- [ ] Replace the prototype-like layout with a clear toolbar for terrain tools, god powers, and world controls.
+- [ ] Give selected cities and people attractive information panels with useful details.
+- [ ] Use contextual controls and helpful tooltips to keep the screen uncluttered.
+- [ ] Make menus, settings, event feeds, and alerts match the same design.
+- [ ] Keep the interface readable at different resolutions.
+
+**Goal:** Make the game look intentional and cohesive, while keeping the living world as the main attraction.
+
+## 8. Save, optimise, and bring it all together
+
+- [ ] Save and load worlds, including terrain edits, cities, people, vehicles, and ongoing events.
+- [ ] Make city growth, disasters, warfare, destruction, and person mode work together.
+- [ ] Keep large populations, sprawling cities, vehicle battles, and destruction performant.
+- [ ] Test actual desktop gameplay as well as automated builds, and fix visible bugs.
+- [ ] Create reliable playable milestones and document known limitations.
+
+**Goal:** A stable, replayable sandbox where worlds keep evolving and player actions have lasting consequences.
 
 ## Recommended order
 
-1. **Build the world foundation:** larger procedural maps and reliable camera/terrain controls.
-2. **Make time matter:** visible stages of city development and more interesting city growth.
-3. **Add zoom-based detail:** world view, regional view, then close-up city view.
-4. **Redesign the UI:** give the expanded simulation a clean, modern interface.
-5. **Save, optimise, and polish:** make long-running worlds reliable and enjoyable.
+1. Build the foundation: larger procedural worlds and reliable terrain and camera controls.
+2. Make cities visibly develop over time and add more detail as the camera zooms in.
+3. Expand warfare and destruction once the city and building systems can support them.
+4. Add city events and responses so civilizations feel unpredictable and alive.
+5. Redesign the UI around the expanded simulation.
+6. Add direct citizen control as a deeper game mode, then finish save/load and optimisation.
 
 The roadmap will change as the game improves. Keep these checkboxes unchecked until each result is actually implemented and tested in-game.
