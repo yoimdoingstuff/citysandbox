@@ -22,6 +22,9 @@ var resources: Array = []
 var armies: Array = []
 var missiles: Array = []
 var explosions: Array = []
+var god_effects: Array = []
+var fire_zones: Array = []
+var falling_meteors: Array = []
 var wars: Array = []
 var log_entries: Array[String] = []
 
@@ -47,6 +50,8 @@ var camera_distance: float = 94.0
 var rotating_camera: bool = false
 var panning_camera: bool = false
 var last_mouse_position: Vector2 = Vector2.ZERO
+var last_paint_position: Vector3 = Vector3.ZERO
+var last_paint_valid: bool = false
 
 var ui_root: Control
 var stats_label: Label
@@ -82,6 +87,9 @@ func _process(delta: float) -> void:
 		_update_armies(sim_delta)
 		_update_missiles(sim_delta)
 		_update_explosions(sim_delta)
+		_update_god_effects(sim_delta)
+		_update_fire_zones(sim_delta)
+		_update_falling_meteors(sim_delta)
 		_update_simulation_timers(sim_delta)
 	ui_timer += delta
 	if ui_timer >= 0.35:
@@ -188,6 +196,7 @@ func _rebuild_terrain() -> void:
 			_add_terrain_vertex(surface, p10)
 			_add_terrain_vertex(surface, p01)
 			_add_terrain_vertex(surface, p11)
+	surface.index()
 	surface.generate_normals()
 	terrain.mesh = surface.commit()
 
@@ -279,23 +288,37 @@ func _unhandled_input(event: InputEvent) -> void:
 	elif event is InputEventMouseMotion:
 		var motion := event as InputEventMouseMotion
 		if rotating_camera:
-			camera_yaw -= motion.relative.x * 0.006
+			camera_yaw += motion.relative.x * 0.006
 			camera_pitch = clamp(camera_pitch + motion.relative.y * 0.004, 0.20, 1.25)
 			_update_camera()
 			get_viewport().set_input_as_handled()
 		elif panning_camera:
 			var drag_scale: float = camera_distance * 0.0019
-			var right := Vector3(-sin(camera_yaw), 0.0, cos(camera_yaw))
-			var forward := Vector3(cos(camera_yaw), 0.0, sin(camera_yaw))
-			camera_target += right * -motion.relative.x * drag_scale + forward * motion.relative.y * drag_scale
+			var camera_right := Vector3(sin(camera_yaw), 0.0, -cos(camera_yaw))
+			var camera_back := Vector3(cos(camera_yaw), 0.0, sin(camera_yaw))
+			# Pan like grabbing the world: terrain follows the mouse instead of sliding the wrong way.
+			camera_target += -camera_right * motion.relative.x * drag_scale - camera_back * motion.relative.y * drag_scale
 			camera_target.x = clamp(camera_target.x, -32.0, 32.0)
 			camera_target.z = clamp(camera_target.z, -32.0, 32.0)
 			_update_camera()
 			get_viewport().set_input_as_handled()
+		elif Input.is_mouse_button_pressed(MOUSE_BUTTON_LEFT) and _is_paint_tool():
+			var paint_position: Vector3 = _get_ground_position(motion.position)
+			if abs(paint_position.x) <= TERRAIN_SIZE * 0.5 and abs(paint_position.z) <= TERRAIN_SIZE * 0.5:
+				var spacing: float = max(0.85, brush_radius * 0.24)
+				if not last_paint_valid or Vector2(paint_position.x - last_paint_position.x, paint_position.z - last_paint_position.z).length() >= spacing:
+					last_paint_position = paint_position
+					last_paint_valid = true
+					_apply_brush_tool(paint_position)
+					get_viewport().set_input_as_handled()
 
 
 func _on_world_click(screen_position: Vector2) -> void:
 	var world_position: Vector3 = _get_ground_position(screen_position)
+	if abs(world_position.x) > TERRAIN_SIZE * 0.5 or abs(world_position.z) > TERRAIN_SIZE * 0.5:
+		return
+	last_paint_position = world_position
+	last_paint_valid = true
 	if pending_action != "":
 		var target_id: int = _find_city_at(world_position, 5.5)
 		if target_id < 0:
@@ -319,22 +342,61 @@ func _on_world_click(screen_position: Vector2) -> void:
 		pending_action = ""
 		return
 
+	_apply_world_tool(world_position)
+
+
+func _get_ground_position(screen_position: Vector2) -> Vector3:
+	# Intersect the actual height field. Intersecting y=0 and then swapping in
+	# the terrain height gives the wrong x/z position on every hill.
+	var ray_origin: Vector3 = camera.project_ray_origin(screen_position)
+	var ray_direction: Vector3 = camera.project_ray_normal(screen_position)
+	if abs(ray_direction.y) < 0.0001:
+		return Vector3(1000.0, 0.0, 1000.0)
+
+	var half_size: float = TERRAIN_SIZE * 0.5
+	var step_size: float = 0.4
+	var previous_t: float = 0.0
+	var previous_difference: float = 0.0
+	var was_inside: bool = false
+	for step_index in range(1, 751):
+		var ray_t: float = float(step_index) * step_size
+		var point: Vector3 = ray_origin + ray_direction * ray_t
+		if abs(point.x) > half_size or abs(point.z) > half_size:
+			was_inside = false
+			continue
+		var difference: float = point.y - _height_at(point.x, point.z)
+		if was_inside and previous_difference > 0.0 and difference <= 0.0:
+			var low_t: float = previous_t
+			var high_t: float = ray_t
+			for refine_index in range(12):
+				var middle_t: float = (low_t + high_t) * 0.5
+				var middle_point: Vector3 = ray_origin + ray_direction * middle_t
+				if middle_point.y > _height_at(middle_point.x, middle_point.z):
+					low_t = middle_t
+				else:
+					high_t = middle_t
+			var hit: Vector3 = ray_origin + ray_direction * ((low_t + high_t) * 0.5)
+			hit.y = _height_at(hit.x, hit.z)
+			return hit
+		previous_t = ray_t
+		previous_difference = difference
+		was_inside = true
+	return Vector3(1000.0, 0.0, 1000.0)
+
+
+func _is_paint_tool() -> bool:
+	return tool_mode in ["raise", "lower", "human", "tree", "stone", "food", "erase"]
+
+
+func _apply_brush_tool(world_position: Vector3) -> void:
 	match tool_mode:
-		"select":
-			var city_id: int = _find_city_at(world_position, 5.5)
-			if city_id >= 0:
-				selected_city = city_id
-				_log("Selected %s. Take control to issue orders." % cities[city_id]["name"])
-			else:
-				selected_city = -1
 		"raise":
-			_sculpt_terrain(world_position, 1.05)
+			_sculpt_terrain(world_position, 0.72)
 		"lower":
-			_sculpt_terrain(world_position, -1.05)
+			_sculpt_terrain(world_position, -0.72)
 		"human":
 			if people.size() < MAX_PEOPLE:
 				_spawn_human(world_position, -1)
-				_log("Human spawned.")
 			else:
 				_log("Population cap reached for this prototype.")
 		"tree":
@@ -347,19 +409,29 @@ func _on_world_click(screen_position: Vector2) -> void:
 			_erase_near(world_position)
 
 
-func _get_ground_position(screen_position: Vector2) -> Vector3:
-	var ray_origin: Vector3 = camera.project_ray_origin(screen_position)
-	var ray_direction: Vector3 = camera.project_ray_normal(screen_position)
-	if abs(ray_direction.y) < 0.0001:
-		return camera_target
-	var distance: float = -ray_origin.y / ray_direction.y
-	if distance < 0.0:
-		return camera_target
-	var point: Vector3 = ray_origin + ray_direction * distance
-	point.x = clamp(point.x, -TERRAIN_SIZE * 0.49, TERRAIN_SIZE * 0.49)
-	point.z = clamp(point.z, -TERRAIN_SIZE * 0.49, TERRAIN_SIZE * 0.49)
-	point.y = _height_at(point.x, point.z)
-	return point
+func _apply_world_tool(world_position: Vector3) -> void:
+	match tool_mode:
+		"select":
+			var city_id: int = _find_city_at(world_position, 5.5)
+			if city_id >= 0:
+				selected_city = city_id
+				_log("Selected %s. Take control to issue orders." % cities[city_id]["name"])
+			else:
+				selected_city = -1
+		"raise", "lower", "human", "tree", "stone", "food", "erase":
+			_apply_brush_tool(world_position)
+		"lightning":
+			_god_lightning(world_position)
+		"fire":
+			_god_fire(world_position)
+		"meteor":
+			_god_meteor(world_position)
+		"heal":
+			_god_heal(world_position)
+		"forest":
+			_god_forest(world_position)
+		"quake":
+			_god_earthquake(world_position)
 
 
 func _find_city_at(point: Vector3, radius: float) -> int:
@@ -409,6 +481,9 @@ func _update_placed_object_heights() -> void:
 		city["pos"] = p
 		if is_instance_valid(city["node"]):
 			city["node"].position = p
+		for house in city["houses"]:
+			if is_instance_valid(house):
+				house.position.y = _height_at(p.x + house.position.x, p.z + house.position.z) - p.y
 	for army in armies:
 		var p: Vector3 = army["pos"]
 		p.y = _height_at(p.x, p.z)
@@ -1097,6 +1172,245 @@ func _capture_city(city_id: int, source_id: int) -> void:
 	_make_peace(city_id, source_id)
 
 
+func _spawn_god_effect(position: Vector3, tint: Color, radius: float, duration: float, kind: String = "pulse") -> void:
+	var effect_node := MeshInstance3D.new()
+	var effect_mesh: Mesh
+	var base_scale: Vector3
+	if kind == "lightning":
+		var beam := CylinderMesh.new()
+		beam.top_radius = 0.035
+		beam.bottom_radius = 0.18
+		beam.height = 12.0
+		beam.radial_segments = 8
+		effect_mesh = beam
+		base_scale = Vector3.ONE
+		effect_node.position = position + Vector3(0.0, 6.0, 0.0)
+	else:
+		var sphere := SphereMesh.new()
+		sphere.radius = 1.0
+		sphere.height = 2.0
+		effect_mesh = sphere
+		base_scale = Vector3(radius, max(0.35, radius * 0.48), radius)
+		effect_node.position = position + Vector3(0.0, 0.55, 0.0)
+	effect_node.mesh = effect_mesh
+	var material := StandardMaterial3D.new()
+	material.albedo_color = Color(tint.r, tint.g, tint.b, 0.82)
+	material.transparency = BaseMaterial3D.TRANSPARENCY_ALPHA
+	material.shading_mode = BaseMaterial3D.SHADING_MODE_UNSHADED
+	material.emission_enabled = true
+	material.emission = tint
+	material.emission_energy_multiplier = 1.8
+	effect_node.material_override = material
+	effect_node.scale = base_scale
+	add_child(effect_node)
+	var light := OmniLight3D.new()
+	light.light_color = tint
+	light.light_energy = 3.0
+	light.omni_range = max(5.0, radius * 3.0)
+	effect_node.add_child(light)
+	god_effects.append({
+		"node": effect_node,
+		"material": material,
+		"light": light,
+		"age": 0.0,
+		"duration": duration,
+		"base_scale": base_scale,
+		"base_alpha": 0.82
+	})
+
+
+func _update_god_effects(delta: float) -> void:
+	for i in range(god_effects.size() - 1, -1, -1):
+		var effect: Dictionary = god_effects[i]
+		effect["age"] = float(effect["age"]) + delta
+		var progress: float = clamp(float(effect["age"]) / float(effect["duration"]), 0.0, 1.0)
+		var node: Node3D = effect["node"]
+		if is_instance_valid(node):
+			node.scale = effect["base_scale"] * (1.0 + progress * 0.35)
+		var material: StandardMaterial3D = effect["material"]
+		var tint: Color = material.albedo_color
+		tint.a = float(effect["base_alpha"]) * (1.0 - progress)
+		material.albedo_color = tint
+		var light: OmniLight3D = effect["light"]
+		if is_instance_valid(light):
+			light.light_energy = 3.0 * (1.0 - progress)
+		if progress >= 1.0:
+			if is_instance_valid(node):
+				node.queue_free()
+			god_effects.remove_at(i)
+		else:
+			god_effects[i] = effect
+
+
+func _power_damage(center: Vector3, radius: float, people_limit: int, resource_chance: float, house_damage: int) -> void:
+	var removed: int = 0
+	for i in range(people.size() - 1, -1, -1):
+		var person_position: Vector3 = people[i]["pos"]
+		var distance: float = Vector2(person_position.x - center.x, person_position.z - center.z).length()
+		if distance <= radius and removed < people_limit:
+			if is_instance_valid(people[i]["node"]):
+				people[i]["node"].queue_free()
+			people.remove_at(i)
+			removed += 1
+	for resource in resources:
+		if int(resource["amount"]) <= 0:
+			continue
+		var resource_position: Vector3 = resource["pos"]
+		var distance: float = Vector2(resource_position.x - center.x, resource_position.z - center.z).length()
+		if distance <= radius:
+			var chance: float = resource_chance if str(resource["type"]) == "tree" else resource_chance * 0.35
+			if randf() < chance:
+				resource["amount"] = 0
+				resource["alive"] = false
+				if is_instance_valid(resource["node"]):
+					resource["node"].visible = false
+	for city_id in range(cities.size()):
+		var city_position: Vector3 = cities[city_id]["pos"]
+		var distance: float = Vector2(city_position.x - center.x, city_position.z - center.z).length()
+		if distance <= radius * 0.9:
+			if house_damage > 0:
+				_destroy_city_houses(city_id, house_damage)
+			cities[city_id]["food"] = max(0.0, float(cities[city_id]["food"]) - float(removed) * 0.25)
+	_refresh_ui()
+
+
+func _god_lightning(position: Vector3) -> void:
+	_spawn_god_effect(position, Color(0.30, 0.82, 1.0), 2.7, 0.45, "lightning")
+	_power_damage(position, 3.0, MAX_PEOPLE, 0.30, 1)
+	_log("Lightning tears into the ground. Nature has submitted a strongly worded complaint.")
+
+
+func _god_fire(position: Vector3) -> void:
+	var fire_root := Node3D.new()
+	fire_root.name = "GodFire"
+	fire_root.position = position
+	add_child(fire_root)
+	for flame_index in range(7):
+		var flame := MeshInstance3D.new()
+		var cone := ConeMesh.new()
+		cone.top_radius = 0.0
+		cone.bottom_radius = randf_range(0.20, 0.34)
+		cone.height = randf_range(0.9, 1.7)
+		cone.radial_segments = 6
+		flame.mesh = cone
+		var flame_material := StandardMaterial3D.new()
+		var fire_color: Color = Color(1.0, randf_range(0.12, 0.48), 0.035)
+		flame_material.albedo_color = fire_color
+		flame_material.emission_enabled = true
+		flame_material.emission = fire_color
+		flame_material.emission_energy_multiplier = 2.0
+		flame.material_override = flame_material
+		flame.position = Vector3(randf_range(-1.5, 1.5), cone.height * 0.5, randf_range(-1.5, 1.5))
+		fire_root.add_child(flame)
+	fire_zones.append({"node": fire_root, "pos": position, "radius": max(2.4, brush_radius * 0.75), "age": 0.0, "tick": 0.0})
+	_spawn_god_effect(position, Color(1.0, 0.28, 0.035), max(2.0, brush_radius * 0.6), 0.65)
+	_log("A wildfire has begun. Trees, supplies and nearby people are in danger.")
+
+
+func _update_fire_zones(delta: float) -> void:
+	for i in range(fire_zones.size() - 1, -1, -1):
+		var fire: Dictionary = fire_zones[i]
+		fire["age"] = float(fire["age"]) + delta
+		fire["tick"] = float(fire["tick"]) + delta
+		var node: Node3D = fire["node"]
+		if is_instance_valid(node):
+			node.position.y = _height_at(float(fire["pos"].x), float(fire["pos"].z))
+			for flame_index in range(node.get_child_count()):
+				var flame: Node3D = node.get_child(flame_index)
+				var pulse: float = 0.85 + 0.18 * sin(game_clock * 8.0 + float(flame_index))
+				flame.scale.y = pulse
+		if float(fire["tick"]) >= 0.9:
+			fire["tick"] = 0.0
+			_power_damage(fire["pos"], float(fire["radius"]), 2, 0.22, 0)
+		if float(fire["age"]) >= 8.0:
+			if is_instance_valid(node):
+				node.queue_free()
+			fire_zones.remove_at(i)
+		else:
+			fire_zones[i] = fire
+
+
+func _god_meteor(position: Vector3) -> void:
+	var meteor_node := MeshInstance3D.new()
+	meteor_node.name = "FallingMeteor"
+	var meteor_mesh := SphereMesh.new()
+	meteor_mesh.radius = 0.82
+	meteor_mesh.height = 1.64
+	meteor_node.mesh = meteor_mesh
+	var meteor_material := StandardMaterial3D.new()
+	meteor_material.albedo_color = Color(1.0, 0.18, 0.035)
+	meteor_material.emission_enabled = true
+	meteor_material.emission = Color(1.0, 0.10, 0.015)
+	meteor_material.emission_energy_multiplier = 3.0
+	meteor_node.material_override = meteor_material
+	var start_position: Vector3 = position + Vector3(0.0, 26.0, 0.0)
+	meteor_node.position = start_position
+	add_child(meteor_node)
+	falling_meteors.append({"node": meteor_node, "start": start_position, "target": position, "age": 0.0, "duration": 0.9})
+	_log("Meteor inbound. Local geology is about to become a lot more local.")
+
+
+func _update_falling_meteors(delta: float) -> void:
+	for i in range(falling_meteors.size() - 1, -1, -1):
+		var meteor: Dictionary = falling_meteors[i]
+		meteor["age"] = float(meteor["age"]) + delta
+		var progress: float = clamp(float(meteor["age"]) / float(meteor["duration"]), 0.0, 1.0)
+		var node: Node3D = meteor["node"]
+		var start_position: Vector3 = meteor["start"]
+		var target_position: Vector3 = meteor["target"]
+		if is_instance_valid(node):
+			node.position = start_position.lerp(target_position + Vector3(0.0, 0.8, 0.0), progress)
+			node.rotate_y(delta * 5.0)
+		if progress >= 1.0:
+			if is_instance_valid(node):
+				node.queue_free()
+			_spawn_god_effect(target_position, Color(1.0, 0.28, 0.035), max(4.0, brush_radius * 1.4), 0.75)
+			_power_damage(target_position, max(4.0, brush_radius * 1.25), MAX_PEOPLE, 1.0, 3)
+			_sculpt_terrain(target_position, -1.1)
+			falling_meteors.remove_at(i)
+		else:
+			falling_meteors[i] = meteor
+
+
+func _god_heal(position: Vector3) -> void:
+	var city_id: int = _find_city_at(position, 9.0)
+	var spawned: int = 0
+	for person_index in range(5):
+		if people.size() >= MAX_PEOPLE:
+			break
+		var angle: float = randf() * TAU
+		var radius: float = randf_range(0.8, 3.0)
+		var spawn_position: Vector3 = _surface_position(
+			clamp(position.x + cos(angle) * radius, -TERRAIN_SIZE * 0.48, TERRAIN_SIZE * 0.48),
+			clamp(position.z + sin(angle) * radius, -TERRAIN_SIZE * 0.48, TERRAIN_SIZE * 0.48)
+		)
+		_spawn_human(spawn_position, city_id)
+		spawned += 1
+	if city_id >= 0:
+		cities[city_id]["food"] = float(cities[city_id]["food"]) + 6.0
+		_sync_city_buildings(city_id)
+	_spawn_god_effect(position, Color(0.24, 1.0, 0.56), 4.0, 0.8)
+	_log("Blessing bestowed: %d new people appear, and nearby stores feel a little less doomed." % spawned)
+
+
+func _god_forest(position: Vector3) -> void:
+	for tree_index in range(12):
+		var angle: float = randf() * TAU
+		var radius: float = randf_range(1.0, max(2.0, brush_radius * 1.8))
+		var x: float = clamp(position.x + cos(angle) * radius, -TERRAIN_SIZE * 0.48, TERRAIN_SIZE * 0.48)
+		var z: float = clamp(position.z + sin(angle) * radius, -TERRAIN_SIZE * 0.48, TERRAIN_SIZE * 0.48)
+		_spawn_resource(_surface_position(x, z), "tree", 10)
+	_spawn_god_effect(position, Color(0.22, 0.82, 0.30), max(3.0, brush_radius), 0.7)
+	_log("A grove bursts into existence. Lumber shortages may now complain elsewhere.")
+
+
+func _god_earthquake(position: Vector3) -> void:
+	_spawn_god_effect(position, Color(0.77, 0.54, 0.28), max(4.0, brush_radius * 1.4), 0.8)
+	_power_damage(position, max(4.0, brush_radius * 1.3), MAX_PEOPLE, 0.8, 3)
+	_sculpt_terrain(position, -0.8)
+	_log("Earthquake! The terrain shifts and nearby settlements take damage.")
+
+
 func _erase_near(position: Vector3) -> void:
 	var best_person: int = -1
 	var best_distance: float = 3.0
@@ -1181,6 +1495,12 @@ func _build_ui() -> void:
 	_add_tool_button(grid, "Spawn Stone", "stone", Color(0.27, 0.29, 0.31))
 	_add_tool_button(grid, "Spawn Food", "food", Color(0.35, 0.22, 0.21))
 	_add_tool_button(grid, "Erase", "erase", Color(0.29, 0.17, 0.19))
+	_add_tool_button(grid, "Lightning", "lightning", Color(0.14, 0.36, 0.57))
+	_add_tool_button(grid, "Fire", "fire", Color(0.58, 0.23, 0.09))
+	_add_tool_button(grid, "Meteor", "meteor", Color(0.52, 0.16, 0.12))
+	_add_tool_button(grid, "Heal / Bless", "heal", Color(0.12, 0.42, 0.30))
+	_add_tool_button(grid, "Create Forest", "forest", Color(0.10, 0.36, 0.19))
+	_add_tool_button(grid, "Earthquake", "quake", Color(0.42, 0.30, 0.16))
 
 	content.add_child(_make_label("TERRAIN BRUSH", 12, Color(0.46, 0.86, 0.98)))
 	var brush_row := HBoxContainer.new()
@@ -1214,7 +1534,7 @@ func _build_ui() -> void:
 	speed_button = _make_button("Simulation Speed: 1×", _cycle_speed, Color(0.13, 0.22, 0.29))
 	content.add_child(speed_button)
 	content.add_child(_make_label("CONTROLS", 12, Color(0.46, 0.86, 0.98)))
-	content.add_child(_make_label("WASD / arrows: move camera\nRight-drag: rotate\nMiddle-drag: pan\nMouse wheel: zoom\nClick the world to use the active tool.", 11, Color(0.68, 0.75, 0.80)))
+	content.add_child(_make_label("WASD / arrows: move camera\nRight-drag: rotate\nMiddle-drag: pan\nMouse wheel: zoom\nHold left mouse to paint terrain and resources.\nChoose a power, then click the world.", 11, Color(0.68, 0.75, 0.80)))
 
 	var right_panel := PanelContainer.new()
 	right_panel.anchor_left = 1.0
@@ -1386,7 +1706,7 @@ func _refresh_ui() -> void:
 		else:
 			selection_ring.visible = false
 	if is_instance_valid(tool_label):
-		var tool_names: Dictionary = {"select": "Select and inspect cities", "raise": "Raise terrain with the brush", "lower": "Lower terrain with the brush", "human": "Spawn humans; clusters can found settlements", "tree": "Plant a wood resource", "stone": "Place a stone deposit", "food": "Place a food resource", "erase": "Erase a nearby human or resource"}
+		var tool_names: Dictionary = {"select": "Select and inspect cities", "raise": "Raise terrain with the brush", "lower": "Lower terrain with the brush", "human": "Spawn humans; clusters can found settlements", "tree": "Plant a wood resource", "stone": "Place a stone deposit", "food": "Place a food resource", "erase": "Erase a nearby human or resource", "lightning": "Strike the ground with lightning", "fire": "Start a spreading fire", "meteor": "Call down a destructive meteor", "heal": "Bless an area with new people", "forest": "Create a grove of trees", "quake": "Shake and deform the land"}
 		tool_label.text = "Active: %s" % str(tool_names.get(tool_mode, tool_mode))
 	for city_index in range(cities.size()):
 		if is_instance_valid(cities[city_index]["label"]):
