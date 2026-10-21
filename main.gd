@@ -954,16 +954,6 @@ func _territory_cell_is_land(cell: Vector2i) -> bool:
 	return _height_at(x, z) > WATER_LEVEL + 0.10
 
 
-func _territory_material(color: Color, alpha: float) -> StandardMaterial3D:
-	var material := StandardMaterial3D.new()
-	material.albedo_color = Color(color.r, color.g, color.b, alpha)
-	material.transparency = BaseMaterial3D.TRANSPARENCY_ALPHA
-	material.shading_mode = BaseMaterial3D.SHADING_MODE_UNSHADED
-	material.cull_mode = BaseMaterial3D.CULL_DISABLED
-	material.roughness = 1.0
-	return material
-
-
 func _refresh_city_territory(city_id: int) -> void:
 	# Recalculate all claims so every land tile has one owner and contested
 	# boundaries remain shared instead of overlapping circular influence areas.
