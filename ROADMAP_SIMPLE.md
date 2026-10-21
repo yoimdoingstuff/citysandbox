@@ -18,7 +18,7 @@ This is the **big-picture roadmap**. For the longer implementation checklist, se
 
 ## 2. Cities that develop as the world ages
 
-- [ ] Make settlements progress visibly from villages to towns, cities, and eventually metropolises.
+- [ ] Make settlements progress visibly from villages to towns, cities, metropolises, and eventually megacities.
 - [ ] Let population, resources, safety, location, and history influence growth.
 - [ ] Add roads, neighbourhoods, farms, workplaces, landmarks, and varied buildings.
 - [ ] Expand city territory as new buildings push out towards the edge of the settlement.
