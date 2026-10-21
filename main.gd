@@ -8,6 +8,9 @@ const MAX_PEOPLE: int = 800
 const MAX_CITY_POPULATION: int = 120
 const MAX_CITY_HOUSES: int = 40
 const WATER_LEVEL: float = -0.15
+const STARTING_YEAR: int = 1200
+const SECONDS_PER_YEAR: float = 3.0
+const TERRITORY_CELL_SIZE: float = 4.0
 const SAVE_PATH: String = "user://civiterra_world.json"
 const SAVE_VERSION: int = 1
 
@@ -50,6 +53,7 @@ var brush_radius: float = 4.0
 var paused: bool = false
 var sim_speed: float = 1.0
 var game_clock: float = 0.0
+var last_architecture_era: int = -1
 var world_seed: int = 0
 var people_update_accumulator: float = 0.0
 var growth_timer: float = 0.0
@@ -100,6 +104,7 @@ func _ready() -> void:
 	_log("Generated a multi-continent world. Seed: %d." % world_seed)
 	_log("The world is alive. Select a city to inspect it, then take control to issue orders.")
 	_log("Tip: spawn humans in a cluster and they can found a new settlement on their own.")
+	_update_historical_era(true)
 	_refresh_ui()
 	if OS.get_cmdline_user_args().has("--civiterra-save-load-smoke-test"):
 		call_deferred("_run_save_load_smoke_test")
@@ -144,6 +149,7 @@ func _process(delta: float) -> void:
 		_update_plague(sim_delta)
 		_update_simulation_timers(sim_delta)
 		_update_city_event_markers(sim_delta)
+		_update_historical_era()
 	ui_timer += delta
 	if ui_timer >= 0.35:
 		ui_timer = 0.0
@@ -1735,11 +1741,15 @@ func _try_city_event(city_id: int) -> bool:
 		city["stability"] = maxf(0.0, stability - 8.0)
 		city["security"] = maxf(0.0, security - 2.0)
 		cities[city_id] = city
-		_log("FOOD PROTEST: Residents in %s are demonstrating over dwindling food supplies." % city["name"])
-		_record_city_event(city_id, "FOOD SHORTAGE", Color(1.0, 0.65, 0.22))
+		if _world_year() >= 1750:
+			_log("FOOD PROTEST: Residents in %s are demonstrating over dwindling food supplies." % city["name"])
+			_record_city_event(city_id, "FOOD PROTEST", Color(1.0, 0.65, 0.22))
+		else:
+			_log("FOOD RIOT: Residents in %s are fighting over dwindling food supplies." % city["name"])
+			_record_city_event(city_id, "FOOD RIOT", Color(1.0, 0.42, 0.18))
 		return true
 
-	if population >= 16 and stage >= 2 and randf() < 0.035:
+	if _world_year() >= 1970 and population >= 16 and stage >= 2 and randf() < 0.035:
 		var houses: Array = city["houses"]
 		if not houses.is_empty():
 			var damaged_house: Node3D = houses[randi_range(0, houses.size() - 1)]
@@ -1758,7 +1768,7 @@ func _try_city_event(city_id: int) -> bool:
 		_record_city_event(city_id, "ATTACK", Color(1.0, 0.30, 0.12))
 		return true
 
-	if population >= 12 and stage >= 2 and wealth >= 5.0 and security < 72.0 and randf() < 0.24:
+	if _world_year() >= 1800 and population >= 12 and stage >= 2 and wealth >= 5.0 and security < 72.0 and randf() < 0.24:
 		city["wealth"] = maxf(0.0, wealth - randf_range(3.0, 6.0))
 		city["security"] = maxf(0.0, security - randf_range(3.0, 7.0))
 		city["stability"] = maxf(0.0, stability - 2.0)
@@ -1767,7 +1777,7 @@ func _try_city_event(city_id: int) -> bool:
 		_record_city_event(city_id, "BANK ROBBERY", Color(1.0, 0.48, 0.19))
 		return true
 
-	if population >= 8 and (stability < 58.0 or randf() < 0.13):
+	if _world_year() >= 1750 and population >= 8 and (stability < 58.0 or randf() < 0.13):
 		city["stability"] = maxf(0.0, stability - randf_range(4.0, 8.0))
 		city["security"] = maxf(0.0, security - 2.0)
 		cities[city_id] = city
@@ -1775,7 +1785,7 @@ func _try_city_event(city_id: int) -> bool:
 		_record_city_event(city_id, "PROTEST", Color(0.98, 0.78, 0.30))
 		return true
 
-	if population >= 8 and (wood < 1.0 or stability < 43.0) and randf() < 0.38:
+	if _world_year() >= 1780 and population >= 8 and (wood < 1.0 or stability < 43.0) and randf() < 0.38:
 		city["wealth"] = maxf(0.0, wealth - 2.0)
 		city["stability"] = maxf(0.0, stability - 4.0)
 		cities[city_id] = city
@@ -2847,7 +2857,7 @@ func _joined_logs() -> String:
 func _refresh_ui() -> void:
 	if is_instance_valid(stats_label):
 		var active_wars: int = wars.size()
-		stats_label.text = "CITIES  %02d     PEOPLE  %03d\nWARS  %02d     TIME  %s\nCITY EVENTS  %03d" % [cities.size(), people.size(), active_wars, _format_time(game_clock), city_events_total]
+		stats_label.text = "YEAR %d  •  %s\nCITIES %02d   PEOPLE %03d   WARS %02d\nEVENTS %03d   TIME %s" % [_world_year(), _historical_era_name(_world_year()), cities.size(), people.size(), active_wars, city_events_total, _format_time(game_clock)]
 	if is_instance_valid(radius_label):
 		radius_label.text = "Radius %.1f" % brush_radius
 	if is_instance_valid(selection_ring):
@@ -2869,7 +2879,7 @@ func _refresh_ui() -> void:
 			var city: Dictionary = cities[selected_city]
 			var owner_id: int = int(city["owner"])
 			var owner_name: String = cities[owner_id]["name"] if owner_id >= 0 and owner_id < cities.size() else city["name"]
-			city_info_label.text = "SELECTED  %s\nDEVELOPMENT  %s\nPOPULATION  %d\nTERRITORY  %.1f m radius\nSTABILITY  %.0f%%  SECURITY  %.0f%%\nWEALTH  %d\nOWNER  %s\nFOOD  %d   WOOD  %d   STONE  %d" % [city["name"], _city_stage_name(int(city.get("stage", 0))), _city_population(selected_city), float(city.get("zone_radius", 0.0)), float(city.get("stability", 72.0)), float(city.get("security", 44.0)), int(city.get("wealth", 12.0)), owner_name, int(city["food"]), int(city["wood"]), int(city["stone"])]
+			city_info_label.text = "SELECTED  %s\nDEVELOPMENT  %s\nPOPULATION  %d\nTERRITORY  %d land tiles\nSTABILITY %.0f%%  SECURITY %.0f%%\nWEALTH %d  OWNER %s\nFOOD %d   WOOD %d   STONE %d" % [city["name"], _city_stage_name(int(city.get("stage", 0))), _city_population(selected_city), (city.get("territory_cells", {}) as Dictionary).size(), float(city.get("stability", 72.0)), float(city.get("security", 44.0)), int(city.get("wealth", 12.0)), owner_name, int(city["food"]), int(city["wood"]), int(city["stone"])]
 		else:
 			city_info_label.text = "Select a city to view its people, resources and owner."
 	if is_instance_valid(control_button):
@@ -3244,6 +3254,53 @@ func _clear_loaded_world() -> void:
 	wars.clear()
 	selected_city = -1
 	controlled_city = -1
+
+
+func _world_year() -> int:
+	return STARTING_YEAR + int(game_clock / SECONDS_PER_YEAR)
+
+
+func _historical_era_index(year: int) -> int:
+	if year >= 2000:
+		return 5
+	if year >= 1950:
+		return 4
+	if year >= 1880:
+		return 3
+	if year >= 1780:
+		return 2
+	if year >= 1450:
+		return 1
+	return 0
+
+
+func _historical_era_name(year: int) -> String:
+	match _historical_era_index(year):
+		5:
+			return "CONTEMPORARY"
+		4:
+			return "MODERN AGE"
+		3:
+			return "SKYSCRAPER AGE"
+		2:
+			return "INDUSTRIAL AGE"
+		1:
+			return "RENAISSANCE"
+		_:
+			return "MEDIEVAL AGE"
+
+
+func _update_historical_era(force: bool = false) -> void:
+	var year: int = _world_year()
+	var era: int = _historical_era_index(year)
+	if not force and era == last_architecture_era:
+		return
+	var previous_era: int = last_architecture_era
+	last_architecture_era = era
+	for city_id in range(cities.size()):
+		_apply_building_era_appearance(city_id, year)
+	if previous_era >= 0 and era > previous_era:
+		_log("HISTORICAL SHIFT: %s begins in year %d. Cities can now develop new architecture and social events." % [_historical_era_name(year), year])
 
 
 func _format_time(seconds: float) -> String:
