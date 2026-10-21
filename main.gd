@@ -1539,13 +1539,17 @@ func _try_city_event(city_id: int) -> bool:
 	var wood: float = float(city["wood"])
 	var stage: int = int(city.get("stage", 0))
 
-	if population >= 10 and stability < 24.0 and int(city["owner"]) != city_id:
-		city["owner"] = city_id
+	if population >= 10 and stability < 24.0:
+		var became_independent: bool = int(city["owner"]) != city_id
+		if became_independent:
+			city["owner"] = city_id
+			_log("REBELLION: %s has declared independence after unrest overwhelmed its government." % city["name"])
+		else:
+			_log("REBELLION: Unrest overthrew the local administration in %s. Emergency leadership has taken over." % city["name"])
 		city["stability"] = 36.0
 		city["security"] = maxf(12.0, security - 12.0)
 		city["wealth"] = maxf(0.0, wealth - 5.0)
 		cities[city_id] = city
-		_log("REBELLION: %s has declared independence after unrest overwhelmed its government." % city["name"])
 		_record_city_event()
 		return true
 
