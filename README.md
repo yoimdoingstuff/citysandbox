@@ -43,6 +43,7 @@ Open the repository's **Actions** tab and download the latest `Civiterra-desktop
 - Pause and simulation speed controls.
 - Native 3D desktop UI with refreshed dark panels, rounded controls, hover states, and clearer world-simulation branding.
 - Automatic Windows/Linux validation, smoke tests, and desktop exports through GitHub Actions.
+- Local Save World / Load World controls persist terrain edits, city data, citizens, resources, camera framing, and simulation time; temporary combat and god-power effects are not persisted yet.
 
 ## Controls
 
