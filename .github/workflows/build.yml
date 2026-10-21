@@ -61,42 +61,42 @@ jobs:
           use-dotnet: false
           include-templates: true
 
-      - name: Resolve Godot console executable
+      - name: Resolve Godot executable
         shell: pwsh
         run: |
-          $godotConsole = Join-Path "$env:USERPROFILE\godot" "Godot_v4.3-stable_win64_console.exe"
+          $godotConsole = Join-Path "$env:USERPROFILE\godot" "Godot_v4.3-stable_win64.exe"
           if (-not (Test-Path -LiteralPath $godotConsole)) {
-            throw "Godot console executable was not installed at $godotConsole."
+            throw "Godot executable was not installed at $godotConsole."
           }
-          "GODOT_CONSOLE=$godotConsole" | Out-File -FilePath $env:GITHUB_ENV -Append -Encoding utf8
+          "GODOT_EXE=$godotConsole" | Out-File -FilePath $env:GITHUB_ENV -Append -Encoding utf8
 
       - name: Show Godot version
         shell: pwsh
         run: |
-          & $env:GODOT_CONSOLE --version
+          & $env:GODOT_EXE --version
           if ($LASTEXITCODE -ne 0) { throw "Could not run Godot." }
 
       - name: Import project and check scripts
         shell: pwsh
         run: |
-          & $env:GODOT_CONSOLE --headless --editor --path . --quit
+          & $env:GODOT_EXE --headless --editor --path . --quit
           if ($LASTEXITCODE -ne 0) { throw "Godot project import or script validation failed." }
 
       - name: Smoke-test main scene
         shell: pwsh
         run: |
-          & $env:GODOT_CONSOLE --headless --path . --quit-after 3
+          & $env:GODOT_EXE --headless --path . --quit-after 3
           if ($LASTEXITCODE -ne 0) { throw "Main scene smoke test failed." }
 
       - name: Export Windows and Linux
         shell: pwsh
         run: |
           New-Item -ItemType Directory -Force -Path "dist" | Out-Null
-          & $env:GODOT_CONSOLE --headless --verbose --path . --export-release "Windows Desktop" "dist/Civiterra.exe" *> "dist/export-windows.log"
+          & $env:GODOT_EXE --headless --verbose --path . --export-release "Windows Desktop" "dist/Civiterra.exe" *> "dist/export-windows.log"
           $windowsExitCode = $LASTEXITCODE
           Get-Content "dist/export-windows.log"
           if ($windowsExitCode -ne 0) { throw "Windows export failed with exit code $windowsExitCode." }
-          & $env:GODOT_CONSOLE --headless --verbose --path . --export-release "Linux/X11" "dist/Civiterra.x86_64" *> "dist/export-linux.log"
+          & $env:GODOT_EXE --headless --verbose --path . --export-release "Linux/X11" "dist/Civiterra.x86_64" *> "dist/export-linux.log"
           $linuxExitCode = $LASTEXITCODE
           Get-Content "dist/export-linux.log"
           if ($linuxExitCode -ne 0) { throw "Linux export failed with exit code $linuxExitCode." }
