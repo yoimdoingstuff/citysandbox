@@ -61,28 +61,45 @@ jobs:
           use-dotnet: false
           include-templates: true
 
+      - name: Resolve Godot console executable
+        shell: pwsh
+        run: |
+          $godotConsole = Join-Path "$env:USERPROFILE\godot" "Godot_v4.3-stable_win64_console.exe"
+          if (-not (Test-Path -LiteralPath $godotConsole)) {
+            throw "Godot console executable was not installed at $godotConsole."
+          }
+          "GODOT_CONSOLE=$godotConsole" | Out-File -FilePath $env:GITHUB_ENV -Append -Encoding utf8
+
       - name: Show Godot version
         shell: pwsh
-        run: godot --version
+        run: |
+          & $env:GODOT_CONSOLE --version
+          if ($LASTEXITCODE -ne 0) { throw "Could not run Godot." }
 
       - name: Import project and check scripts
         shell: pwsh
-        run: godot --headless --editor --path . --quit
+        run: |
+          & $env:GODOT_CONSOLE --headless --editor --path . --quit
+          if ($LASTEXITCODE -ne 0) { throw "Godot project import or script validation failed." }
 
       - name: Smoke-test main scene
         shell: pwsh
-        run: godot --headless --path . --quit-after 3
+        run: |
+          & $env:GODOT_CONSOLE --headless --path . --quit-after 3
+          if ($LASTEXITCODE -ne 0) { throw "Main scene smoke test failed." }
 
       - name: Export Windows and Linux
         shell: pwsh
         run: |
           New-Item -ItemType Directory -Force -Path "dist" | Out-Null
-          godot --headless --verbose --path . --export-release "Windows Desktop" "dist/Civiterra.exe" 2>&1 | Tee-Object -FilePath "dist/export-windows.log"
+          & $env:GODOT_CONSOLE --headless --verbose --path . --export-release "Windows Desktop" "dist/Civiterra.exe" *> "dist/export-windows.log"
           $windowsExitCode = $LASTEXITCODE
-          if ($windowsExitCode -ne 0) { Get-Content "dist/export-windows.log"; throw "Windows export failed with exit code $windowsExitCode." }
-          godot --headless --verbose --path . --export-release "Linux/X11" "dist/Civiterra.x86_64" 2>&1 | Tee-Object -FilePath "dist/export-linux.log"
+          Get-Content "dist/export-windows.log"
+          if ($windowsExitCode -ne 0) { throw "Windows export failed with exit code $windowsExitCode." }
+          & $env:GODOT_CONSOLE --headless --verbose --path . --export-release "Linux/X11" "dist/Civiterra.x86_64" *> "dist/export-linux.log"
           $linuxExitCode = $LASTEXITCODE
-          if ($linuxExitCode -ne 0) { Get-Content "dist/export-linux.log"; throw "Linux export failed with exit code $linuxExitCode." }
+          Get-Content "dist/export-linux.log"
+          if ($linuxExitCode -ne 0) { throw "Linux export failed with exit code $linuxExitCode." }
 
       - name: Upload desktop builds
         uses: actions/upload-artifact@v4
