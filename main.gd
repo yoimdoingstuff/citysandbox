@@ -1,7 +1,7 @@
 extends Node3D
 
-const TERRAIN_RES: int = 81
-const TERRAIN_SIZE: float = 82.0
+const TERRAIN_RES: int = 161
+const TERRAIN_SIZE: float = 160.0
 const MAX_CITIES: int = 10
 const MAX_PEOPLE: int = 500
 const WATER_LEVEL: float = -0.15
@@ -37,6 +37,7 @@ var brush_radius: float = 4.0
 var paused: bool = false
 var sim_speed: float = 1.0
 var game_clock: float = 0.0
+var world_seed: int = 0
 var growth_timer: float = 0.0
 var resource_timer: float = 0.0
 var founding_timer: float = 0.0
@@ -73,10 +74,12 @@ var tool_buttons: Dictionary = {}
 
 func _ready() -> void:
 	randomize()
+	world_seed = randi() & 0x7FFFFFFF
 	_build_world()
 	_build_ui()
 	_seed_civilizations()
 	_set_tool("select")
+	_log("Generated a multi-continent world. Seed: %d." % world_seed)
 	_log("The world is alive. Select a city to inspect it, then take control to issue orders.")
 	_log("Tip: spawn humans in a cluster and they can found a new settlement on their own.")
 	_refresh_ui()
@@ -127,7 +130,7 @@ func _build_world() -> void:
 
 	var water := MeshInstance3D.new()
 	var water_mesh := PlaneMesh.new()
-	water_mesh.size = Vector2(180.0, 180.0)
+	water_mesh.size = Vector2(TERRAIN_SIZE + 100.0, TERRAIN_SIZE + 100.0)
 	water.mesh = water_mesh
 	var water_material := StandardMaterial3D.new()
 	water_material.albedo_color = Color(0.08, 0.35, 0.58)
@@ -150,7 +153,7 @@ func _build_world() -> void:
 	camera = Camera3D.new()
 	camera.name = "SandboxCamera"
 	camera.current = true
-	camera.far = 450.0
+	camera.far = TERRAIN_SIZE * 6.0
 	camera.near = 0.1
 	add_child(camera)
 	selection_ring = MeshInstance3D.new()
@@ -187,20 +190,61 @@ func _build_world() -> void:
 func _generate_terrain_heights() -> void:
 	terrain_heights.clear()
 	var broad_noise := FastNoiseLite.new()
-	broad_noise.seed = 14029
-	broad_noise.frequency = 0.043
+	broad_noise.seed = world_seed + 14029
+	broad_noise.frequency = 0.028
 	broad_noise.fractal_octaves = 3
 	var detail_noise := FastNoiseLite.new()
-	detail_noise.seed = 8201
-	detail_noise.frequency = 0.12
+	detail_noise.seed = world_seed + 8201
+	detail_noise.frequency = 0.095
+	var coastline_noise := FastNoiseLite.new()
+	coastline_noise.seed = world_seed + 33191
+	coastline_noise.frequency = 0.052
+	coastline_noise.fractal_octaves = 2
+
+	# Broad elliptical landmasses create separate continents. Noise roughens
+	# their coastlines, while the elevation fields add hills and high ground.
+	var continent_centers: Array[Vector2] = [
+		Vector2(-31.0, -20.0),
+		Vector2(40.0, -20.0),
+		Vector2(2.0, 39.0),
+		Vector2(-63.0, 24.0),
+		Vector2(63.0, 45.0),
+		Vector2(-61.0, -54.0)
+	]
+	var continent_radii: Array[Vector2] = [
+		Vector2(37.0, 31.0),
+		Vector2(28.0, 38.0),
+		Vector2(44.0, 32.0),
+		Vector2(16.0, 21.0),
+		Vector2(14.0, 17.0),
+		Vector2(15.0, 13.0)
+	]
+
 	for z_index in range(TERRAIN_RES):
 		var row: Array = []
 		for x_index in range(TERRAIN_RES):
 			var x: float = (float(x_index) / float(TERRAIN_RES - 1) - 0.5) * TERRAIN_SIZE
 			var z: float = (float(z_index) / float(TERRAIN_RES - 1) - 0.5) * TERRAIN_SIZE
-			var edge: float = max(abs(x), abs(z)) / (TERRAIN_SIZE * 0.5)
-			var falloff: float = clamp(1.0 - pow(edge, 2.3), 0.0, 1.0)
-			var h: float = falloff * (4.5 + broad_noise.get_noise_2d(x, z) * 2.25 + detail_noise.get_noise_2d(x, z) * 0.6) - 1.35
+			var continent_score: float = -10.0
+			for continent_index in range(continent_centers.size()):
+				var relative: Vector2 = Vector2(
+					(x - continent_centers[continent_index].x) / continent_radii[continent_index].x,
+					(z - continent_centers[continent_index].y) / continent_radii[continent_index].y
+				)
+				var score: float = 1.0 - relative.length()
+				continent_score = max(continent_score, score)
+			var land_score: float = continent_score + coastline_noise.get_noise_2d(x, z) * 0.18
+			var broad_value: float = broad_noise.get_noise_2d(x, z)
+			var detail_value: float = detail_noise.get_noise_2d(x, z)
+			var h: float
+			if land_score > -0.025:
+				var land_strength: float = clamp((land_score + 0.025) / 0.92, 0.0, 1.0)
+				h = WATER_LEVEL + 0.18 + land_strength * 5.5 + broad_value * 1.25 + maxf(0.0, detail_value) * 0.35
+				# Keep the generated shoreline just above the water plane.
+				h = maxf(WATER_LEVEL + 0.06, h)
+			else:
+				# The underwater seabed stays low and relatively calm.
+				h = WATER_LEVEL - 0.90 + broad_value * 0.16
 			row.append(h)
 		terrain_heights.append(row)
 
@@ -292,8 +336,9 @@ func _update_camera_input(delta: float) -> void:
 		movement -= right
 	if movement.length_squared() > 0.0:
 		camera_target += movement.normalized() * delta * max(12.0, camera_distance * 0.30)
-		camera_target.x = clamp(camera_target.x, -28.0, 28.0)
-		camera_target.z = clamp(camera_target.z, -28.0, 28.0)
+		var camera_limit: float = TERRAIN_SIZE * 0.5 - 8.0
+		camera_target.x = clamp(camera_target.x, -camera_limit, camera_limit)
+		camera_target.z = clamp(camera_target.z, -camera_limit, camera_limit)
 		_update_camera()
 
 
@@ -309,11 +354,11 @@ func _unhandled_input(event: InputEvent) -> void:
 			last_mouse_position = mouse_event.position
 			get_viewport().set_input_as_handled()
 		elif mouse_event.button_index == MOUSE_BUTTON_WHEEL_UP and mouse_event.pressed:
-			camera_distance = clamp(camera_distance - 6.0, 24.0, 145.0)
+			camera_distance = clamp(camera_distance - 6.0, 24.0, TERRAIN_SIZE * 1.75)
 			_update_camera()
 			get_viewport().set_input_as_handled()
 		elif mouse_event.button_index == MOUSE_BUTTON_WHEEL_DOWN and mouse_event.pressed:
-			camera_distance = clamp(camera_distance + 6.0, 24.0, 145.0)
+			camera_distance = clamp(camera_distance + 6.0, 24.0, TERRAIN_SIZE * 1.75)
 			_update_camera()
 			get_viewport().set_input_as_handled()
 		elif mouse_event.button_index == MOUSE_BUTTON_LEFT and mouse_event.pressed:
@@ -331,8 +376,9 @@ func _unhandled_input(event: InputEvent) -> void:
 			var camera_back := Vector3(cos(camera_yaw), 0.0, sin(camera_yaw))
 			# Pan like grabbing the world: terrain follows the mouse instead of sliding the wrong way.
 			camera_target += -camera_right * motion.relative.x * drag_scale - camera_back * motion.relative.y * drag_scale
-			camera_target.x = clamp(camera_target.x, -32.0, 32.0)
-			camera_target.z = clamp(camera_target.z, -32.0, 32.0)
+			var pan_limit: float = TERRAIN_SIZE * 0.5 - 8.0
+			camera_target.x = clamp(camera_target.x, -pan_limit, pan_limit)
+			camera_target.z = clamp(camera_target.z, -pan_limit, pan_limit)
 			_update_camera()
 			get_viewport().set_input_as_handled()
 		elif Input.is_mouse_button_pressed(MOUSE_BUTTON_LEFT) and _is_paint_tool():
@@ -387,11 +433,11 @@ func _get_ground_position(screen_position: Vector2) -> Vector3:
 		return Vector3(1000.0, 0.0, 1000.0)
 
 	var half_size: float = TERRAIN_SIZE * 0.5
-	var step_size: float = 0.4
+	var step_size: float = 0.45
 	var previous_t: float = 0.0
 	var previous_difference: float = 0.0
 	var was_inside: bool = false
-	for step_index in range(1, 751):
+	for step_index in range(1, 1201):
 		var ray_t: float = float(step_index) * step_size
 		var point: Vector3 = ray_origin + ray_direction * ray_t
 		if abs(point.x) > half_size or abs(point.z) > half_size:
@@ -530,8 +576,16 @@ func _update_placed_object_heights() -> void:
 
 
 func _seed_civilizations() -> void:
-	var starts: Array[Vector2] = [Vector2(-21.0, -17.0), Vector2(20.0, -16.0), Vector2(1.0, 22.0)]
-	var populations: Array[int] = [6, 5, 5]
+	# Start across the major continents and a few smaller islands so the map
+	# immediately feels like a world with room for competing civilizations.
+	var starts: Array[Vector2] = [
+		Vector2(-25.0, -18.0),
+		Vector2(28.0, -20.0),
+		Vector2(2.0, 38.0),
+		Vector2(-63.0, 24.0),
+		Vector2(63.0, 45.0)
+	]
+	var populations: Array[int] = [6, 5, 5, 4, 4]
 	for i in range(starts.size()):
 		var town_position: Vector3 = _surface_position(starts[i].x, starts[i].y)
 		var city_id: int = _create_city(town_position, city_names[i], city_colors[i])
@@ -545,7 +599,7 @@ func _seed_civilizations() -> void:
 		cities[city_id]["wood"] = 10.0
 		cities[city_id]["stone"] = 5.0
 		_refresh_city_development(city_id)
-	_log("Three small city-states are competing to grow. Their future is, regrettably, in your hands.")
+	_log("Five city-states are competing to grow across the continents and islands.")
 
 
 func _create_city(position: Vector3, city_name: String, color: Color) -> int:
@@ -729,17 +783,26 @@ func _sync_city_buildings(city_id: int) -> void:
 
 
 func _seed_resources_around(center: Vector3) -> void:
-	for i in range(15):
-		var angle: float = randf() * TAU
-		var radius: float = randf_range(7.0, 14.0)
-		var p: Vector3 = _surface_position(center.x + cos(angle) * radius, center.z + sin(angle) * radius)
+	for i in range(18):
+		var resource_position := Vector3.ZERO
+		var found_land: bool = false
+		for attempt in range(12):
+			var angle: float = randf() * TAU
+			var radius: float = randf_range(6.0, 14.0)
+			var candidate: Vector3 = _surface_position(center.x + cos(angle) * radius, center.z + sin(angle) * radius)
+			if _height_at(candidate.x, candidate.z) > WATER_LEVEL + 0.18:
+				resource_position = candidate
+				found_land = true
+				break
+		if not found_land:
+			continue
 		var roll: float = randf()
 		if roll < 0.48:
-			_spawn_resource(p, "tree", 8)
+			_spawn_resource(resource_position, "tree", 8)
 		elif roll < 0.73:
-			_spawn_resource(p, "food", 8)
+			_spawn_resource(resource_position, "food", 8)
 		else:
-			_spawn_resource(p, "stone", 8)
+			_spawn_resource(resource_position, "stone", 8)
 
 
 func _spawn_human(position: Vector3, city_id: int) -> void:
