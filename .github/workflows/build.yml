@@ -60,11 +60,12 @@ jobs:
           version: 4.3.0
           use-dotnet: false
           include-templates: true
+          cache: false
 
-      - name: Resolve Godot executable
+      - name: Resolve Godot console executable
         shell: pwsh
         run: |
-          $godotConsole = Join-Path "$env:USERPROFILE\godot" "Godot_v4.3-stable_win64.exe"
+          $godotConsole = Join-Path "$env:USERPROFILE\godot" "Godot_v4.3-stable_win64_console.exe"
           if (-not (Test-Path -LiteralPath $godotConsole)) {
             throw "Godot executable was not installed at $godotConsole."
           }
