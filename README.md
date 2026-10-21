@@ -29,7 +29,7 @@ Open the repository's **Actions** tab and download the latest `Civiterra-desktop
 - WorldBox-style powers: lightning, spreading wildfires, falling meteors with craters, moving tornadoes, spreading plague, healing/blessing, forest creation, and earthquakes.
 - Brush-radius preview follows the real terrain surface; terrain/resource tools can be painted by dragging.
 - Humans wander, join nearby settlements, and can spontaneously found towns when enough gather.
-- Cities progress through visible village, town, city, and metropolis stages as population grows; central landmarks and neighbourhoods expand with development.
+- Cities progress through visible village, town, city, metropolis, and megacity stages as population grows; larger stages add more homes and expand the central landmark.
 - Initial condition-driven city events include protests, strikes, rebellions, bank robberies, rare extremist incidents, and positive festivals, influenced by stability, security, food, and wealth.
 - City roads are generated from the town centre to each home, follow terrain height, and rebuild when terrain is sculpted or new houses appear.
 - Each city has a coloured territory zone that expands as it builds more houses, with shared boundaries calculated when city influence zones meet.
