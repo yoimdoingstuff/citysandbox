@@ -60,6 +60,10 @@ A successful GitHub Actions build confirms that Godot can validate and export th
 - [ ] Make trade, migration, shortages, disasters, war, and event outcomes change a city's future.
 - [ ] Add a city overview showing population, development stage, resources, happiness or stability, buildings, and relationships.
 - [ ] Make cities visually and economically distinct based on their environment and history.
+- [ ] Draw a coloured, translucent territory zone for each city and grow its radius as more edge buildings are constructed.
+- [ ] When two city zones meet, calculate and draw a shared border instead of allowing their territories to overlap indefinitely.
+- [ ] Keep territory overlays aligned with terrain edits and show each city's territory size in its inspector.
+- [ ] Smoothly zoom and focus the camera on a selected city as its territory grows, but let manual camera input cancel the automatic movement.
 
 **Done when:** running the simulation for a while produces visible, understandable changes to settlements, not only larger population numbers.
 
@@ -68,6 +72,7 @@ A successful GitHub Actions build confirms that Godot can validate and export th
 - [ ] At world scale, show continents, biomes, borders, and city locations clearly.
 - [ ] At regional scale, reveal roads, districts, farms, suburbs, and city layouts.
 - [ ] At close range, show more individual buildings, citizens, vehicles, and activity.
+- [ ] Keep simplified city territory boundaries and city markers readable at world scale, while hiding unnecessary small details.
 - [ ] Use smooth transitions between detail levels to avoid obvious popping.
 - [ ] Add readable labels and markers at the appropriate zoom level.
 - [x] Add an initial zoom-based LOD pass: four terrain mesh resolutions, culled citizen/resource/neighbourhood visuals, and simple distant city markers. The implementation is intentionally basic and will need refinement as the world grows.
