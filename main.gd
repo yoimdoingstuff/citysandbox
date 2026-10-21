@@ -3645,6 +3645,15 @@ func _update_world_detail_levels() -> void:
 
 
 func _run_save_load_smoke_test() -> void:
+	reset_speed_on_city_event = true
+	sim_speed = 16.0
+	_record_city_event(0, "SMOKE TEST", Color(0.30, 0.80, 0.95))
+	if not is_equal_approx(sim_speed, 1.0):
+		push_error("SAVE_LOAD_TEST_FAILED: City event did not reset simulation speed to 1x.")
+		get_tree().quit(1)
+		return
+	var expected_reset_speed_setting: bool = reset_speed_on_city_event
+	var expected_sim_speed: float = sim_speed
 	var expected_city_count: int = cities.size()
 	var expected_people_count: int = people.size()
 	var expected_resource_count: int = 0
@@ -3702,6 +3711,10 @@ func _run_save_load_smoke_test() -> void:
 		return
 	if rubble_records.size() != expected_rubble_count:
 		push_error("SAVE_LOAD_TEST_FAILED: Rubble was not restored.")
+		get_tree().quit(1)
+		return
+	if reset_speed_on_city_event != expected_reset_speed_setting or not is_equal_approx(sim_speed, expected_sim_speed):
+		push_error("SAVE_LOAD_TEST_FAILED: City-event speed preference was not restored.")
 		get_tree().quit(1)
 		return
 
