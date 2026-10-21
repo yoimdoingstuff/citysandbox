@@ -10,6 +10,7 @@ const WATER_LEVEL: float = -0.15
 var terrain: MeshInstance3D
 var terrain_material: StandardMaterial3D
 var terrain_lod_nodes: Array[MeshInstance3D] = []
+var terrain_lod_dirty: Array[bool] = [true, true, true, true]
 var selection_ring: MeshInstance3D
 var terrain_heights: Array = []
 var city_names: Array[String] = ["Asterfall", "Mossreach", "Copper Bay", "New Avalon", "Westhaven", "Emberplain", "Stonebridge", "Northstar", "Rivermark", "Sunfield"]
@@ -253,8 +254,9 @@ func _generate_terrain_heights() -> void:
 
 
 func _rebuild_terrain() -> void:
-	# Build several terrain meshes once per terrain edit. Only one is visible
-	# at a time, so distant views render far fewer triangles.
+	# Terrain sculpting invalidates each LOD, but only rebuild the currently
+	# visible one. Other resolutions are regenerated lazily if the player zooms
+	# to them, avoiding four mesh rebuilds for every brush stroke.
 	if terrain_lod_nodes.is_empty():
 		terrain_lod_nodes.append(terrain)
 	while terrain_lod_nodes.size() < TERRAIN_LOD_STEPS.size():
@@ -265,37 +267,52 @@ func _rebuild_terrain() -> void:
 		add_child(lod_node)
 		terrain_lod_nodes.append(lod_node)
 
-	var spacing: float = TERRAIN_SIZE / float(TERRAIN_RES - 1)
+	if terrain_lod_dirty.size() != TERRAIN_LOD_STEPS.size():
+		terrain_lod_dirty.clear()
+		for lod_index in range(TERRAIN_LOD_STEPS.size()):
+			terrain_lod_dirty.append(true)
+	else:
+		for lod_index in range(TERRAIN_LOD_STEPS.size()):
+			terrain_lod_dirty[lod_index] = true
+
 	var active_lod: int = _terrain_lod_index_for_distance(camera_distance)
-	for lod_index in range(TERRAIN_LOD_STEPS.size()):
-		var stride: int = TERRAIN_LOD_STEPS[lod_index]
-		var surface := SurfaceTool.new()
-		surface.begin(Mesh.PRIMITIVE_TRIANGLES)
-		for z_index in range(0, TERRAIN_RES - 1, stride):
-			var z_next: int = min(z_index + stride, TERRAIN_RES - 1)
-			var z0: float = -TERRAIN_SIZE * 0.5 + float(z_index) * spacing
-			var z1: float = -TERRAIN_SIZE * 0.5 + float(z_next) * spacing
-			for x_index in range(0, TERRAIN_RES - 1, stride):
-				var x_next: int = min(x_index + stride, TERRAIN_RES - 1)
-				var x0: float = -TERRAIN_SIZE * 0.5 + float(x_index) * spacing
-				var x1: float = -TERRAIN_SIZE * 0.5 + float(x_next) * spacing
-				var p00 := Vector3(x0, terrain_heights[z_index][x_index], z0)
-				var p10 := Vector3(x1, terrain_heights[z_index][x_next], z0)
-				var p01 := Vector3(x0, terrain_heights[z_next][x_index], z1)
-				var p11 := Vector3(x1, terrain_heights[z_next][x_next], z1)
-				# Keep the known working top-facing triangle order for every LOD.
-				_add_terrain_vertex(surface, p00)
-				_add_terrain_vertex(surface, p10)
-				_add_terrain_vertex(surface, p01)
-				_add_terrain_vertex(surface, p10)
-				_add_terrain_vertex(surface, p11)
-				_add_terrain_vertex(surface, p01)
-		surface.index()
-		surface.generate_normals(true)
-		var lod_node: MeshInstance3D = terrain_lod_nodes[lod_index]
-		lod_node.mesh = surface.commit()
-		lod_node.material_override = terrain_material
-		lod_node.visible = lod_index == active_lod
+	_build_terrain_lod(active_lod)
+	for lod_index in range(terrain_lod_nodes.size()):
+		terrain_lod_nodes[lod_index].visible = lod_index == active_lod
+
+
+func _build_terrain_lod(lod_index: int) -> void:
+	if lod_index < 0 or lod_index >= terrain_lod_nodes.size():
+		return
+	var stride: int = TERRAIN_LOD_STEPS[lod_index]
+	var spacing: float = TERRAIN_SIZE / float(TERRAIN_RES - 1)
+	var surface := SurfaceTool.new()
+	surface.begin(Mesh.PRIMITIVE_TRIANGLES)
+	for z_index in range(0, TERRAIN_RES - 1, stride):
+		var z_next: int = min(z_index + stride, TERRAIN_RES - 1)
+		var z0: float = -TERRAIN_SIZE * 0.5 + float(z_index) * spacing
+		var z1: float = -TERRAIN_SIZE * 0.5 + float(z_next) * spacing
+		for x_index in range(0, TERRAIN_RES - 1, stride):
+			var x_next: int = min(x_index + stride, TERRAIN_RES - 1)
+			var x0: float = -TERRAIN_SIZE * 0.5 + float(x_index) * spacing
+			var x1: float = -TERRAIN_SIZE * 0.5 + float(x_next) * spacing
+			var p00 := Vector3(x0, terrain_heights[z_index][x_index], z0)
+			var p10 := Vector3(x1, terrain_heights[z_index][x_next], z0)
+			var p01 := Vector3(x0, terrain_heights[z_next][x_index], z1)
+			var p11 := Vector3(x1, terrain_heights[z_next][x_next], z1)
+			# Keep the known working top-facing triangle order for every LOD.
+			_add_terrain_vertex(surface, p00)
+			_add_terrain_vertex(surface, p10)
+			_add_terrain_vertex(surface, p01)
+			_add_terrain_vertex(surface, p10)
+			_add_terrain_vertex(surface, p11)
+			_add_terrain_vertex(surface, p01)
+	surface.index()
+	surface.generate_normals(true)
+	var lod_node: MeshInstance3D = terrain_lod_nodes[lod_index]
+	lod_node.mesh = surface.commit()
+	lod_node.material_override = terrain_material
+	terrain_lod_dirty[lod_index] = false
 
 
 func _terrain_lod_index_for_distance(distance: float) -> int:
@@ -2170,6 +2187,8 @@ func _update_world_detail_levels() -> void:
 	# Render a progressively simpler version of the world as the camera pulls
 	# back: terrain LOD, city markers, houses, resources, and citizens.
 	var active_lod: int = _terrain_lod_index_for_distance(camera_distance)
+	if active_lod < terrain_lod_dirty.size() and terrain_lod_dirty[active_lod]:
+		_build_terrain_lod(active_lod)
 	for lod_index in range(terrain_lod_nodes.size()):
 		terrain_lod_nodes[lod_index].visible = lod_index == active_lod
 
