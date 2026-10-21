@@ -53,7 +53,7 @@ var pending_action: String = ""
 var brush_radius: float = 4.0
 var paused: bool = false
 var sim_speed: float = 1.0
-var pause_on_city_event: bool = false
+var reset_speed_on_city_event: bool = false
 var game_clock: float = 0.0
 var last_architecture_era: int = -1
 var world_seed: int = 0
@@ -2130,21 +2130,21 @@ func _try_city_event(city_id: int) -> bool:
 	return false
 
 
-func _toggle_pause_on_city_event() -> void:
-	pause_on_city_event = not pause_on_city_event
+func _toggle_reset_speed_on_city_event() -> void:
+	reset_speed_on_city_event = not reset_speed_on_city_event
 	for node in ui_root.find_children("*", "Button", true, false):
 		var button: Button = node as Button
-		if button.text.begins_with("Pause on City Event:"):
-			button.text = "Pause on City Event: ON" if pause_on_city_event else "Pause on City Event: OFF"
-	_log("Pause on city events %s." % ("enabled" if pause_on_city_event else "disabled"))
+		if button.text.begins_with("Reset Speed on City Event:"):
+			button.text = "Reset Speed on City Event: ON" if reset_speed_on_city_event else "Reset Speed on City Event: OFF"
+	_log("Reset-to-1x on city events %s." % ("enabled" if reset_speed_on_city_event else "disabled"))
 
 
 func _record_city_event(city_id: int, event_name: String, event_color: Color) -> void:
 	city_events_total += 1
-	if pause_on_city_event:
-		paused = true
-		if is_instance_valid(pause_button):
-			pause_button.text = "Resume Simulation"
+	if reset_speed_on_city_event:
+		sim_speed = 1.0
+		if is_instance_valid(speed_button):
+			speed_button.text = "Simulation Speed: 1×"
 	if city_id < 0 or city_id >= cities.size():
 		return
 	var city: Dictionary = cities[city_id]
@@ -2673,14 +2673,14 @@ func _damage_city(city_id: int, amount: int, cause: String) -> void:
 		cities[city_id]["label"].text = "%s\nPOP %d" % [cities[city_id]["name"], int(cities[city_id]["population"])]
 
 
-func _collapse_specific_building(city_id: int, house: Node3D, allow_chain: bool = true) -> void:
+func _collapse_specific_building(city_id: int, house: Node3D, allow_chain: bool = true, rebuild_roads: bool = true) -> bool:
 	if city_id < 0 or city_id >= cities.size() or not is_instance_valid(house):
-		return
+		return false
 	var city: Dictionary = cities[city_id]
 	var houses: Array = city["houses"]
 	var house_index: int = houses.find(house)
 	if house_index < 0:
-		return
+		return false
 	var local_position: Vector3 = house.position
 	var world_position: Vector3 = house.global_position
 	var tall_building: bool = house.has_node("EraUpgrade") or float(house.scale.y) > 1.35
@@ -2724,20 +2724,26 @@ func _collapse_specific_building(city_id: int, house: Node3D, allow_chain: bool 
 			break
 	city["houses"] = houses
 	cities[city_id] = city
-	_rebuild_city_roads(city_id)
+	if rebuild_roads:
+		_rebuild_city_roads(city_id)
+	return true
 
 
 func _destroy_city_houses(city_id: int, count: int) -> void:
 	if city_id < 0 or city_id >= cities.size():
 		return
+	var changed: bool = false
 	for i in range(count):
 		if city_id >= cities.size():
-			return
+			break
 		var houses: Array = cities[city_id]["houses"]
 		if houses.is_empty():
 			break
 		var house: Node3D = houses[randi_range(0, houses.size() - 1)]
-		_collapse_specific_building(city_id, house, true)
+		if _collapse_specific_building(city_id, house, true, false):
+			changed = true
+	if changed and city_id < cities.size():
+		_rebuild_city_roads(city_id)
 
 
 func _capture_city(city_id: int, source_id: int) -> void:
@@ -2872,8 +2878,12 @@ func _power_damage(center: Vector3, radius: float, people_limit: int, resource_c
 					hit_houses.append(house)
 					if hit_houses.size() >= house_damage:
 						break
+			var city_damaged: bool = false
 			for hit_house in hit_houses:
-				_collapse_specific_building(city_id, hit_house, true)
+				if _collapse_specific_building(city_id, hit_house, true, false):
+					city_damaged = true
+			if city_damaged:
+				_rebuild_city_roads(city_id)
 		if city_distance_squared <= radius * radius * 2.25:
 			cities[city_id]["food"] = max(0.0, float(cities[city_id]["food"]) - float(removed) * 0.25)
 	_refresh_ui()
@@ -3324,7 +3334,7 @@ func _build_ui() -> void:
 	content.add_child(pause_button)
 	speed_button = _make_button("Simulation Speed: 1×", _cycle_speed, Color(0.13, 0.22, 0.29))
 	content.add_child(speed_button)
-	content.add_child(_make_button("Pause on City Event: OFF", _toggle_pause_on_city_event, Color(0.20, 0.28, 0.34)))
+	content.add_child(_make_button("Reset Speed on City Event: OFF", _toggle_reset_speed_on_city_event, Color(0.20, 0.28, 0.34)))
 	content.add_child(_make_button("Save World", _save_world, Color(0.10, 0.29, 0.34)))
 	content.add_child(_make_button("Load World", _load_world, Color(0.12, 0.24, 0.32)))
 	content.add_child(_make_label("CONTROLS", 12, Color(0.46, 0.86, 0.98)))
@@ -3722,7 +3732,7 @@ func _save_world() -> void:
 		"camera_yaw": camera_yaw,
 		"camera_pitch": camera_pitch,
 		"sim_speed": sim_speed,
-		"pause_on_city_event": pause_on_city_event,
+		"reset_speed_on_city_event": reset_speed_on_city_event,
 		"city_events_total": city_events_total
 	}
 
@@ -3874,13 +3884,13 @@ func _load_world() -> void:
 	camera_yaw = float(save_data.get("camera_yaw", -0.72))
 	camera_pitch = clampf(float(save_data.get("camera_pitch", 0.56)), 0.20, 1.25)
 	sim_speed = clampf(float(save_data.get("sim_speed", 1.0)), 1.0, 16.0)
-	pause_on_city_event = bool(save_data.get("pause_on_city_event", false))
+	reset_speed_on_city_event = bool(save_data.get("reset_speed_on_city_event", save_data.get("pause_on_city_event", false)))
 	if is_instance_valid(speed_button):
 		speed_button.text = "Simulation Speed: %s×" % str(int(sim_speed))
 	for node in ui_root.find_children("*", "Button", true, false):
 		var button: Button = node as Button
-		if button.text.begins_with("Pause on City Event:"):
-			button.text = "Pause on City Event: ON" if pause_on_city_event else "Pause on City Event: OFF"
+		if button.text.begins_with("Reset Speed on City Event:"):
+			button.text = "Reset Speed on City Event: ON" if reset_speed_on_city_event else "Reset Speed on City Event: OFF"
 	paused = false
 	_update_camera()
 	_update_world_detail_levels()
