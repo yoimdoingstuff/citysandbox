@@ -3504,7 +3504,10 @@ func _refresh_ui() -> void:
 		cities[city_index]["population"] = _city_population(city_index)
 		var stage: int = int(cities[city_index].get("stage", 0))
 		if is_instance_valid(cities[city_index]["label"]):
-			cities[city_index]["label"].text = "%s\n%s | POP %d" % [cities[city_index]["name"], _city_stage_name(stage), int(cities[city_index]["population"])]
+			var population_now: int = int(cities[city_index]["population"])
+			var city_status: String = "ABANDONED" if population_now <= 0 else _city_stage_name(stage)
+			cities[city_index]["label"].text = "%s\n%s | POP %d" % [cities[city_index]["name"], city_status, population_now]
+			cities[city_index]["label"].modulate = Color(0.66, 0.70, 0.72) if population_now <= 0 else Color.WHITE
 	if is_instance_valid(city_info_label):
 		if selected_city >= 0 and selected_city < cities.size():
 			var city: Dictionary = cities[selected_city]
