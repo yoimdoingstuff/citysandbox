@@ -2839,9 +2839,20 @@ func _power_damage(center: Vector3, radius: float, people_limit: int, resource_c
 	for city_id in range(cities.size()):
 		var city_position: Vector3 = cities[city_id]["pos"]
 		var distance: float = Vector2(city_position.x - center.x, city_position.z - center.z).length()
-		if distance <= radius * 0.9:
-			if house_damage > 0:
-				_destroy_city_houses(city_id, house_damage)
+		# Test individual building footprints, not only the city centre. This lets
+		# a meteor, tornado, fire, or quake hit an outer neighbourhood too.
+		var buildings_hit: int = 0
+		var city_houses: Array = cities[city_id]["houses"]
+		for house in city_houses:
+			if not is_instance_valid(house):
+				continue
+			var house_position: Vector3 = house.global_position
+			var house_distance: float = Vector2(house_position.x - center.x, house_position.z - center.z).length()
+			if house_distance <= radius and buildings_hit < house_damage and randf() < 0.72:
+				buildings_hit += 1
+		if buildings_hit > 0:
+			_destroy_city_houses(city_id, buildings_hit)
+		if distance <= radius * 1.5:
 			cities[city_id]["food"] = max(0.0, float(cities[city_id]["food"]) - float(removed) * 0.25)
 	_refresh_ui()
 
