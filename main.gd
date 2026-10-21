@@ -14,6 +14,9 @@ var terrain_lod_dirty: Array[bool] = [true, true, true, true]
 var terrain_moisture_noise: FastNoiseLite
 var terrain_temperature_noise: FastNoiseLite
 var selection_ring: MeshInstance3D
+var camera_auto_zoom_active: bool = false
+var camera_auto_zoom_target: float = 94.0
+var camera_auto_focus_target: Vector3 = Vector3.ZERO
 var terrain_heights: Array = []
 var city_names: Array[String] = ["Asterfall", "Mossreach", "Copper Bay", "New Avalon", "Westhaven", "Emberplain", "Stonebridge", "Northstar", "Rivermark", "Sunfield"]
 var city_colors: Array[Color] = [
@@ -95,6 +98,7 @@ func _ready() -> void:
 
 func _process(delta: float) -> void:
 	_update_camera_input(delta)
+	_update_auto_city_camera(delta)
 	preview_timer += delta
 	if preview_timer >= 0.10:
 		preview_timer = 0.0
