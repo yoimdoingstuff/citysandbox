@@ -80,9 +80,11 @@ var tool_buttons: Dictionary = {}
 func _ready() -> void:
 	randomize()
 	world_seed = randi() & 0x7FFFFFFF
+	seed(world_seed)
 	_build_world()
 	_build_ui()
 	_seed_civilizations()
+	_scatter_world_resources()
 	_set_tool("select")
 	_log("Generated a multi-continent world. Seed: %d." % world_seed)
 	_log("The world is alive. Select a city to inspect it, then take control to issue orders.")
@@ -667,6 +669,48 @@ func _update_placed_object_heights() -> void:
 		army["pos"] = p
 		if is_instance_valid(army["node"]):
 			army["node"].position = p
+
+
+func _scatter_world_resources() -> void:
+	# Spread resource clusters over land that isn't already claimed by the
+	# starter towns. Forest patches, food clearings, and stone deposits make
+	# the continents feel inhabited beyond the initial city centres.
+	var resources_before: int = resources.size()
+	for patch_index in range(30):
+		var patch_center := Vector3.ZERO
+		var found_land: bool = false
+		for attempt in range(24):
+			var x: float = randf_range(-TERRAIN_SIZE * 0.47, TERRAIN_SIZE * 0.47)
+			var z: float = randf_range(-TERRAIN_SIZE * 0.47, TERRAIN_SIZE * 0.47)
+			if _height_at(x, z) > WATER_LEVEL + 0.65:
+				patch_center = _surface_position(x, z)
+				found_land = true
+				break
+		if not found_land:
+			continue
+
+		var patch_roll: float = randf()
+		for item_index in range(randi_range(5, 9)):
+			var angle: float = randf() * TAU
+			var radius: float = randf_range(1.5, 8.0)
+			var p: Vector3 = _surface_position(
+				patch_center.x + cos(angle) * radius,
+				patch_center.z + sin(angle) * radius
+			)
+			if _height_at(p.x, p.z) <= WATER_LEVEL + 0.25:
+				continue
+
+			var kind: String
+			var resource_roll: float = randf()
+			if patch_roll < 0.50:
+				kind = "tree" if resource_roll < 0.84 else "food"
+			elif patch_roll < 0.76:
+				kind = "food" if resource_roll < 0.62 else "tree"
+			else:
+				kind = "stone" if resource_roll < 0.70 else "tree"
+			_spawn_resource(p, kind, randi_range(5, 10))
+
+	_log("Scattered %d extra resources in natural patches across the land." % (resources.size() - resources_before))
 
 
 func _seed_civilizations() -> void:
