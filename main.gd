@@ -1113,16 +1113,62 @@ func _sync_city_buildings(city_id: int) -> void:
 		house.scale = Vector3.ONE * (1.0 + float(stage) * 0.07)
 		house.position = Vector3(offset_x, terrain_delta, offset_z)
 		city["node"].add_child(house)
+		# Give each neighbourhood a mix of residential and civic buildings.
+		# Later rings become taller and denser as the settlement develops.
+		var building_type: int = house_index % 4
+		var building_size: Vector3 = Vector3(1.35, 1.2, 1.35)
+		var building_height: float = 1.2
+		match building_type:
+			1:
+				building_size = Vector3(1.25, 2.15 + float(stage) * 0.18, 1.25)
+			2:
+				building_size = Vector3(1.8, 1.15 + float(stage) * 0.12, 1.45)
+			3:
+				building_size = Vector3(1.65, 1.75 + float(stage) * 0.16, 1.55)
+		building_height = building_size.y
 		var wall_color: Color = Color(0.70, 0.64, 0.48).lerp(city["color"], 0.24)
+		if building_type == 2:
+			wall_color = wall_color.darkened(0.09)
+		elif building_type == 3:
+			wall_color = wall_color.lerp(city["color"].lightened(0.28), 0.25)
 		var walls := BoxMesh.new()
-		walls.size = Vector3(1.35, 1.2, 1.35)
-		_add_mesh(house, walls, _material(wall_color), Vector3(0.0, 0.65, 0.0))
-		var roof := CylinderMesh.new()
-		roof.top_radius = 0.0
-		roof.bottom_radius = 1.02
-		roof.height = 0.88
-		roof.radial_segments = 4
-		_add_mesh(house, roof, _material(city["color"].darkened(0.10)), Vector3(0.0, 1.62, 0.0))
+		walls.size = building_size
+		_add_mesh(house, walls, _material(wall_color), Vector3(0.0, building_height * 0.5, 0.0))
+
+		if building_type == 0 or building_type == 1:
+			var roof := CylinderMesh.new()
+			roof.top_radius = 0.0
+			roof.bottom_radius = 1.02 if building_type == 0 else 0.88
+			roof.height = 0.88
+			roof.radial_segments = 4
+			_add_mesh(house, roof, _material(city["color"].darkened(0.10)), Vector3(0.0, building_height + 0.44, 0.0))
+		else:
+			var flat_roof := BoxMesh.new()
+			flat_roof.size = Vector3(building_size.x + 0.12, 0.16, building_size.z + 0.12)
+			_add_mesh(house, flat_roof, _material(city["color"].darkened(0.18)), Vector3(0.0, building_height + 0.08, 0.0))
+
+		# Small door and windows give close-up zooms something to reveal.
+		var door_mesh := BoxMesh.new()
+		door_mesh.size = Vector3(0.25, 0.44, 0.055)
+		_add_mesh(house, door_mesh, _material(Color(0.24, 0.16, 0.11)), Vector3(0.0, 0.23, building_size.z * 0.5 + 0.035))
+		var window_count: int = 3 if building_type == 1 or building_type == 3 else 2
+		for window_index in range(window_count):
+			var window_mesh := BoxMesh.new()
+			window_mesh.size = Vector3(0.20, 0.19, 0.045)
+			var window_x: float = (float(window_index) - float(window_count - 1) * 0.5) * 0.35
+			var window_y: float = minf(building_height - 0.26, 0.72 + float(stage) * 0.12)
+			_add_mesh(house, window_mesh, _material(Color(0.45, 0.78, 0.88)), Vector3(window_x, window_y, building_size.z * 0.5 + 0.04))
+			if building_type == 1 or building_type == 3:
+				var upper_window := BoxMesh.new()
+				upper_window.size = Vector3(0.18, 0.18, 0.045)
+				_add_mesh(house, upper_window, _material(Color(0.45, 0.78, 0.88)), Vector3(window_x, minf(building_height - 0.30, window_y + 0.58), building_size.z * 0.5 + 0.04))
+
+		if building_type == 2:
+			var chimney := CylinderMesh.new()
+			chimney.top_radius = 0.10
+			chimney.bottom_radius = 0.13
+			chimney.height = 0.72
+			_add_mesh(house, chimney, _material(Color(0.38, 0.30, 0.26)), Vector3(building_size.x * 0.28, building_height + 0.42, -building_size.z * 0.18))
 		houses.append(house)
 	city["houses"] = houses
 	cities[city_id] = city
