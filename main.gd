@@ -1524,9 +1524,15 @@ func _add_territory_edge(surface: SurfaceTool, start_point: Vector3, end_point: 
 	surface.add_vertex(c)
 
 
-func _apply_building_era_appearance(city_id: int, year: int) -> void:
+func _apply_building_era_appearance(city_id: int, year: int, only_house_index: int = -1, update_all: bool = false) -> void:
 	if city_id < 0 or city_id >= cities.size():
 		return
+	# Modernisation is deliberately serial per city. This keeps a new era from
+	# replacing every roof in one frame, and gives each refurbishment visible time.
+	if only_house_index < 0 and not update_all:
+		for active_site in construction_sites:
+			if int(active_site.get("city_id", -1)) == city_id and bool(active_site.get("refurbishment", false)):
+				return
 	var city: Dictionary = cities[city_id]
 	var stage: int = int(city.get("stage", 0))
 	var era: int = _historical_era_index(year)
@@ -1535,6 +1541,8 @@ func _apply_building_era_appearance(city_id: int, year: int) -> void:
 	var pop_band: int = int(population / 15)
 	var wealth_band: int = 3 if wealth >= 50.0 else (2 if wealth >= 25.0 else (1 if wealth >= 18.0 else 0))
 	for house_index in range((city["houses"] as Array).size()):
+		if only_house_index >= 0 and house_index != only_house_index:
+			continue
 		var house: Node3D = city["houses"][house_index]
 		if not is_instance_valid(house):
 			continue
@@ -1547,12 +1555,27 @@ func _apply_building_era_appearance(city_id: int, year: int) -> void:
 		var variation_seed: int = abs((plot_id + 1) * 92821 + (city_id + 3) * 68917)
 		var variation: int = variation_seed % URBAN_FACADE_PALETTE.size()
 		var large_plot: bool = bool(house.get_meta("large_plot", false))
+		var previous_visual_era: int = int(house.get_meta("visual_era", -1))
+		if only_house_index < 0 and not update_all and previous_visual_era >= 0 and previous_visual_era < era:
+			# Older building: erect visible scaffolding and refurbish it instead of
+			# instantly swapping every building in the city to the new architecture.
+			_setup_construction_site(house, city_id, original_type, plot_id, 0.0, true)
+			break
 		var kind: int = original_type
 		# Farms give way to urban blocks after industrialisation.
 		if year >= 1850 and stage >= 2 and kind == 4:
 			kind = 3
 		elif year < 1880 and kind >= 5:
 			kind = 1 if kind == 5 else 3
+		if large_plot and year >= 1950 and kind != 4:
+			# Modern multi-lot sites tend to become offices, shops, or apartment blocks.
+			match variation_seed % 3:
+				0:
+					kind = 6
+				1:
+					kind = 3
+				_:
+					kind = 5
 		for child in house.get_children():
 			child.free()
 
@@ -1585,11 +1608,11 @@ func _apply_building_era_appearance(city_id: int, year: int) -> void:
 			wall = URBAN_FACADE_PALETTE[variation].lerp(wall, 0.42)
 			roof_color = [Color(0.29, 0.27, 0.24), Color(0.24, 0.27, 0.29), Color(0.31, 0.25, 0.21)][variation % 3]
 			if (kind in [1, 3, 5, 6] or house_index % 9 == 0) and year >= 1880:
-				if year >= 2000 and stage >= 4 and population >= 100 and wealth >= 50.0:
-					floors = clampi(14 + int((population - 100) / 55) + (variation % 7) - 3, 12, 34)
+				if year >= 2000 and stage >= 3 and population >= 45 and wealth >= 20.0:
+					floors = clampi(12 + int((population - 45) / 30) + (variation % 7) - 3, 10, 34)
 					skyscraper = true
-				elif year >= 1950 and stage >= 3 and population >= 50 and wealth >= 25.0:
-					floors = clampi(7 + int((population - 50) / 18) + (variation % 5) - 2, 6, 21)
+				elif year >= 1950 and stage >= 3 and population >= 35 and wealth >= 15.0:
+					floors = clampi(7 + int((population - 35) / 18) + (variation % 5) - 2, 6, 23)
 					skyscraper = true
 				elif stage >= 2 and population >= 30 and wealth >= 18.0:
 					floors = clampi(4 + int((population - 30) / 14) + (variation % 5) - 2, 3, 12)
@@ -1601,8 +1624,8 @@ func _apply_building_era_appearance(city_id: int, year: int) -> void:
 				wall = TOWER_FACADE_PALETTE[variation].lerp(city["color"], 0.04)
 				roof_color = URBAN_FACADE_PALETTE[(variation + 3) % URBAN_FACADE_PALETTE.size()].darkened(0.12)
 				if large_plot:
-					width = 4.25
-					depth = 4.0
+					width = 5.0
+					depth = 4.65
 		else:
 			match kind:
 				1:
@@ -1624,8 +1647,8 @@ func _apply_building_era_appearance(city_id: int, year: int) -> void:
 					wall = Color(0.51, 0.42, 0.29)
 
 		if not skyscraper and large_plot and kind != 4:
-			width = minf(4.35, width * 1.42)
-			depth = minf(4.25, depth * 1.38)
+			width = minf(4.9, width * 1.60)
+			depth = minf(4.6, depth * 1.55)
 		elif urban and not skyscraper:
 			width *= [0.91, 0.97, 1.0, 1.05, 0.89, 1.08, 0.96, 1.02, 0.93][variation]
 			depth *= [1.03, 0.93, 1.0, 1.06, 0.97, 0.90, 1.05, 0.96, 1.01][variation]
@@ -1692,6 +1715,16 @@ func _apply_building_era_appearance(city_id: int, year: int) -> void:
 					var crop := BoxMesh.new()
 					crop.size = Vector3(width * 0.72, 0.10, 0.13)
 					_add_mesh(house, crop, _material(Color(0.28, 0.54, 0.23)), Vector3(0.0, height + 0.18, (float(crop_index) - 1.0) * 0.42))
+		if urban and large_plot and year >= 1950:
+			# Commercial and office super-lots get recognisable loading/roof plant details.
+			for unit_index in range(3):
+				var rooftop_unit := BoxMesh.new()
+				rooftop_unit.size = Vector3(0.34, 0.24, 0.30)
+				var unit_x: float = (float(unit_index) - 1.0) * width * 0.26
+				_add_mesh(house, rooftop_unit, _material(Color(0.34, 0.39, 0.41)), Vector3(unit_x, height + 0.31, -depth * 0.18))
+			var canopy := BoxMesh.new()
+			canopy.size = Vector3(width * 0.62, 0.12, 0.42)
+			_add_mesh(house, canopy, _material(roof_color.lightened(0.18)), Vector3(0.0, minf(1.5, height * 0.48), depth * 0.5 + 0.18))
 		var door := BoxMesh.new()
 		door.size = Vector3(0.22, 0.42, 0.045)
 		_add_mesh(house, door, _material(Color(0.23, 0.16, 0.11)), Vector3(0.0, 0.22, depth * 0.5 + 0.03))
@@ -1704,6 +1737,9 @@ func _apply_building_era_appearance(city_id: int, year: int) -> void:
 		house.set_meta("building_width", width * house.scale.x)
 		house.set_meta("building_depth", depth * house.scale.z)
 		house.set_meta("is_skyscraper", skyscraper)
+		if only_house_index < 0 and not update_all:
+			# One eligible old building is either refurbished or refreshed per call.
+			break
 
 
 func _add_surface_quad(surface: SurfaceTool, a: Vector3, b: Vector3, c: Vector3, d: Vector3) -> void:
@@ -1838,13 +1874,58 @@ func _spiral_grid_offset(index: int) -> Vector2i:
 	return Vector2i(x, z)
 
 
-func _setup_construction_site(house: Node3D, city_id: int, building_type: int, plot_index: int, progress: float = 0.0) -> void:
+func _is_diagonal_avenue_plot(city_id: int, plot: Vector2i, year: int) -> bool:
+	if year < 1880 or city_id < 0 or city_id >= cities.size():
+		return false
+	var city: Dictionary = cities[city_id]
+	if int(city.get("stage", 0)) < 2 or (city["houses"] as Array).size() < 8:
+		return false
+	var primary_diagonal: bool = false
+	match city_id % 4:
+		0:
+			primary_diagonal = plot.x == plot.y
+		1:
+			primary_diagonal = plot.x == -plot.y
+		2:
+			primary_diagonal = plot.x == plot.y - 2
+		_:
+			primary_diagonal = plot.x == -plot.y + 2
+	if primary_diagonal:
+		return true
+	# Later automobile-era cities often add a second arterial, while the older
+	# street grid remains visible around the historic core.
+	if year >= 1950:
+		if city_id % 2 == 0:
+			return plot.x == -plot.y
+		return plot.x == plot.y
+	return false
+
+
+func _large_plot_period_for_year(year: int) -> int:
+	if year >= 2000:
+		return 6
+	if year >= 1950:
+		return 8
+	if year >= 1880:
+		return 11
+	return 16
+
+
+func _is_large_city_plot(city_id: int, plot_index: int, year: int) -> bool:
+	if year < 1780:
+		return false
+	var period: int = _large_plot_period_for_year(year)
+	return (plot_index + city_id * 3) % period == int(period / 2)
+
+
+func _setup_construction_site(house: Node3D, city_id: int, building_type: int, plot_index: int, progress: float = 0.0, refurbishment: bool = false) -> void:
 	if not is_instance_valid(house):
 		return
 	for child in house.get_children():
 		child.free()
-	var pad_size: float = 4.2 if bool(house.get_meta("large_plot", false)) else 2.8
+	var pad_size: float = 5.8 if bool(house.get_meta("large_plot", false)) else 2.8
 	house.set_meta("is_construction_site", true)
+	house.set_meta("is_refurbishment_site", refurbishment)
 	house.set_meta("construction_progress", clampf(progress, 0.0, 0.99))
 	house.set_meta("visual_era", -999)
 	house.set_meta("visual_stage", -999)
@@ -1901,8 +1982,10 @@ func _setup_construction_site(house: Node3D, city_id: int, building_type: int, p
 	construction_sites.append({
 		"id": site_id, "node": house, "city_id": city_id,
 		"building_type": building_type, "plot_index": plot_index,
-		"progress": clampf(progress, 0.0, 0.99), "duration": randf_range(10.0, 18.0),
-		"scaffold": scaffold, "phase": randf() * TAU, "worker_count": assigned_workers, "pad_size": pad_size
+		"progress": clampf(progress, 0.0, 0.99),
+		"duration": randf_range(6.0, 10.0) if refurbishment else randf_range(10.0, 18.0),
+		"refurbishment": refurbishment, "scaffold": scaffold, "phase": randf() * TAU,
+		"worker_count": assigned_workers, "pad_size": pad_size
 	})
 
 
@@ -1984,8 +2067,21 @@ func _update_construction_sites(delta: float) -> void:
 				person["walk_timer"] = 0.0
 				person["target"] = _choose_citizen_street_target(city_id, person.get("pos", house.global_position), 12.0)
 				people[person_index] = person
-			_apply_building_era_appearance(city_id, _world_year())
-			_log("%s completed a new building." % cities[city_id]["name"])
+			house.set_meta("is_refurbishment_site", false)
+			var completed_house_index: int = -1
+			var city_houses: Array = cities[city_id]["houses"]
+			for candidate_index in range(city_houses.size()):
+				if city_houses[candidate_index] == house:
+					completed_house_index = candidate_index
+					break
+			if completed_house_index >= 0:
+				_apply_building_era_appearance(city_id, _world_year(), completed_house_index)
+			else:
+				_apply_building_era_appearance(city_id, _world_year())
+			if bool(site.get("refurbishment", false)):
+				_log("%s refurbished an older building for the %s era." % [cities[city_id]["name"], _historical_era_name(_world_year()).to_lower()])
+			else:
+				_log("%s completed a new building." % cities[city_id]["name"])
 			last_detail_signature = ""
 
 
@@ -2012,11 +2108,11 @@ func _sync_city_buildings(city_id: int) -> bool:
 		# Reserve occasional civic squares and two-plot commercial sites.
 		for attempt in range(64):
 			var plot: Vector2i = _spiral_grid_offset(plot_index)
-			if plot_index % 17 == 8:
+			if plot_index % 17 == 8 or _is_diagonal_avenue_plot(city_id, plot, _world_year()):
 				plot_index += 1
 				continue
-			candidate_large_plot = _world_year() >= 1780 and plot_index % 13 == 7
-			candidate_footprint = 11.2 if candidate_large_plot else 3.6
+			candidate_large_plot = _is_large_city_plot(city_id, plot_index, _world_year())
+			candidate_footprint = 8.8 if candidate_large_plot else 3.6
 			offset_x = float(plot.x) * ROAD_GRID_SIZE + ROAD_GRID_SIZE * 0.5
 			offset_z = float(plot.y) * ROAD_GRID_SIZE + ROAD_GRID_SIZE * 0.5
 			var candidate_x: float = city["pos"].x + offset_x
@@ -2041,7 +2137,7 @@ func _sync_city_buildings(city_id: int) -> bool:
 		if not found_building_site:
 			break
 		plot_index = chosen_plot_index + 1
-		var plot_radius: float = 2.8 if candidate_large_plot else 2.25
+		var plot_radius: float = 3.45 if candidate_large_plot else 2.25
 		var plot_grade: Dictionary = _grade_building_plot(city["pos"].x + offset_x, city["pos"].z + offset_z, plot_radius)
 		terrain_changed = terrain_changed or bool(plot_grade.get("changed", false))
 		var base_world_height: float = float(plot_grade.get("base_height", _height_at(city["pos"].x + offset_x, city["pos"].z + offset_z)))
@@ -2053,12 +2149,17 @@ func _sync_city_buildings(city_id: int) -> bool:
 		city["node"].add_child(house)
 
 		var building_type: int = house_index_to_building_type(houses.size(), stage)
-		var large_plot: bool = _world_year() >= 1780 and chosen_plot_index % 13 == 7
+		var large_plot: bool = _is_large_city_plot(city_id, chosen_plot_index, _world_year())
+		if large_plot and _world_year() >= 1880 and stage >= 2:
+			if _world_year() >= 1950:
+				building_type = 6 if chosen_plot_index % 3 == 0 else 3
+			else:
+				building_type = 3
 		house.set_meta("building_type", building_type)
 		house.set_meta("base_building_type", building_type)
 		house.set_meta("plot_index", chosen_plot_index)
 		house.set_meta("large_plot", large_plot)
-		house.set_meta("plot_footprint", 11.2 if large_plot else 3.6)
+		house.set_meta("plot_footprint", 8.8 if large_plot else 3.6)
 		houses.append(house)
 		_setup_construction_site(house, city_id, building_type, chosen_plot_index)
 	city["houses"] = houses
@@ -2235,12 +2336,24 @@ func _rebuild_city_roads(city_id: int) -> void:
 	var cursor_x: float = first_x
 	while cursor_x <= last_x + 0.001:
 		grid_x.append(cursor_x)
-		_add_damaged_aware_road_segment(road_surface, city_id, city_position, Vector2(cursor_x, min_z), Vector2(cursor_x, max_z), 1.62, 0.34, 0.0)
+		var x_line_index: int = grid_x.size() - 1
+		var x_road_width: float = 1.62
+		if _world_year() >= 1950 and (x_line_index + city_id) % 4 == 1:
+			x_road_width = 2.30
+		elif _world_year() >= 1880 and (x_line_index + city_id) % 5 == 1:
+			x_road_width = 1.92
+		_add_damaged_aware_road_segment(road_surface, city_id, city_position, Vector2(cursor_x, min_z), Vector2(cursor_x, max_z), x_road_width, 0.34, 0.0)
 		cursor_x += ROAD_GRID_SIZE
 	var cursor_z: float = first_z
 	while cursor_z <= last_z + 0.001:
 		grid_z.append(cursor_z)
-		_add_damaged_aware_road_segment(road_surface, city_id, city_position, Vector2(min_x, cursor_z), Vector2(max_x, cursor_z), 1.62, 0.34, 0.0)
+		var z_line_index: int = grid_z.size() - 1
+		var z_road_width: float = 1.62
+		if _world_year() >= 1950 and (z_line_index + city_id) % 4 == 2:
+			z_road_width = 2.30
+		elif _world_year() >= 1880 and (z_line_index + city_id) % 5 == 2:
+			z_road_width = 1.92
+		_add_damaged_aware_road_segment(road_surface, city_id, city_position, Vector2(min_x, cursor_z), Vector2(max_x, cursor_z), z_road_width, 0.34, 0.0)
 		cursor_z += ROAD_GRID_SIZE
 
 	for x_index in range(grid_x.size()):
@@ -2276,7 +2389,7 @@ func _rebuild_city_roads(city_id: int) -> void:
 					for stripe_sign in [-1.0, 1.0]:
 						_add_damaged_aware_road_segment(crosswalk_surface, city_id, city_position, Vector2(x_value - 0.78, z_value + stripe_sign * stripe_offset), Vector2(x_value + 0.78, z_value + stripe_sign * stripe_offset), 0.13, 0.44, 0.0)
 						_add_damaged_aware_road_segment(crosswalk_surface, city_id, city_position, Vector2(x_value + stripe_sign * stripe_offset, z_value - 0.78), Vector2(x_value + stripe_sign * stripe_offset, z_value + 0.78), 0.13, 0.44, 0.0)
-			if x_index > 0 and z_index > 0 and x_index < grid_x.size() - 1 and z_index < grid_z.size() - 1 and (x_index * 3 + z_index * 5 + city_id) % 11 == 2:
+			if _world_year() >= 1880 and x_index > 0 and z_index > 0 and x_index < grid_x.size() - 1 and z_index < grid_z.size() - 1 and (x_index * 3 + z_index * 5 + city_id) % 11 == 2:
 				var island_clear: bool = true
 				for house in houses:
 					if not is_instance_valid(house):
@@ -2294,18 +2407,48 @@ func _rebuild_city_roads(city_id: int) -> void:
 						_add_damaged_aware_road_segment(road_surface, city_id, city_position, a, b, 1.18, 0.37, 0.0)
 					_add_roundabout_island(island_surface, city_position, x_value, z_value, 0.92)
 
+	var current_road_year: int = _world_year()
+	var diagonal_frequency: int = 18
+	if current_road_year >= 2000:
+		diagonal_frequency = 7
+	elif current_road_year >= 1950:
+		diagonal_frequency = 9
+	elif current_road_year >= 1880:
+		diagonal_frequency = 12
 	for x_index in range(grid_x.size() - 1):
 		for z_index in range(grid_z.size() - 1):
-			if (x_index * 7 + z_index * 11 + city_id) % 9 != 3:
-				continue
-			var start_point := Vector2(grid_x[x_index] + 1.25, grid_z[z_index] + 1.25)
-			var finish_point := Vector2(grid_x[x_index + 1] - 1.25, grid_z[z_index + 1] - 1.25)
-			if _diagonal_road_is_clear(city_id, start_point, finish_point, 2.4):
-				_add_damaged_aware_road_segment(road_surface, city_id, city_position, start_point, finish_point, 0.88, 0.36, 0.0)
+			if current_road_year >= 1780 and (x_index * 7 + z_index * 11 + city_id) % diagonal_frequency == int(diagonal_frequency / 3):
+				var start_point := Vector2(grid_x[x_index] + 1.25, grid_z[z_index] + 1.25)
+				var finish_point := Vector2(grid_x[x_index + 1] - 1.25, grid_z[z_index + 1] - 1.25)
+				var diagonal_width: float = 0.88 if current_road_year < 1880 else (1.08 if current_road_year < 1950 else 1.42)
+				if _diagonal_road_is_clear(city_id, start_point, finish_point, 2.4):
+					_add_damaged_aware_road_segment(road_surface, city_id, city_position, start_point, finish_point, diagonal_width, 0.36, 0.0)
 			var reverse_start := Vector2(grid_x[x_index] + 1.25, grid_z[z_index + 1] - 1.25)
 			var reverse_finish := Vector2(grid_x[x_index + 1] - 1.25, grid_z[z_index] + 1.25)
-			if (x_index + z_index + city_id) % 17 == 5 and _diagonal_road_is_clear(city_id, reverse_start, reverse_finish, 2.4):
-				_add_damaged_aware_road_segment(road_surface, city_id, city_position, reverse_start, reverse_finish, 0.88, 0.36, 0.0)
+			if current_road_year >= 1880 and (x_index + z_index + city_id) % max(6, diagonal_frequency + 3) == int(diagonal_frequency / 2) and _diagonal_road_is_clear(city_id, reverse_start, reverse_finish, 2.4):
+				var reverse_width: float = 1.12 if current_road_year < 1950 else 1.42
+				_add_damaged_aware_road_segment(road_surface, city_id, city_position, reverse_start, reverse_finish, reverse_width, 0.36, 0.0)
+
+	# Reserve and build continuous city-specific diagonal avenues through deliberately
+	# open plots. Some cities resemble a Manhattan/Broadway grid, others an offset
+	# arterial, so the entire planet does not become the same chessboard.
+	if current_road_year >= 1880:
+		for x_index in range(grid_x.size() - 1):
+			for z_index in range(grid_z.size() - 1):
+				var avenue_plot := Vector2i(roundi(grid_x[x_index] / ROAD_GRID_SIZE), roundi(grid_z[z_index] / ROAD_GRID_SIZE))
+				if not _is_diagonal_avenue_plot(city_id, avenue_plot, current_road_year):
+					continue
+				var avenue_start: Vector2
+				var avenue_finish: Vector2
+				if city_id % 4 in [0, 2]:
+					avenue_start = Vector2(grid_x[x_index] + 1.25, grid_z[z_index] + 1.25)
+					avenue_finish = Vector2(grid_x[x_index + 1] - 1.25, grid_z[z_index + 1] - 1.25)
+				else:
+					avenue_start = Vector2(grid_x[x_index] + 1.25, grid_z[z_index + 1] - 1.25)
+					avenue_finish = Vector2(grid_x[x_index + 1] - 1.25, grid_z[z_index] + 1.25)
+				var avenue_width: float = 1.25 if current_road_year < 1950 else 1.58
+				if _diagonal_road_is_clear(city_id, avenue_start, avenue_finish, 1.45):
+					_add_damaged_aware_road_segment(road_surface, city_id, city_position, avenue_start, avenue_finish, avenue_width, 0.36, 0.0)
 
 	# Steep districts get a few winding connectors rather than forcing every
 	# climb to run in a ruler-straight line up the slope.
@@ -6101,7 +6244,8 @@ func _serialize_city_buildings(city: Dictionary) -> Array:
 			"construction": bool(house.get_meta("is_construction_site", false)),
 			"construction_progress": float(house.get_meta("construction_progress", 0.0)),
 			"terrain_terraced": bool(house.get_meta("terrain_terraced", false)),
-			"plot_grade_radius": float(house.get_meta("plot_grade_radius", 2.25))
+			"plot_grade_radius": float(house.get_meta("plot_grade_radius", 2.25)),
+			"refurbishment": bool(house.get_meta("is_refurbishment_site", false))
 		})
 	return saved_buildings
 
@@ -6323,6 +6467,7 @@ func _load_world() -> void:
 				house.set_meta("construction_progress", float(building_data.get("construction_progress", 0.0)))
 				house.set_meta("terrain_terraced", bool(building_data.get("terrain_terraced", false)))
 				house.set_meta("plot_grade_radius", float(building_data.get("plot_grade_radius", 2.25)))
+				house.set_meta("is_refurbishment_site", bool(building_data.get("refurbishment", false)))
 				city["houses"].append(house)
 		cities[city_id] = city
 
@@ -6369,7 +6514,7 @@ func _load_world() -> void:
 	for city_id in range(cities.size()):
 		for saved_house in cities[city_id]["houses"]:
 			if is_instance_valid(saved_house) and bool(saved_house.get_meta("is_construction_site", false)):
-				_setup_construction_site(saved_house, city_id, int(saved_house.get_meta("base_building_type", 0)), int(saved_house.get_meta("plot_index", 0)), float(saved_house.get_meta("construction_progress", 0.0)))
+				_setup_construction_site(saved_house, city_id, int(saved_house.get_meta("base_building_type", 0)), int(saved_house.get_meta("plot_index", 0)), float(saved_house.get_meta("construction_progress", 0.0)), bool(saved_house.get_meta("is_refurbishment_site", false)))
 		var loaded_population: int = _city_population(city_id)
 		if loaded_population > 0:
 			cities[city_id]["stage"] = _city_stage_for_population(loaded_population)
@@ -6381,7 +6526,7 @@ func _load_world() -> void:
 		for house in cities[city_id]["houses"]:
 			if is_instance_valid(house):
 				house.scale = Vector3.ONE * (1.0 + float(cities[city_id].get("stage", 0)) * 0.07)
-		_apply_building_era_appearance(city_id, _world_year())
+		_apply_building_era_appearance(city_id, _world_year(), -1, true)
 	_refresh_city_territory(0)
 	for city_id in range(cities.size()):
 		_rebuild_city_roads(city_id)
