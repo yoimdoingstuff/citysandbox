@@ -152,6 +152,7 @@ var stress_window_process_ms: Array[float] = []
 var stress_scenario_frame_ms: Array[float] = []
 var stress_scenario_process_ms: Array[float] = []
 var stress_scenario_max_action_ms: float = 0.0
+var stress_camera_lod_step: int = 0
 
 var camera: Camera3D
 var camera_target: Vector3 = Vector3.ZERO
@@ -249,13 +250,16 @@ func _start_runtime_stress_tests() -> void:
 		{"name": "simulation_4x", "duration": 6.0, "speed": 4.0, "action": "none"},
 		{"name": "simulation_16x", "duration": 8.0, "speed": 16.0, "action": "none"},
 		{"name": "dense_cities_and_crowds", "duration": 9.0, "speed": 4.0, "action": "dense_cities"},
+		{"name": "construction_and_era_refurbishment", "duration": 8.0, "speed": 8.0, "action": "construction"},
 		{"name": "mass_civilian_spawn", "duration": 7.0, "speed": 4.0, "action": "spawn_wave"},
 		{"name": "resources_and_traffic", "duration": 8.0, "speed": 8.0, "action": "resources_traffic"},
+		{"name": "camera_zoom_and_lod_transitions", "duration": 7.0, "speed": 4.0, "action": "camera_lod"},
 		{"name": "large_debris_field", "duration": 8.0, "speed": 8.0, "action": "debris"},
 		{"name": "wildfire_plague_tornado", "duration": 8.0, "speed": 8.0, "action": "fire_plague"},
 		{"name": "meteors_lightning_disasters", "duration": 9.0, "speed": 16.0, "action": "meteor_storm"},
 		{"name": "earthquake_terrain_edits", "duration": 8.0, "speed": 4.0, "action": "terrain_edits"},
 		{"name": "mass_building_collapse", "duration": 9.0, "speed": 8.0, "action": "collapse"},
+		{"name": "save_load_large_world_rebuild", "duration": 8.0, "speed": 1.0, "action": "save_load"},
 		{"name": "combined_16x_city_load", "duration": 12.0, "speed": 16.0, "action": "combined"}
 	]
 	stress_suite_active = true
@@ -335,13 +339,19 @@ func _tick_runtime_stress_tests() -> void:
 	if scenario_elapsed >= float(scenario.get("duration", 8.0)):
 		_begin_next_runtime_stress_scenario()
 		return
-	if str(scenario.get("action", "")) == "combined" and now_usec - stress_repeat_started_usec >= 2500000:
+	var active_action: String = str(scenario.get("action", ""))
+	var repeat_interval_usec: int = 2500000
+	var repeat_action: String = "combined_pulse"
+	if active_action == "camera_lod":
+		repeat_interval_usec = 1250000
+		repeat_action = "camera_lod_pulse"
+	if active_action in ["combined", "camera_lod"] and now_usec - stress_repeat_started_usec >= repeat_interval_usec:
 		var action_started_usec: int = Time.get_ticks_usec()
-		_run_runtime_stress_action("combined_pulse")
+		_run_runtime_stress_action(repeat_action)
 		var action_elapsed_ms: float = float(Time.get_ticks_usec() - action_started_usec) / 1000.0
 		stress_scenario_max_action_ms = maxf(stress_scenario_max_action_ms, action_elapsed_ms)
-		_stress_emit("STRESS_ACTION|scenario=%s|action=combined_pulse|duration_ms=%.2f|citizens=%d|resources=%d|rubble=%d|fires=%d|tornadoes=%d" % [
-			str(scenario["name"]), action_elapsed_ms, people.size(), resources.size(), rubble_nodes.size(), fire_zones.size(), tornadoes.size()
+		_stress_emit("STRESS_ACTION|scenario=%s|action=%s|duration_ms=%.2f|citizens=%d|resources=%d|rubble=%d|fires=%d|tornadoes=%d|camera_distance=%.1f" % [
+			str(scenario["name"]), repeat_action, action_elapsed_ms, people.size(), resources.size(), rubble_nodes.size(), fire_zones.size(), tornadoes.size(), camera_distance
 		])
 		stress_repeat_started_usec = Time.get_ticks_usec()
 
@@ -468,12 +478,36 @@ func _run_runtime_stress_action(action_name: String) -> void:
 				cities[city_id]["coal"] = 35.0
 				_refresh_city_development(city_id)
 				_queue_city_roads_rebuild(city_id)
+		"construction":
+			last_architecture_era = -1
+			for city_id in range(cities.size()):
+				cities[city_id]["treasury"] = 5000.0
+				cities[city_id]["wood"] = 90.0
+				cities[city_id]["stone"] = 70.0
+				cities[city_id]["iron"] = 50.0
+				cities[city_id]["copper"] = 40.0
+				cities[city_id]["coal"] = 60.0
+				_queue_city_development(city_id)
+			_update_historical_era(true)
+			for city_id in range(cities.size()):
+				_queue_city_development(city_id)
 		"spawn_wave":
 			_stress_spawn_crowd(mini(MAX_PEOPLE, 760))
 		"resources_traffic":
 			_stress_spawn_resources(260)
 			while cars.size() < MAX_CARS and not cities.is_empty():
 				_spawn_car(randi_range(0, cities.size() - 1))
+		"camera_lod":
+			stress_camera_lod_step = 0
+			camera_distance = 28.0
+			_update_camera()
+			_update_world_detail_levels()
+		"camera_lod_pulse":
+			var lod_distances: Array[float] = [26.0, 58.0, 104.0, 178.0]
+			camera_distance = lod_distances[stress_camera_lod_step % lod_distances.size()]
+			stress_camera_lod_step += 1
+			_update_camera()
+			_update_world_detail_levels()
 		"debris":
 			for debris_index in range(65):
 				_stress_spawn_rubble_piece()
@@ -514,6 +548,9 @@ func _run_runtime_stress_action(action_name: String) -> void:
 							collapse_count += 1
 				if collapse_count >= 22:
 					break
+		"save_load":
+			_save_world()
+			_load_world()
 		"combined":
 			_stress_spawn_crowd(mini(MAX_PEOPLE, people.size() + 30))
 			_stress_spawn_resources(75)
