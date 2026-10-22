@@ -68,7 +68,7 @@ The Windows build is currently unsigned. Direct downloads avoid the Actions ZIP 
 - Pause and simulation speed controls.
 - Native 3D desktop UI with refreshed dark panels, rounded controls, hover states, and clearer world-simulation branding.
 - Automatic Windows/Linux validation, main-scene smoke tests, save/load regression tests, and desktop exports through GitHub Actions.
-- A separate [runtime diagnostics workflow](.github/workflows/runtime-diagnostics.yml) runs a two-minute, 16× modern-city stress scenario, collects console/resource/performance logs, and uploads an Actions artifact. The latest captured logs are also retained in `logs/` in the repository.
+- The [Runtime stress tests workflow](.github/workflows/runtime-diagnostics.yml) launches the rendered Godot game on Windows and runs 15 repeatable scenarios covering 1×/4×/8×/16× simulation speeds, expanded cities and up to 800 citizens, construction/era refurbishment, mass civilian and resource spawning, maximum traffic, camera/LOD transitions, debris fields, fire/plague/tornadoes, meteors/lightning, earthquake terrain edits, mass building collapse, save/load rebuilds, and a combined 16× stress run. It records engine FPS, mean loop FPS, average/p95/p99/maximum frame intervals, maximum processing/action duration, world entity counts, and separate process CPU/memory samples. Each run uploads a 30-day Actions artifact and publishes the latest CSV/performance/summary logs into [`logs/`](logs/).
 - Local Save World / Load World controls persist terrain edits, city data, citizens, resources, camera framing, and simulation time; temporary combat and god-power effects are not persisted yet.
 
 ## Controls
