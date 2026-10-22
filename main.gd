@@ -1624,8 +1624,8 @@ func _apply_building_era_appearance(city_id: int, year: int, only_house_index: i
 				wall = TOWER_FACADE_PALETTE[variation].lerp(city["color"], 0.04)
 				roof_color = URBAN_FACADE_PALETTE[(variation + 3) % URBAN_FACADE_PALETTE.size()].darkened(0.12)
 				if large_plot:
-					width = 5.0
-					depth = 4.65
+					width = 4.1
+					depth = 3.9
 		else:
 			match kind:
 				1:
@@ -1647,8 +1647,8 @@ func _apply_building_era_appearance(city_id: int, year: int, only_house_index: i
 					wall = Color(0.51, 0.42, 0.29)
 
 		if not skyscraper and large_plot and kind != 4:
-			width = minf(4.9, width * 1.60)
-			depth = minf(4.6, depth * 1.55)
+			width = minf(4.1, width * 1.52)
+			depth = minf(3.9, depth * 1.48)
 		elif urban and not skyscraper:
 			width *= [0.91, 0.97, 1.0, 1.05, 0.89, 1.08, 0.96, 1.02, 0.93][variation]
 			depth *= [1.03, 0.93, 1.0, 1.06, 0.97, 0.90, 1.05, 0.96, 1.01][variation]
@@ -1848,7 +1848,8 @@ func _apply_city_stage_appearance(city_id: int) -> void:
 		label.position = Vector3(0.0, flag_pole.position.y + 1.9, 0.0)
 	for house in city["houses"]:
 		if is_instance_valid(house):
-			house.scale = Vector3.ONE * (1.0 + float(stage) * 0.07)
+			var plot_scale: float = 0.04 if bool(house.get_meta("large_plot", false)) else 0.07
+			house.scale = Vector3.ONE * (1.0 + float(stage) * plot_scale)
 
 
 func _spiral_grid_offset(index: int) -> Vector2i:
@@ -2144,7 +2145,7 @@ func _sync_city_buildings(city_id: int) -> bool:
 		var house := Node3D.new()
 		house.set_meta("terrain_terraced", bool(plot_grade.get("steep", false)))
 		house.set_meta("plot_grade_radius", plot_radius)
-		house.scale = Vector3.ONE * (1.0 + float(stage) * 0.07)
+		house.scale = Vector3.ONE * (1.0 + float(stage) * (0.04 if candidate_large_plot else 0.07))
 		house.position = Vector3(offset_x, base_world_height - float(city["pos"].y), offset_z)
 		city["node"].add_child(house)
 
@@ -6525,7 +6526,7 @@ func _load_world() -> void:
 		_refresh_city_development(city_id)
 		for house in cities[city_id]["houses"]:
 			if is_instance_valid(house):
-				house.scale = Vector3.ONE * (1.0 + float(cities[city_id].get("stage", 0)) * 0.07)
+				house.scale = Vector3.ONE * (1.0 + float(cities[city_id].get("stage", 0)) * (0.04 if bool(house.get_meta("large_plot", false)) else 0.07))
 		_apply_building_era_appearance(city_id, _world_year(), -1, true)
 	_refresh_city_territory(0)
 	for city_id in range(cities.size()):
