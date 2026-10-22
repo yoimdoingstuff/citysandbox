@@ -89,6 +89,9 @@ var construction_sites: Array = []
 var construction_id_sequence: int = 1
 var pending_city_development: Array[int] = []
 var pending_city_development_set: Dictionary = {}
+var pending_city_road_rebuilds: Array[int] = []
+var pending_city_road_rebuild_set: Dictionary = {}
+var city_road_rebuild_cooldown: float = 0.0
 var building_start_budget_remaining: int = 0
 var in_simulation_frame: bool = false
 var people_lod_proxy: MultiMeshInstance3D
@@ -314,6 +317,8 @@ func _process(delta: float) -> void:
 	building_start_budget_remaining = MAX_BUILDING_STARTS_PER_FRAME
 	detail_refresh_cooldown = maxf(0.0, detail_refresh_cooldown - delta)
 	people_lod_refresh_cooldown = maxf(0.0, people_lod_refresh_cooldown - delta)
+	city_road_rebuild_cooldown = maxf(0.0, city_road_rebuild_cooldown - delta)
+	_process_one_pending_city_road_rebuild()
 	_update_traffic_lights(delta)
 	if not paused:
 		stuck_recovery_timer += delta
@@ -2222,6 +2227,28 @@ func _update_construction_sites(delta: float) -> void:
 			last_detail_signature = ""
 
 
+func _queue_city_roads_rebuild(city_id: int) -> void:
+	if city_id < 0 or city_id >= cities.size() or bool(cities[city_id].get("ruined", false)):
+		return
+	if pending_city_road_rebuild_set.has(city_id):
+		return
+	pending_city_road_rebuild_set[city_id] = true
+	pending_city_road_rebuilds.append(city_id)
+
+
+func _process_one_pending_city_road_rebuild() -> void:
+	if city_road_rebuild_cooldown > 0.0 or pending_city_road_rebuilds.is_empty():
+		return
+	var city_id: int = pending_city_road_rebuilds.pop_front()
+	pending_city_road_rebuild_set.erase(city_id)
+	if city_id < 0 or city_id >= cities.size() or bool(cities[city_id].get("ruined", false)):
+		return
+	var road_started_usec: int = Time.get_ticks_usec()
+	_rebuild_city_roads(city_id)
+	_trace_slow_operation("city-road-mesh-rebuild", road_started_usec)
+	city_road_rebuild_cooldown = 0.24
+
+
 func _queue_city_development(city_id: int) -> void:
 	if city_id < 0 or city_id >= cities.size():
 		return
@@ -2369,7 +2396,10 @@ func _sync_city_buildings(city_id: int) -> bool:
 		_update_placed_object_heights()
 	if houses_changed:
 		if not terrain_changed:
-			_rebuild_city_roads(city_id)
+			if in_simulation_frame:
+				_queue_city_roads_rebuild(city_id)
+			else:
+				_rebuild_city_roads(city_id)
 		_apply_building_era_appearance(city_id, _world_year())
 	return houses_changed
 
@@ -6536,7 +6566,7 @@ func _update_world_detail_levels() -> void:
 	if active_lod != last_road_terrain_lod:
 		last_road_terrain_lod = active_lod
 		for city_id in range(cities.size()):
-			_rebuild_city_roads(city_id)
+			_queue_city_roads_rebuild(city_id)
 	for lod_index in range(terrain_lod_nodes.size()):
 		terrain_lod_nodes[lod_index].visible = lod_index == active_lod
 	var show_city_models: bool = camera_distance <= 165.0
@@ -7115,6 +7145,9 @@ func _queue_nodes_from_entries(entries: Array) -> void:
 func _clear_loaded_world() -> void:
 	pending_city_development.clear()
 	pending_city_development_set.clear()
+	pending_city_road_rebuilds.clear()
+	pending_city_road_rebuild_set.clear()
+	city_road_rebuild_cooldown = 0.0
 	building_start_budget_remaining = 0
 	in_simulation_frame = false
 	for existing_child in get_children():
@@ -7340,7 +7373,10 @@ func _update_historical_era(force: bool = false) -> void:
 		# The street plan evolves too: diagonal avenues and broad arterials appear
 		# as the city enters later eras, rather than waiting for its next house.
 		if lights_transitioned or force or era != previous_era:
-			_rebuild_city_roads(city_id)
+			if in_simulation_frame:
+				_queue_city_roads_rebuild(city_id)
+			else:
+				_rebuild_city_roads(city_id)
 	if previous_era >= 0 and era > previous_era:
 		_log("HISTORICAL SHIFT: %s begins in year %d. Cities can now develop new architecture and social events." % [_historical_era_name(year), year])
 
