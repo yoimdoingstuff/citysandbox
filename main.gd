@@ -17,6 +17,21 @@ const SAVE_PATH: String = "user://civiterra_world.json"
 const SAVE_VERSION: int = 3
 const MISSILE_UNLOCK_YEAR: int = 1945
 const ERA_SKIP_YEARS: Array[int] = [1200, 1450, 1780, 1880, 1950, 2000, 2026]
+const URBAN_FACADE_PALETTE := [
+	Color(0.68, 0.57, 0.45), Color(0.50, 0.53, 0.53), Color(0.70, 0.48, 0.35),
+	Color(0.43, 0.50, 0.43), Color(0.71, 0.67, 0.56), Color(0.40, 0.43, 0.44),
+	Color(0.68, 0.52, 0.43), Color(0.58, 0.59, 0.56), Color(0.48, 0.39, 0.34)
+]
+const TOWER_FACADE_PALETTE := [
+	Color(0.43, 0.48, 0.50), Color(0.59, 0.53, 0.46), Color(0.34, 0.40, 0.39),
+	Color(0.48, 0.36, 0.32), Color(0.56, 0.59, 0.59), Color(0.40, 0.44, 0.48),
+	Color(0.63, 0.60, 0.52), Color(0.37, 0.39, 0.39), Color(0.48, 0.47, 0.42)
+]
+const GLASS_PALETTE := [
+	Color(0.45, 0.67, 0.70), Color(0.63, 0.68, 0.64), Color(0.58, 0.50, 0.40),
+	Color(0.41, 0.56, 0.52), Color(0.48, 0.54, 0.60), Color(0.71, 0.66, 0.55),
+	Color(0.38, 0.44, 0.47), Color(0.68, 0.61, 0.50)
+]
 
 var terrain: MeshInstance3D
 var terrain_material: StandardMaterial3D
@@ -60,6 +75,10 @@ var city_event_scenes: Array = []
 var rubble_records: Array = []
 var rubble_nodes: Array = []
 var rubble_id_sequence: int = 1
+var construction_sites: Array = []
+var construction_id_sequence: int = 1
+var people_lod_proxy: MultiMeshInstance3D
+var construction_tick_timer: float = 0.0
 var abandoned_check_timer: float = 0.0
 var rubble_aging_timer: float = 0.0
 var log_entries: Array[String] = []
@@ -132,6 +151,7 @@ func _ready() -> void:
 	world_seed = randi() & 0x7FFFFFFF
 	seed(world_seed)
 	_build_world()
+	_build_people_lod_proxy()
 	_build_ui()
 	_seed_civilizations()
 	_scatter_world_resources()
@@ -263,6 +283,7 @@ func _process(delta: float) -> void:
 		_update_plague(sim_delta)
 		_update_simulation_timers(sim_delta)
 		_update_rubble_aging(sim_delta)
+		_update_construction_sites(sim_delta)
 		_update_city_event_markers(sim_delta)
 		_update_city_event_scenes(sim_delta)
 		_update_historical_era()
@@ -4613,6 +4634,72 @@ func _erase_near(position: Vector3) -> void:
 	_log("Nothing nearby to erase.")
 
 
+func _build_people_lod_proxy() -> void:
+	var citizen_mesh := BoxMesh.new()
+	citizen_mesh.size = Vector3(0.22, 0.48, 0.22)
+	var multimesh := MultiMesh.new()
+	multimesh.transform_format = MultiMesh.TRANSFORM_3D
+	multimesh.use_colors = true
+	multimesh.mesh = citizen_mesh
+	multimesh.instance_count = MAX_PEOPLE
+	multimesh.visible_instance_count = 0
+	people_lod_proxy = MultiMeshInstance3D.new()
+	people_lod_proxy.name = "CitizenDistanceLOD"
+	people_lod_proxy.multimesh = multimesh
+	var proxy_material := StandardMaterial3D.new()
+	proxy_material.vertex_color_use_as_albedo = true
+	proxy_material.shading_mode = BaseMaterial3D.SHADING_MODE_UNSHADED
+	proxy_material.roughness = 1.0
+	people_lod_proxy.material_override = proxy_material
+	people_lod_proxy.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
+	people_lod_proxy.visible = false
+	add_child(people_lod_proxy)
+
+
+func _is_point_in_camera_view(world_position: Vector3, margin: float = 36.0) -> bool:
+	if not is_instance_valid(camera):
+		return true
+	if camera.is_position_behind(world_position):
+		return false
+	var viewport_rect: Rect2 = get_viewport().get_visible_rect()
+	var projected: Vector2 = camera.unproject_position(world_position)
+	return projected.x >= viewport_rect.position.x - margin and projected.x <= viewport_rect.end.x + margin and projected.y >= viewport_rect.position.y - margin and projected.y <= viewport_rect.end.y + margin
+
+
+func _refresh_people_lod_proxy(show_proxy: bool) -> void:
+	if not is_instance_valid(people_lod_proxy) or people_lod_proxy.multimesh == null:
+		return
+	var multimesh: MultiMesh = people_lod_proxy.multimesh
+	var instance_index: int = 0
+	var proxy_range: float = clampf(camera_distance * 0.92, 85.0, TERRAIN_SIZE * 0.78)
+	var range_squared: float = proxy_range * proxy_range
+	for person in people:
+		if not bool(person.get("alive", true)):
+			continue
+		var activity: String = str(person.get("activity", ""))
+		if activity in ["indoors", "riding", "boarding"]:
+			continue
+		var position: Vector3 = person["pos"]
+		var dx: float = position.x - camera_target.x
+		var dz: float = position.z - camera_target.z
+		if dx * dx + dz * dz > range_squared or not _is_point_in_camera_view(position + Vector3(0.0, 0.65, 0.0), 28.0):
+			continue
+		if instance_index >= MAX_PEOPLE:
+			break
+		var proxy_scale: float = 1.0 if camera_distance > 180.0 else 0.82
+		multimesh.set_instance_transform(instance_index, Transform3D(Basis().scaled(Vector3.ONE * proxy_scale), position + Vector3(0.0, 0.24, 0.0)))
+		var city_id: int = int(person.get("city_id", -1))
+		var person_color: Color = cities[city_id]["color"].lightened(0.10) if city_id >= 0 and city_id < cities.size() else Color(0.75, 0.78, 0.76)
+		multimesh.set_instance_color(instance_index, person_color)
+		instance_index += 1
+	multimesh.visible_instance_count = instance_index
+	people_lod_proxy.visible = show_proxy and instance_index > 0
+
+
+func _building_candidate_nearer(a: Dictionary, b: Dictionary) -> bool:
+	return float(a["distance"]) < float(b["distance"])
+
+
 func _build_ui() -> void:
 	var layer := CanvasLayer.new()
 	layer.layer = 10
@@ -5082,12 +5169,16 @@ func _update_world_detail_levels() -> void:
 	var building_count: int = 0
 	for city in cities:
 		building_count += city["houses"].size()
-	var detail_signature: String = "%d|%d|%d|%d|%d|%d|%d|%d|%d|%d|%d|%d|%d|%d" % [
+	var detail_signature: String = "%d|%d|%d|%d|%d|%d|%d|%d|%d|%d|%d|%d|%d|%d|%d|%d|%d|%d" % [
 		active_lod, int(show_city_models), int(show_neighbourhoods), int(show_resources),
 		int(show_people), int(show_city_labels), int(show_far_markers), cities.size(),
 		building_count, people.size(), resources.size(), cars.size() + rubble_records.size(),
-		focus_cell_x, focus_cell_z
+		focus_cell_x, focus_cell_z, int(camera_yaw * 10.0), int(camera_pitch * 10.0),
+		int(camera_distance * 0.5), int(camera_target.y)
 	]
+	# Rebuild the low-cost citizen representation continuously whenever the
+	# normal detailed citizens are replaced by distance LOD.
+	_refresh_people_lod_proxy(not show_people)
 	if detail_signature == last_detail_signature:
 		return
 	last_detail_signature = detail_signature
@@ -5119,8 +5210,15 @@ func _update_world_detail_levels() -> void:
 		if is_instance_valid(crosswalks):
 			crosswalks.visible = show_neighbourhoods and not ruined
 		for house in city["houses"]:
-			if is_instance_valid(house):
-				house.visible = show_neighbourhoods and not ruined
+			if not is_instance_valid(house):
+				continue
+			var building_height: float = float(house.get_meta("building_height", 3.0))
+			var building_width: float = float(house.get_meta("building_width", 2.8))
+			var view_point: Vector3 = house.global_position + Vector3(0.0, building_height * 0.5, 0.0)
+			var top_point: Vector3 = house.global_position + Vector3(0.0, building_height, 0.0)
+			var in_frustum: bool = _is_point_in_camera_view(view_point, 54.0) or _is_point_in_camera_view(top_point, 54.0)
+			var distance_squared: float = house.global_position.distance_squared_to(camera.global_position)
+			house.visible = show_neighbourhoods and not ruined and distance_squared <= 220.0 * 220.0 and in_frustum
 	var person_range: float = clampf(camera_distance * 0.54, 22.0, 68.0)
 	var person_range_squared: float = person_range * person_range
 	for person in people:
@@ -5131,7 +5229,7 @@ func _update_world_detail_levels() -> void:
 		var dx: float = position.x - camera_target.x
 		var dz: float = position.z - camera_target.z
 		var indoors: bool = str(person.get("activity", "")) == "indoors" or str(person.get("activity", "")) == "riding"
-		person_node.visible = show_people and not indoors and bool(person.get("alive", true)) and dx * dx + dz * dz <= person_range_squared
+		person_node.visible = show_people and not indoors and bool(person.get("alive", true)) and dx * dx + dz * dz <= person_range_squared and _is_point_in_camera_view(position + Vector3(0.0, 0.65, 0.0), 28.0)
 	for car in cars:
 		var car_node: Node3D = car["node"]
 		if not is_instance_valid(car_node):
@@ -5140,11 +5238,11 @@ func _update_world_detail_levels() -> void:
 		var dx: float = car_position.x - camera_target.x
 		var dz: float = car_position.z - camera_target.z
 		var render_range: float = maxf(42.0, camera_distance * 0.68)
-		car_node.visible = show_neighbourhoods and dx * dx + dz * dz <= render_range * render_range
+		car_node.visible = show_neighbourhoods and dx * dx + dz * dz <= render_range * render_range and _is_point_in_camera_view(car_position + Vector3(0.0, 0.5, 0.0), 32.0)
 	for resource in resources:
 		var resource_node: Node3D = resource["node"]
 		if is_instance_valid(resource_node):
-			resource_node.visible = show_resources and bool(resource.get("alive", true)) and int(resource.get("amount", 1)) > 0
+			resource_node.visible = show_resources and bool(resource.get("alive", true)) and int(resource.get("amount", 1)) > 0 and _is_point_in_camera_view(resource.get("pos", Vector3.ZERO) + Vector3(0.0, 0.4, 0.0), 22.0)
 
 
 func _run_save_load_smoke_test() -> void:
