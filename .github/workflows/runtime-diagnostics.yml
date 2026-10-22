@@ -65,7 +65,7 @@ jobs:
             $cpuDescription = (Get-CimInstance Win32_Processor | Select-Object -First 1 -ExpandProperty Name)
             $memoryGb = [math]::Round((Get-CimInstance Win32_ComputerSystem).TotalPhysicalMemory / 1GB, 1)
 
-            $process = Start-Process -FilePath $godotConsole -ArgumentList @("--headless", "--verbose", "--path", ".") -WorkingDirectory $PWD -RedirectStandardOutput $stdoutPath -RedirectStandardError $stderrPath -PassThru
+            $process = Start-Process -FilePath $godotConsole -ArgumentList @("--headless", "--verbose", "--path", ".", "--", "--civiterra-freeze-stress-test") -WorkingDirectory $PWD -RedirectStandardOutput $stdoutPath -RedirectStandardError $stderrPath -PassThru
 
             $timer = [System.Diagnostics.Stopwatch]::StartNew()
             $nextSample = 0
@@ -130,6 +130,15 @@ jobs:
             Write-Error $_
           }
           finally {
+            # Godot writes detailed hitch samples to user:// so preserve that
+            # file beside its console output before committing/uploading the logs.
+            $appDataRoot = Join-Path $env:APPDATA "Godot\app_userdata"
+            if (Test-Path -LiteralPath $appDataRoot) {
+              $perfLog = Get-ChildItem -LiteralPath $appDataRoot -Filter "civiterra-performance.log" -File -Recurse -ErrorAction SilentlyContinue | Select-Object -First 1
+              if ($perfLog) {
+                Copy-Item -LiteralPath $perfLog.FullName -Destination (Join-Path $PWD "logs/runtime-latest.performance.log") -Force
+              }
+            }
             $combined = @(
               "===== SUMMARY =====",
               (Get-Content -LiteralPath $summaryPath -Raw -ErrorAction SilentlyContinue),
@@ -141,7 +150,10 @@ jobs:
               (Get-Content -LiteralPath $stderrPath -Raw -ErrorAction SilentlyContinue),
               "",
               "===== PROCESS MONITOR =====",
-              (Get-Content -LiteralPath $monitorPath -Raw -ErrorAction SilentlyContinue)
+              (Get-Content -LiteralPath $monitorPath -Raw -ErrorAction SilentlyContinue),
+              "",
+              "===== FRAME HITCH / SLOW OPERATION SAMPLES =====",
+              (Get-Content -LiteralPath (Join-Path $PWD "logs/runtime-latest.performance.log") -Raw -ErrorAction SilentlyContinue)
             )
             $combined | Set-Content -LiteralPath $combinedPath
             Write-Output (Get-Content -LiteralPath $summaryPath -Raw -ErrorAction SilentlyContinue)
