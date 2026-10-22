@@ -56,6 +56,8 @@ var terrain_rebuild_cooldown: float = 0.0
 var last_road_terrain_lod: int = -1
 var terrain_moisture_noise: FastNoiseLite
 var terrain_temperature_noise: FastNoiseLite
+var terrain_moisture_grid: Array = []
+var terrain_temperature_grid: Array = []
 var selection_ring: MeshInstance3D
 var camera_auto_zoom_active: bool = false
 var camera_auto_zoom_follow_city: bool = false
@@ -958,6 +960,8 @@ func _build_world() -> void:
 
 func _generate_terrain_heights() -> void:
 	terrain_heights.clear()
+	terrain_moisture_grid.clear()
+	terrain_temperature_grid.clear()
 	var broad_noise := FastNoiseLite.new()
 	broad_noise.seed = world_seed + 14029
 	broad_noise.frequency = 0.028
@@ -989,9 +993,13 @@ func _generate_terrain_heights() -> void:
 	]
 	for z_index in range(TERRAIN_RES):
 		var row: Array = []
+		var moisture_row: Array[float] = []
+		var temperature_row: Array[float] = []
 		for x_index in range(TERRAIN_RES):
 			var x: float = (float(x_index) / float(TERRAIN_RES - 1) - 0.5) * TERRAIN_SIZE
 			var z: float = (float(z_index) / float(TERRAIN_RES - 1) - 0.5) * TERRAIN_SIZE
+			moisture_row.append((terrain_moisture_noise.get_noise_2d(x, z) + 1.0) * 0.5)
+			temperature_row.append(terrain_temperature_noise.get_noise_2d(x, z))
 			var continent_score: float = -10.0
 			for continent_index in range(continent_centers.size()):
 				var relative: Vector2 = Vector2(
@@ -1011,6 +1019,8 @@ func _generate_terrain_heights() -> void:
 				h = WATER_LEVEL - 0.90 + broad_value * 0.16
 			row.append(h)
 		terrain_heights.append(row)
+		terrain_moisture_grid.append(moisture_row)
+		terrain_temperature_grid.append(temperature_row)
 
 
 func _ensure_terrain_lod_chunks() -> void:
@@ -1189,10 +1199,17 @@ func _terrain_color_at(point: Vector3) -> Color:
 
 	var moisture: float = 0.5
 	var climate: float = 0.0
-	if terrain_moisture_noise != null:
-		moisture = (terrain_moisture_noise.get_noise_2d(point.x, point.z) + 1.0) * 0.5
-	if terrain_temperature_noise != null:
-		climate = terrain_temperature_noise.get_noise_2d(point.x, point.z)
+	var grid_x: int = clampi(roundi((point.x / TERRAIN_SIZE + 0.5) * float(TERRAIN_RES - 1)), 0, TERRAIN_RES - 1)
+	var grid_z: int = clampi(roundi((point.z / TERRAIN_SIZE + 0.5) * float(TERRAIN_RES - 1)), 0, TERRAIN_RES - 1)
+	if terrain_moisture_grid.size() == TERRAIN_RES and terrain_temperature_grid.size() == TERRAIN_RES:
+		moisture = float((terrain_moisture_grid[grid_z] as Array)[grid_x])
+		climate = float((terrain_temperature_grid[grid_z] as Array)[grid_x])
+	else:
+		# Safe fallback for any legacy startup path before the heightmap caches exist.
+		if terrain_moisture_noise != null:
+			moisture = (terrain_moisture_noise.get_noise_2d(point.x, point.z) + 1.0) * 0.5
+		if terrain_temperature_noise != null:
+			climate = terrain_temperature_noise.get_noise_2d(point.x, point.z)
 	var latitude_cooling: float = abs(point.z) / TERRAIN_SIZE * 0.42
 	var temperature: float = clamp(0.78 - latitude_cooling + climate * 0.24, 0.0, 1.0)
 
