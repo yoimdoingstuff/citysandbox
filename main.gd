@@ -995,6 +995,10 @@ func _create_city(position: Vector3, city_name: String, color: Color) -> int:
 	crosswalk_network.name = "CrosswalkNetwork"
 	crosswalk_network.material_override = _material(Color(0.88, 0.88, 0.80), 0.96)
 	town.add_child(crosswalk_network)
+	var island_network := MeshInstance3D.new()
+	island_network.name = "RoundaboutIslands"
+	island_network.material_override = _material(Color(0.24, 0.43, 0.24), 0.98)
+	town.add_child(island_network)
 
 	var plinth_mesh := BoxMesh.new()
 	plinth_mesh.size = Vector3(3.2, 0.45, 3.2)
@@ -1066,6 +1070,7 @@ func _create_city(position: Vector3, city_name: String, color: Color) -> int:
 		"roads": road_network,
 		"sidewalks": sidewalk_network,
 		"crosswalks": crosswalk_network,
+		"islands": island_network,
 		"label": city_label,
 		"event_marker": event_marker,
 		"event_timer": 0.0,
@@ -1733,6 +1738,7 @@ func _update_construction_sites(delta: float) -> void:
 				var arm: Node3D = person.get("right_arm") as Node3D
 				if is_instance_valid(arm):
 					arm.rotation.x = sin(phase * 3.0) * 0.75
+		construction_sites[site_index] = site
 		if progress >= 1.0:
 			var city_id: int = int(site["city_id"])
 			var site_id: int = int(site["id"])
@@ -1854,7 +1860,7 @@ func _add_road_segment(surface: SurfaceTool, city_position: Vector3, from_point:
 	var finish_point: Vector2 = to_point - direction * endpoint_padding
 	if finish_point.distance_to(start_point) < 0.1:
 		return
-	var segment_count: int = max(2, int(ceil(start_point.distance_to(finish_point) / 5.0)))
+	var segment_count: int = maxi(2, int(ceil(start_point.distance_to(finish_point) / 0.70)))
 	var previous_left := Vector3.ZERO
 	var previous_right := Vector3.ZERO
 	for segment in range(segment_count + 1):
@@ -1886,16 +1892,48 @@ func _add_sidewalk_corner(surface: SurfaceTool, city_position: Vector3, intersec
 	var max_x: float = maxf(xa, xb)
 	var min_z: float = minf(za, zb)
 	var max_z: float = maxf(za, zb)
-	var a := Vector3(min_x, _height_at(city_position.x + min_x, city_position.z + min_z) - city_position.y + 0.26, min_z)
-	var b := Vector3(max_x, _height_at(city_position.x + max_x, city_position.z + min_z) - city_position.y + 0.26, min_z)
-	var c := Vector3(max_x, _height_at(city_position.x + max_x, city_position.z + max_z) - city_position.y + 0.26, max_z)
-	var d := Vector3(min_x, _height_at(city_position.x + min_x, city_position.z + max_z) - city_position.y + 0.26, max_z)
+	var a := Vector3(min_x, _height_at(city_position.x + min_x, city_position.z + min_z) - city_position.y + 0.44, min_z)
+	var b := Vector3(max_x, _height_at(city_position.x + max_x, city_position.z + min_z) - city_position.y + 0.44, min_z)
+	var c := Vector3(max_x, _height_at(city_position.x + max_x, city_position.z + max_z) - city_position.y + 0.44, max_z)
+	var d := Vector3(min_x, _height_at(city_position.x + min_x, city_position.z + max_z) - city_position.y + 0.44, max_z)
 	surface.add_vertex(a)
 	surface.add_vertex(b)
 	surface.add_vertex(c)
 	surface.add_vertex(a)
 	surface.add_vertex(c)
 	surface.add_vertex(d)
+
+
+func _add_roundabout_island(surface: SurfaceTool, city_position: Vector3, center_x: float, center_z: float, radius: float) -> void:
+	var center_local := Vector2(center_x, center_z)
+	var center_y: float = _height_at(city_position.x + center_x, city_position.z + center_z) - city_position.y + 0.48
+	for segment in range(24):
+		var angle_a: float = TAU * float(segment) / 24.0
+		var angle_b: float = TAU * float(segment + 1) / 24.0
+		var a_xz := center_local + Vector2(cos(angle_a), sin(angle_a)) * radius
+		var b_xz := center_local + Vector2(cos(angle_b), sin(angle_b)) * radius
+		var a := Vector3(a_xz.x, _height_at(city_position.x + a_xz.x, city_position.z + a_xz.y) - city_position.y + 0.48, a_xz.y)
+		var b := Vector3(b_xz.x, _height_at(city_position.x + b_xz.x, city_position.z + b_xz.y) - city_position.y + 0.48, b_xz.y)
+		surface.add_vertex(Vector3(center_x, center_y, center_z))
+		surface.add_vertex(a)
+		surface.add_vertex(b)
+
+
+func _diagonal_road_is_clear(city_id: int, from_point: Vector2, to_point: Vector2, clearance: float = 2.6) -> bool:
+	if city_id < 0 or city_id >= cities.size():
+		return false
+	var city: Dictionary = cities[city_id]
+	var segment: Vector2 = to_point - from_point
+	var length_squared: float = segment.length_squared()
+	for house in city["houses"]:
+		if not is_instance_valid(house):
+			continue
+		var building_center := Vector2(house.position.x, house.position.z)
+		var t: float = clampf((building_center - from_point).dot(segment) / maxf(0.001, length_squared), 0.0, 1.0)
+		var closest: Vector2 = from_point + segment * t
+		if closest.distance_to(building_center) < clearance + float(house.get_meta("building_width", 2.8)) * 0.22:
+			return false
+	return true
 
 
 func _rebuild_city_roads(city_id: int) -> void:
@@ -1905,6 +1943,7 @@ func _rebuild_city_roads(city_id: int) -> void:
 	var road_node: MeshInstance3D = city["roads"]
 	var sidewalk_node: MeshInstance3D = city.get("sidewalks") as MeshInstance3D
 	var crosswalk_node: MeshInstance3D = city.get("crosswalks") as MeshInstance3D
+	var island_node: MeshInstance3D = city.get("islands") as MeshInstance3D
 	if not is_instance_valid(road_node):
 		return
 	var road_surface := SurfaceTool.new()
@@ -1913,6 +1952,8 @@ func _rebuild_city_roads(city_id: int) -> void:
 	sidewalk_surface.begin(Mesh.PRIMITIVE_TRIANGLES)
 	var crosswalk_surface := SurfaceTool.new()
 	crosswalk_surface.begin(Mesh.PRIMITIVE_TRIANGLES)
+	var island_surface := SurfaceTool.new()
+	island_surface.begin(Mesh.PRIMITIVE_TRIANGLES)
 	var city_position: Vector3 = city["pos"]
 	var houses: Array = city["houses"]
 	if houses.is_empty():
@@ -1921,6 +1962,8 @@ func _rebuild_city_roads(city_id: int) -> void:
 			sidewalk_node.mesh = null
 		if is_instance_valid(crosswalk_node):
 			crosswalk_node.mesh = null
+		if is_instance_valid(island_node):
+			island_node.mesh = null
 		city["road_grid_min_x"] = -7.5
 		city["road_grid_max_x"] = 7.5
 		city["road_grid_min_z"] = -7.5
@@ -1935,10 +1978,11 @@ func _rebuild_city_roads(city_id: int) -> void:
 	for house in houses:
 		if not is_instance_valid(house):
 			continue
-		min_x = minf(min_x, house.position.x - 3.0)
-		max_x = maxf(max_x, house.position.x + 3.0)
-		min_z = minf(min_z, house.position.z - 3.0)
-		max_z = maxf(max_z, house.position.z + 3.0)
+		var footprint: float = maxf(3.0, float(house.get_meta("plot_footprint", 3.6)) * 0.28)
+		min_x = minf(min_x, house.position.x - footprint)
+		max_x = maxf(max_x, house.position.x + footprint)
+		min_z = minf(min_z, house.position.z - footprint)
+		max_z = maxf(max_z, house.position.z + footprint)
 	var first_x: float = floor(min_x / ROAD_GRID_SIZE) * ROAD_GRID_SIZE
 	var last_x: float = ceil(max_x / ROAD_GRID_SIZE) * ROAD_GRID_SIZE
 	var first_z: float = floor(min_z / ROAD_GRID_SIZE) * ROAD_GRID_SIZE
@@ -1953,16 +1997,14 @@ func _rebuild_city_roads(city_id: int) -> void:
 	var cursor_x: float = first_x
 	while cursor_x <= last_x + 0.001:
 		grid_x.append(cursor_x)
-		_add_road_segment(road_surface, city_position, Vector2(cursor_x, min_z), Vector2(cursor_x, max_z), 1.62, 0.035, 0.0)
+		_add_road_segment(road_surface, city_position, Vector2(cursor_x, min_z), Vector2(cursor_x, max_z), 1.62, 0.24, 0.0)
 		cursor_x += ROAD_GRID_SIZE
 	var cursor_z: float = first_z
 	while cursor_z <= last_z + 0.001:
 		grid_z.append(cursor_z)
-		_add_road_segment(road_surface, city_position, Vector2(min_x, cursor_z), Vector2(max_x, cursor_z), 1.62, 0.035, 0.0)
+		_add_road_segment(road_surface, city_position, Vector2(min_x, cursor_z), Vector2(max_x, cursor_z), 1.62, 0.24, 0.0)
 		cursor_z += ROAD_GRID_SIZE
 
-	# Sidewalk paths terminate before every junction, rather than forming paving
-	# ribbons across the road. Their inner edge touches the carriageway exactly.
 	for x_index in range(grid_x.size()):
 		var x_value: float = grid_x[x_index]
 		for z_index in range(grid_z.size() - 1):
@@ -1971,7 +2013,7 @@ func _rebuild_city_roads(city_id: int) -> void:
 			if sidewalk_end <= sidewalk_start:
 				continue
 			for side_sign in [-1.0, 1.0]:
-				_add_road_segment(sidewalk_surface, city_position, Vector2(x_value + side_sign * 1.05, sidewalk_start), Vector2(x_value + side_sign * 1.05, sidewalk_end), 0.48, 0.26, 0.0)
+				_add_road_segment(sidewalk_surface, city_position, Vector2(x_value + side_sign * 1.05, sidewalk_start), Vector2(x_value + side_sign * 1.05, sidewalk_end), 0.48, 0.44, 0.0)
 	for z_index in range(grid_z.size()):
 		var z_value: float = grid_z[z_index]
 		for x_index in range(grid_x.size() - 1):
@@ -1980,20 +2022,51 @@ func _rebuild_city_roads(city_id: int) -> void:
 			if sidewalk_end_x <= sidewalk_start_x:
 				continue
 			for side_sign in [-1.0, 1.0]:
-				_add_road_segment(sidewalk_surface, city_position, Vector2(sidewalk_start_x, z_value + side_sign * 1.05), Vector2(sidewalk_end_x, z_value + side_sign * 1.05), 0.48, 0.26, 0.0)
+				_add_road_segment(sidewalk_surface, city_position, Vector2(sidewalk_start_x, z_value + side_sign * 1.05), Vector2(sidewalk_end_x, z_value + side_sign * 1.05), 0.48, 0.44, 0.0)
 
-	for x_value in grid_x:
-		for z_value in grid_z:
+	for x_index in range(grid_x.size()):
+		var x_value: float = grid_x[x_index]
+		for z_index in range(grid_z.size()):
+			var z_value: float = grid_z[z_index]
 			for side_x in [-1.0, 1.0]:
 				for side_z in [-1.0, 1.0]:
 					_add_sidewalk_corner(sidewalk_surface, city_position, x_value, z_value, side_x, side_z)
-			# Modern zebra markings stay off the medieval street grid.
 			if _world_year() >= 1900:
 				for stripe_index in range(4):
 					var stripe_offset: float = 0.95 + float(stripe_index) * 0.25
 					for stripe_sign in [-1.0, 1.0]:
-						_add_road_segment(crosswalk_surface, city_position, Vector2(x_value - 0.78, z_value + stripe_sign * stripe_offset), Vector2(x_value + 0.78, z_value + stripe_sign * stripe_offset), 0.13, 0.073, 0.0)
-						_add_road_segment(crosswalk_surface, city_position, Vector2(x_value + stripe_sign * stripe_offset, z_value - 0.78), Vector2(x_value + stripe_sign * stripe_offset, z_value + 0.78), 0.13, 0.073, 0.0)
+						_add_road_segment(crosswalk_surface, city_position, Vector2(x_value - 0.78, z_value + stripe_sign * stripe_offset), Vector2(x_value + 0.78, z_value + stripe_sign * stripe_offset), 0.13, 0.30, 0.0)
+						_add_road_segment(crosswalk_surface, city_position, Vector2(x_value + stripe_sign * stripe_offset, z_value - 0.78), Vector2(x_value + stripe_sign * stripe_offset, z_value + 0.78), 0.13, 0.30, 0.0)
+			if x_index > 0 and z_index > 0 and x_index < grid_x.size() - 1 and z_index < grid_z.size() - 1 and (x_index * 3 + z_index * 5 + city_id) % 11 == 2:
+				var island_clear: bool = true
+				for house in houses:
+					if not is_instance_valid(house):
+						continue
+					if Vector2(house.position.x - x_value, house.position.z - z_value).length() < 3.9:
+						island_clear = false
+						break
+				if island_clear:
+					var ring_radius: float = 2.05
+					for segment in range(20):
+						var angle_a: float = TAU * float(segment) / 20.0
+						var angle_b: float = TAU * float(segment + 1) / 20.0
+						var a := Vector2(x_value, z_value) + Vector2(cos(angle_a), sin(angle_a)) * ring_radius
+						var b := Vector2(x_value, z_value) + Vector2(cos(angle_b), sin(angle_b)) * ring_radius
+						_add_road_segment(road_surface, city_position, a, b, 1.18, 0.27, 0.0)
+					_add_roundabout_island(island_surface, city_position, x_value, z_value, 0.92)
+
+	for x_index in range(grid_x.size() - 1):
+		for z_index in range(grid_z.size() - 1):
+			if (x_index * 7 + z_index * 11 + city_id) % 9 != 3:
+				continue
+			var start_point := Vector2(grid_x[x_index] + 1.25, grid_z[z_index] + 1.25)
+			var finish_point := Vector2(grid_x[x_index + 1] - 1.25, grid_z[z_index + 1] - 1.25)
+			if _diagonal_road_is_clear(city_id, start_point, finish_point, 2.4):
+				_add_road_segment(road_surface, city_position, start_point, finish_point, 0.88, 0.25, 0.0)
+			var reverse_start := Vector2(grid_x[x_index] + 1.25, grid_z[z_index + 1] - 1.25)
+			var reverse_finish := Vector2(grid_x[x_index + 1] - 1.25, grid_z[z_index] + 1.25)
+			if (x_index + z_index + city_id) % 17 == 5 and _diagonal_road_is_clear(city_id, reverse_start, reverse_finish, 2.4):
+				_add_road_segment(road_surface, city_position, reverse_start, reverse_finish, 0.88, 0.25, 0.0)
 	road_surface.generate_normals(true)
 	road_node.mesh = road_surface.commit()
 	if is_instance_valid(sidewalk_node):
@@ -2002,6 +2075,9 @@ func _rebuild_city_roads(city_id: int) -> void:
 	if is_instance_valid(crosswalk_node):
 		crosswalk_surface.generate_normals(true)
 		crosswalk_node.mesh = crosswalk_surface.commit()
+	if is_instance_valid(island_node):
+		island_surface.generate_normals(true)
+		island_node.mesh = island_surface.commit()
 	_rebuild_city_traffic_lights(city_id, grid_x, grid_z)
 
 
@@ -2408,6 +2484,31 @@ func _update_people(delta: float) -> void:
 			people[i] = person
 			continue
 
+		if activity == "constructing_walk" or activity == "constructing":
+			var site_id: int = int(person.get("construction_site_id", -1))
+			var site: Dictionary = _get_construction_site(site_id)
+			var site_node: Node3D = site.get("node") as Node3D
+			if site.is_empty() or not is_instance_valid(site_node):
+				person["activity"] = "wandering"
+				person["construction_site_id"] = -1
+				person["walk_timer"] = 0.0
+				people[i] = person
+				continue
+			if activity == "constructing_walk":
+				var construction_target: Vector3 = person.get("construction_target", site_node.global_position)
+				var construction_distance: float = Vector2(position.x - construction_target.x, position.z - construction_target.z).length()
+				if construction_distance <= 1.1:
+					person["activity"] = "constructing"
+					person["pos"] = position
+				else:
+					position = position.move_toward(Vector3(construction_target.x, position.y, construction_target.z), delta * 2.0)
+					position.y = _height_at(position.x, position.z)
+					person["pos"] = position
+					if is_instance_valid(node):
+						node.position = position
+						node.visible = true
+			people[i] = person
+			continue
 		if activity == "cleanup_walk" or activity == "cleaning":
 			var cleanup_id: int = int(person.get("cleanup_rubble_id", -1))
 			var cleanup_node: Node3D = _get_rubble_node(cleanup_id)
@@ -5395,6 +5496,9 @@ func _update_world_detail_levels() -> void:
 		var crosswalks: MeshInstance3D = city.get("crosswalks") as MeshInstance3D
 		if is_instance_valid(crosswalks):
 			crosswalks.visible = show_neighbourhoods and not ruined
+		var islands: MeshInstance3D = city.get("islands") as MeshInstance3D
+		if is_instance_valid(islands):
+			islands.visible = show_neighbourhoods and not ruined
 		for house in city["houses"]:
 			if not is_instance_valid(house):
 				continue
@@ -5873,6 +5977,8 @@ func _clear_loaded_world() -> void:
 	rubble_records.clear()
 	rubble_nodes.clear()
 	rubble_id_sequence = 1
+	construction_sites.clear()
+	construction_id_sequence = 1
 	for city in cities:
 		for key in ["node", "zone_fill", "zone_border"]:
 			if city.has(key) and city[key] is Node and is_instance_valid(city[key]):
