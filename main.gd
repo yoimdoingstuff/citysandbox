@@ -1088,25 +1088,31 @@ func _build_terrain_chunk(lod_index: int, chunk_x: int, chunk_z: int) -> void:
 	var start_z: int = chunk_z * TERRAIN_CHUNK_CELLS
 	var end_x: int = mini(start_x + TERRAIN_CHUNK_CELLS, TERRAIN_RES - 1)
 	var end_z: int = mini(start_z + TERRAIN_CHUNK_CELLS, TERRAIN_RES - 1)
-	for z_index in range(start_z, end_z, stride):
-		var z_next: int = mini(z_index + stride, end_z)
-		var z0: float = -TERRAIN_SIZE * 0.5 + float(z_index) * spacing
-		var z1: float = -TERRAIN_SIZE * 0.5 + float(z_next) * spacing
-		for x_index in range(start_x, end_x, stride):
-			var x_next: int = mini(x_index + stride, end_x)
-			var x0: float = -TERRAIN_SIZE * 0.5 + float(x_index) * spacing
-			var x1: float = -TERRAIN_SIZE * 0.5 + float(x_next) * spacing
-			var p00 := Vector3(x0, terrain_heights[z_index][x_index], z0)
-			var p10 := Vector3(x1, terrain_heights[z_index][x_next], z0)
-			var p01 := Vector3(x0, terrain_heights[z_next][x_index], z1)
-			var p11 := Vector3(x1, terrain_heights[z_next][x_next], z1)
-			_add_terrain_vertex(surface, p00)
-			_add_terrain_vertex(surface, p10)
-			_add_terrain_vertex(surface, p01)
-			_add_terrain_vertex(surface, p10)
-			_add_terrain_vertex(surface, p11)
-			_add_terrain_vertex(surface, p01)
-	surface.index()
+	var vertex_columns: int = int((end_x - start_x) / stride) + 1
+	var vertex_rows: int = int((end_z - start_z) / stride) + 1
+
+	# Submit each heightmap sample only once. The old builder emitted six duplicate
+	# vertices per cell, then called SurfaceTool.index() to deduplicate them again.
+	# Explicit indices cut vertex/color work by roughly 5-6x per terrain chunk.
+	for z_index in range(start_z, end_z + 1, stride):
+		var z: float = -TERRAIN_SIZE * 0.5 + float(z_index) * spacing
+		for x_index in range(start_x, end_x + 1, stride):
+			var x: float = -TERRAIN_SIZE * 0.5 + float(x_index) * spacing
+			_add_terrain_vertex(surface, Vector3(x, terrain_heights[z_index][x_index], z))
+
+	for z_step in range(vertex_rows - 1):
+		for x_step in range(vertex_columns - 1):
+			var top_left: int = z_step * vertex_columns + x_step
+			var top_right: int = top_left + 1
+			var bottom_left: int = top_left + vertex_columns
+			var bottom_right: int = bottom_left + 1
+			# Preserve the tested top-facing winding order used by the previous mesh.
+			surface.add_index(top_left)
+			surface.add_index(top_right)
+			surface.add_index(bottom_left)
+			surface.add_index(top_right)
+			surface.add_index(bottom_right)
+			surface.add_index(bottom_left)
 	surface.generate_normals(true)
 	var chunk_index: int = chunk_z * TERRAIN_CHUNKS_PER_AXIS + chunk_x
 	var chunk_nodes: Array = terrain_lod_chunk_nodes[lod_index]
@@ -1124,6 +1130,7 @@ func _rebuild_terrain_around_many(edits: Array[Dictionary]) -> void:
 	var active_lod: int = _terrain_lod_index_for_distance(camera_distance)
 	var spacing: float = TERRAIN_SIZE / float(TERRAIN_RES - 1)
 	var chunks_to_rebuild: Dictionary = {}
+	var chunk_mesh_started_usec: int = Time.get_ticks_usec()
 	for edit in edits:
 		var center: Vector3 = edit.get("center", Vector3.ZERO)
 		var radius: float = maxf(0.1, float(edit.get("radius", brush_radius)))
@@ -1143,6 +1150,7 @@ func _rebuild_terrain_around_many(edits: Array[Dictionary]) -> void:
 		var chunk_x: int = posmod(chunk_index, TERRAIN_CHUNKS_PER_AXIS)
 		var chunk_z: int = floori(float(chunk_index) / float(TERRAIN_CHUNKS_PER_AXIS))
 		_build_terrain_chunk(active_lod, chunk_x, chunk_z)
+	_trace_slow_operation("terrain-mesh-chunks-only", chunk_mesh_started_usec)
 	terrain_lod_dirty[active_lod] = false
 	_set_active_terrain_lod_visibility(active_lod)
 
@@ -1158,7 +1166,9 @@ func _flush_pending_terrain_edits() -> void:
 	pending_terrain_edits.clear()
 	var rebuild_started_usec: int = Time.get_ticks_usec()
 	_rebuild_terrain_around_many(edits)
+	var alignment_started_usec: int = Time.get_ticks_usec()
 	_update_placed_object_heights_near_many(edits)
+	_trace_slow_operation("terrain-object-alignment-only", alignment_started_usec)
 	terrain_rebuild_cooldown = TERRAIN_EDIT_REBUILD_INTERVAL
 	_trace_slow_operation("terrain-chunk-rebuild-and-object-alignment", rebuild_started_usec)
 
