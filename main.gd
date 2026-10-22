@@ -8,6 +8,7 @@ const MAX_PEOPLE: int = 800
 const MAX_CITY_POPULATION: int = 600
 const MAX_CITY_HOUSES: int = 140
 const MAX_BUILDINGS_PER_DEVELOPMENT_TICK: int = 1
+const MAX_BUILDING_STARTS_PER_FRAME: int = 1
 const MAX_CARS: int = 36
 const ROAD_GRID_SIZE: float = 7.5
 const WATER_LEVEL: float = -0.15
@@ -86,6 +87,10 @@ var rubble_nodes: Array = []
 var rubble_id_sequence: int = 1
 var construction_sites: Array = []
 var construction_id_sequence: int = 1
+var pending_city_development: Array[int] = []
+var pending_city_development_set: Dictionary = {}
+var building_start_budget_remaining: int = 0
+var in_simulation_frame: bool = false
 var people_lod_proxy: MultiMeshInstance3D
 var construction_tick_timer: float = 0.0
 var abandoned_check_timer: float = 0.0
@@ -305,6 +310,8 @@ func _update_rubble_aging(delta: float) -> void:
 func _process(delta: float) -> void:
 	var frame_started_usec: int = Time.get_ticks_usec()
 	performance_frame_count += 1
+	in_simulation_frame = not paused
+	building_start_budget_remaining = MAX_BUILDING_STARTS_PER_FRAME
 	detail_refresh_cooldown = maxf(0.0, detail_refresh_cooldown - delta)
 	people_lod_refresh_cooldown = maxf(0.0, people_lod_refresh_cooldown - delta)
 	_update_traffic_lights(delta)
@@ -366,7 +373,10 @@ func _process(delta: float) -> void:
 		_update_plague(sim_delta)
 		var simulation_timers_started_usec: int = Time.get_ticks_usec()
 		_update_simulation_timers(sim_delta)
-		_trace_slow_operation("economy-growth-trade-events", simulation_timers_started_usec)
+		_trace_slow_operation("economy-growth-trade-events-total", simulation_timers_started_usec)
+		var queued_development_started_usec: int = Time.get_ticks_usec()
+		_process_one_pending_city_development()
+		_trace_slow_operation("queued-city-development", queued_development_started_usec)
 		_update_rubble_aging(sim_delta)
 		var construction_started_usec: int = Time.get_ticks_usec()
 		_update_construction_sites(sim_delta)
@@ -388,6 +398,7 @@ func _process(delta: float) -> void:
 	var frame_elapsed_usec: int = Time.get_ticks_usec() - frame_started_usec
 	if frame_elapsed_usec >= FRAME_HITCH_THRESHOLD_USEC:
 		_write_performance_sample("FRAME-HITCH", frame_elapsed_usec)
+	in_simulation_frame = false
 
 
 func _build_world() -> void:
@@ -2211,6 +2222,29 @@ func _update_construction_sites(delta: float) -> void:
 			last_detail_signature = ""
 
 
+func _queue_city_development(city_id: int) -> void:
+	if city_id < 0 or city_id >= cities.size():
+		return
+	if bool(cities[city_id].get("ruined", false)) or _city_population(city_id) <= 0:
+		return
+	if pending_city_development_set.has(city_id):
+		return
+	pending_city_development_set[city_id] = true
+	pending_city_development.append(city_id)
+
+
+func _process_one_pending_city_development() -> void:
+	if paused or not in_simulation_frame or building_start_budget_remaining <= 0 or pending_city_development.is_empty():
+		return
+	var city_id: int = pending_city_development.pop_front()
+	pending_city_development_set.erase(city_id)
+	if city_id < 0 or city_id >= cities.size():
+		return
+	if bool(cities[city_id].get("ruined", false)) or _city_population(city_id) <= 0:
+		return
+	_refresh_city_development(city_id)
+
+
 func _sync_city_buildings(city_id: int) -> bool:
 	if city_id < 0 or city_id >= cities.size() or _city_population(city_id) <= 0 or bool(cities[city_id].get("ruined", false)):
 		return false
@@ -2224,6 +2258,13 @@ func _sync_city_buildings(city_id: int) -> bool:
 	var houses_before: int = houses.size()
 	var plot_index: int = int(city.get("next_plot_index", houses.size()))
 	var terrain_changed: bool = false
+	# A single city refresh can start at most one building, and the entire game
+	# starts at most one building per frame. Remaining demand is queued for later
+	# frames so several growing cities cannot all rebuild roads/meshes together.
+	if in_simulation_frame and building_start_budget_remaining <= 0:
+		if houses.size() < desired_houses:
+			_queue_city_development(city_id)
+		return false
 	# A population or era update must not synchronously instantiate an entire
 	# neighbourhood in one frame. Queue at most one new lot per development call.
 	while houses.size() < desired_houses and houses.size() < MAX_CITY_HOUSES and houses.size() - houses_before < MAX_BUILDINGS_PER_DEVELOPMENT_TICK:
@@ -2306,6 +2347,8 @@ func _sync_city_buildings(city_id: int) -> bool:
 		house.scale = Vector3.ONE * (1.0 + float(stage) * (0.04 if candidate_large_plot else 0.07))
 		house.position = Vector3(offset_x, base_world_height - float(city["pos"].y), offset_z)
 		city["node"].add_child(house)
+		if in_simulation_frame:
+			building_start_budget_remaining = maxi(0, building_start_budget_remaining - 1)
 
 		var building_type: int = pending_building_type
 		house.set_meta("building_type", building_type)
@@ -2319,6 +2362,8 @@ func _sync_city_buildings(city_id: int) -> bool:
 	city["next_plot_index"] = plot_index
 	cities[city_id] = city
 	var houses_changed: bool = houses.size() != houses_before
+	if in_simulation_frame and houses_changed and houses.size() < desired_houses and building_start_budget_remaining <= 0:
+		_queue_city_development(city_id)
 	if terrain_changed:
 		_rebuild_terrain()
 		_update_placed_object_heights()
@@ -3531,25 +3576,41 @@ func _update_simulation_timers(delta: float) -> void:
 	founding_timer += delta
 	auto_war_timer += delta
 	if city_event_timer >= 22.0:
-		city_event_timer = 0.0
+		city_event_timer = fmod(city_event_timer, 22.0)
+		var events_started_usec: int = Time.get_ticks_usec()
 		_process_city_events()
+		_trace_slow_operation("city-event-cycle", events_started_usec)
 	if resource_timer >= 4.0:
 		resource_timer = fmod(resource_timer, 4.0)
+		var collection_started_usec: int = Time.get_ticks_usec()
 		_collect_resources()
+		_trace_slow_operation("resource-collection", collection_started_usec)
+		var economies_started_usec: int = Time.get_ticks_usec()
 		_update_city_economies()
+		_trace_slow_operation("city-economy-production", economies_started_usec)
 	if trade_timer >= 12.0:
 		trade_timer = fmod(trade_timer, 12.0)
+		var trade_started_usec: int = Time.get_ticks_usec()
 		_update_city_trade()
+		_trace_slow_operation("diplomacy-trade", trade_started_usec)
 	if growth_timer >= 9.0:
-		growth_timer = 0.0
+		growth_timer = fmod(growth_timer, 9.0)
+		var growth_started_usec: int = Time.get_ticks_usec()
 		_grow_cities()
+		_trace_slow_operation("city-growth-and-building-placement", growth_started_usec)
 	if founding_timer >= 4.0:
-		founding_timer = 0.0
+		founding_timer = fmod(founding_timer, 4.0)
+		var people_assignment_started_usec: int = Time.get_ticks_usec()
 		_assign_wild_people()
+		_trace_slow_operation("wild-citizen-assignment", people_assignment_started_usec)
+		var founding_started_usec: int = Time.get_ticks_usec()
 		_try_found_cities()
+		_trace_slow_operation("new-city-founding", founding_started_usec)
 	if auto_war_timer >= 31.0:
-		auto_war_timer = 0.0
+		auto_war_timer = fmod(auto_war_timer, 31.0)
+		var auto_war_started_usec: int = Time.get_ticks_usec()
 		_try_start_ai_war()
+		_trace_slow_operation("ai-war-search", auto_war_started_usec)
 
 
 func _update_city_economies() -> void:
@@ -7052,6 +7113,10 @@ func _queue_nodes_from_entries(entries: Array) -> void:
 
 
 func _clear_loaded_world() -> void:
+	pending_city_development.clear()
+	pending_city_development_set.clear()
+	building_start_budget_remaining = 0
+	in_simulation_frame = false
 	for existing_child in get_children():
 		if existing_child is Node3D and existing_child.name in ["BuildingRubble", "VehicleWreck"]:
 			existing_child.queue_free()
