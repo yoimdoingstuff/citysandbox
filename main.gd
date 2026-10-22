@@ -2317,7 +2317,7 @@ func _rebuild_city_roads(city_id: int) -> void:
 			terrain_minimum = minf(terrain_minimum, sample_height)
 			terrain_maximum = maxf(terrain_maximum, sample_height)
 	if terrain_maximum - terrain_minimum >= 2.1 and city_id % 3 != 1 and grid_x.size() >= 4 and grid_z.size() >= 3:
-		var switchback_row: float = grid_z[grid_z.size() / 2]
+		var switchback_row: float = grid_z[int(grid_z.size() / 2)]
 		for x_index in range(grid_x.size() - 1):
 			var start_offset: float = 2.65 if x_index % 2 == 0 else -2.65
 			var finish_offset: float = -start_offset
@@ -6007,6 +6007,13 @@ func _run_save_load_smoke_test() -> void:
 	cities[0]["next_plot_index"] = maxi(int(cities[0].get("next_plot_index", 0)), 9)
 	var expected_destroyed_debt: int = int(cities[0]["destroyed_building_debt"])
 	var expected_next_plot_index: int = int(cities[0]["next_plot_index"])
+	var expected_initial_road_damage_count: int = (cities[0].get("road_damage", []) as Array).size()
+	_damage_city_roads(0, cities[0]["pos"], 3.4, true)
+	var expected_road_damage_count: int = (cities[0].get("road_damage", []) as Array).size()
+	if expected_road_damage_count <= expected_initial_road_damage_count:
+		push_error("SAVE_LOAD_TEST_FAILED: A road impact did not create a damaged-road record.")
+		get_tree().quit(1)
+		return
 	if rubble_records.is_empty():
 		_spawn_persistent_rubble(cities[0]["pos"] + Vector3(4.0, 0.0, 4.0), false, Color(0.42, 0.40, 0.37))
 	var expected_rubble_count: int = rubble_records.size()
@@ -6052,6 +6059,10 @@ func _run_save_load_smoke_test() -> void:
 		return
 	if rubble_records.size() != expected_rubble_count:
 		push_error("SAVE_LOAD_TEST_FAILED: Rubble was not restored.")
+		get_tree().quit(1)
+		return
+	if (cities[0].get("road_damage", []) as Array).size() != expected_road_damage_count:
+		push_error("SAVE_LOAD_TEST_FAILED: Damaged road sections were not restored.")
 		get_tree().quit(1)
 		return
 	if reset_speed_on_city_event != expected_reset_speed_setting or not is_equal_approx(sim_speed, expected_sim_speed):
