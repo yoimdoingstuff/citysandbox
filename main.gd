@@ -7068,8 +7068,8 @@ func _load_world() -> void:
 		_log("LOAD FAILED: The save does not contain any cities.")
 		return
 
-	is_loading_world = true
 	_clear_loaded_world()
+	is_loading_world = true
 	world_seed = int(save_data.get("world_seed", 14029))
 	seed(world_seed)
 	_generate_terrain_heights() # Refresh climate noise from the saved seed.
