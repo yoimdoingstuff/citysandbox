@@ -1759,13 +1759,13 @@ func _rebuild_city_roads(city_id: int) -> void:
 			for side_x in [-1.0, 1.0]:
 				for side_z in [-1.0, 1.0]:
 					_add_sidewalk_corner(sidewalk_surface, city_position, x_value, z_value, side_x, side_z)
-			# Zebra markings sit on the approach lanes and stay clear of the
-			# raised paving and the crossing street itself.
-			for stripe_index in range(4):
-				var stripe_offset: float = 0.95 + float(stripe_index) * 0.25
-				for stripe_sign in [-1.0, 1.0]:
-					_add_road_segment(crosswalk_surface, city_position, Vector2(x_value - 0.78, z_value + stripe_sign * stripe_offset), Vector2(x_value + 0.78, z_value + stripe_sign * stripe_offset), 0.13, 0.073, 0.0)
-					_add_road_segment(crosswalk_surface, city_position, Vector2(x_value + stripe_sign * stripe_offset, z_value - 0.78), Vector2(x_value + stripe_sign * stripe_offset, z_value + 0.78), 0.13, 0.073, 0.0)
+			# Modern zebra markings stay off the medieval street grid.
+			if _world_year() >= 1900:
+				for stripe_index in range(4):
+					var stripe_offset: float = 0.95 + float(stripe_index) * 0.25
+					for stripe_sign in [-1.0, 1.0]:
+						_add_road_segment(crosswalk_surface, city_position, Vector2(x_value - 0.78, z_value + stripe_sign * stripe_offset), Vector2(x_value + 0.78, z_value + stripe_sign * stripe_offset), 0.13, 0.073, 0.0)
+						_add_road_segment(crosswalk_surface, city_position, Vector2(x_value + stripe_sign * stripe_offset, z_value - 0.78), Vector2(x_value + stripe_sign * stripe_offset, z_value + 0.78), 0.13, 0.073, 0.0)
 	road_surface.generate_normals(true)
 	road_node.mesh = road_surface.commit()
 	if is_instance_valid(sidewalk_node):
@@ -1783,17 +1783,24 @@ func _rebuild_city_traffic_lights(city_id: int, grid_x: Array, grid_z: Array) ->
 	var city: Dictionary = cities[city_id]
 	var town: Node3D = city["node"]
 	var old_lights: Node = town.get_node_or_null("TrafficLights")
-	if is_instance_valid(old_lights):
-		old_lights.free()
 	for i in range(traffic_light_records.size() - 1, -1, -1):
 		if int(traffic_light_records[i].get("city_id", -1)) == city_id:
 			traffic_light_records.remove_at(i)
-	if _world_year() < 1900 or bool(city.get("ruined", false)) or _city_population(city_id) <= 0:
+	var enabled: bool = _world_year() >= 1900 and not bool(city.get("ruined", false)) and _city_population(city_id) > 0 and not bool(city.get("abandoned", false))
+	if not enabled:
+		if is_instance_valid(old_lights):
+			old_lights.free()
 		town.set_meta("traffic_light_grid_signature", "disabled")
 		return
 	var signature: String = "%d|%d|%.1f|%.1f|%.1f|%.1f" % [grid_x.size(), grid_z.size(), float(grid_x[0]), float(grid_x[grid_x.size() - 1]), float(grid_z[0]), float(grid_z[grid_z.size() - 1])]
 	if is_instance_valid(old_lights) and str(town.get_meta("traffic_light_grid_signature", "")) == signature:
+		for node in old_lights.find_children("*", "MeshInstance3D", true, false):
+			if node.name.begins_with("Red") or node.name.begins_with("Amber") or node.name.begins_with("Green"):
+				pass
+		_update_traffic_light_states()
 		return
+	if is_instance_valid(old_lights):
+		old_lights.free()
 	town.set_meta("traffic_light_grid_signature", signature)
 	var light_root := Node3D.new()
 	light_root.name = "TrafficLights"
@@ -1811,7 +1818,6 @@ func _rebuild_city_traffic_lights(city_id: int, grid_x: Array, grid_z: Array) ->
 		for zi in range(grid_z.size()):
 			if xi % 3 != 1 or zi % 3 != 1:
 				continue
-			# One signal mast on each selected crossing keeps geometry inexpensive.
 			var x_value: float = float(grid_x[xi])
 			var z_value: float = float(grid_z[zi])
 			var mast := Node3D.new()
@@ -1823,6 +1829,9 @@ func _rebuild_city_traffic_lights(city_id: int, grid_x: Array, grid_z: Array) ->
 			var red := _add_mesh(mast, lamp_mesh, red_material, Vector3(0.0, 2.26, -0.118))
 			var amber := _add_mesh(mast, lamp_mesh, amber_material, Vector3(0.0, 2.05, -0.118))
 			var green := _add_mesh(mast, lamp_mesh, green_material, Vector3(0.0, 1.84, -0.118))
+			red.name = "RedLamp"
+			amber.name = "AmberLamp"
+			green.name = "GreenLamp"
 			traffic_light_records.append({"city_id": city_id, "intersection": city["pos"] + Vector3(x_value, 0.0, z_value), "red": red, "amber": amber, "green": green, "phase_offset": (xi + zi) % 2})
 			counter += 1
 	_update_traffic_light_states()
@@ -3716,9 +3725,12 @@ func _collapse_specific_building(city_id: int, house: Node3D, allow_chain: bool 
 	var fall_reach: float = clampf(building_height * 0.42, 1.8, 12.0)
 	var fall_half_width: float = clampf(building_height * 0.11 + 1.3, 1.7, 4.5)
 	house.set_meta("is_collapsing", true)
-	_kill_people_in_fall_corridor(impact_position, fall_direction, fall_reach, fall_half_width, house)
-	_destroy_cars_in_fall_corridor(impact_position, fall_direction, fall_reach, fall_half_width + 0.8)
 	_recover_citizens_from_collapsing_house(house)
+	var contact_delay: float = lerpf(1.55, 0.65, clampf(impact_strength, 0.08, 1.0)) if tall_building else lerpf(1.15, 0.45, clampf(impact_strength, 0.08, 1.0))
+	var damage_tween := create_tween()
+	damage_tween.tween_interval(contact_delay)
+	damage_tween.tween_callback(_kill_people_in_fall_corridor.bind(impact_position, fall_direction, fall_reach, fall_half_width, house))
+	damage_tween.tween_callback(_destroy_cars_in_fall_corridor.bind(impact_position, fall_direction, fall_reach, fall_half_width + 0.8))
 	_spawn_building_collapse_smoke(impact_position + Vector3(0.0, minf(building_height * 0.3, 7.0), 0.0), building_height, tall_building)
 	_animate_building_fall(house, tall_building, city["color"], fall_direction, impact_strength)
 	houses.remove_at(house_index)
@@ -3966,7 +3978,6 @@ func _spawn_building_collapse_smoke(center: Vector3, building_height: float, tal
 		smoke_material.transparency = BaseMaterial3D.TRANSPARENCY_ALPHA
 		smoke_material.shading_mode = BaseMaterial3D.SHADING_MODE_UNSHADED
 		smoke_material.depth_draw_mode = BaseMaterial3D.DEPTH_DRAW_DISABLED
-		smoke_material.shading_mode = BaseMaterial3D.SHADING_MODE_PER_PIXEL
 		smoke_material.roughness = 1.0
 		puff.material_override = smoke_material
 		puff.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
@@ -5634,7 +5645,7 @@ func _update_historical_era(force: bool = false) -> void:
 		if lights_transitioned or force:
 			_rebuild_city_roads(city_id)
 	if previous_era >= 0 and era > previous_era:
-		_log("HISTORICAL SHIFT: %s begins in year %d. Cities can now develop new architecture and social events." % [_historical_era_name(year), year)
+		_log("HISTORICAL SHIFT: %s begins in year %d. Cities can now develop new architecture and social events." % [_historical_era_name(year), year])
 
 
 func _format_time(seconds: float) -> String:
