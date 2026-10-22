@@ -1,15 +1,15 @@
 Civiterra runtime diagnostic
-UTC start: 2026-10-22T05:14:31.8930139Z
-UTC finish: 2026-10-22T05:16:34.0567600Z
-Run ID: 39726864758
+UTC start: 2026-10-22T09:46:34.6597819Z
+UTC finish: 2026-10-22T09:48:21.9695635Z
+Run ID: 39757990525
 Attempt: 1
-Commit: 49d508cadce9dba9e2177e5a31e9d7c860d6c345
+Commit: e863c5dbd63775e89eefec9ffb290b2c956b5c6f
 Branch/ref: refs/heads/main
 Godot version: 4.3.stable.official.77dcf97d8
 OS: Microsoft Windows Server 2025 Datacenter
-CPU: AMD EPYC 9V74 80-Core Processor                
+CPU: Intel(R) Xeon(R) 6973P-C
 Installed RAM: 16 GB
-Observed runtime: 120.15 seconds
-Still running at 120-second limit: True
-Process result: terminated-after-120-second-observation
+Observed runtime: 105.12 seconds
+Still running at 120-second limit: False
+Process result: 0
 Interpretation: a process still alive at the time limit was force-stopped after its log output and resource samples were collected. This bounded diagnostic run does not by itself prove a freeze.
