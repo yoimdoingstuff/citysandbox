@@ -4787,6 +4787,19 @@ func _array_to_vector3(value: Variant, fallback: Vector3 = Vector3.ZERO) -> Vect
 	return Vector3(float(parts[0]), float(parts[1]), float(parts[2]))
 
 
+func _serialize_city_buildings(city: Dictionary) -> Array:
+	var saved_buildings: Array = []
+	for house in city.get("houses", []):
+		if not is_instance_valid(house):
+			continue
+		saved_buildings.append({
+			"pos": _vector3_to_array(house.position),
+			"base_type": int(house.get_meta("base_building_type", house.get_meta("building_type", 0))),
+			"plot_index": int(house.get_meta("plot_index", 0))
+		})
+	return saved_buildings
+
+
 func _save_world() -> void:
 	var saved_cities: Array = []
 	for city in cities:
@@ -4801,6 +4814,11 @@ func _save_world() -> void:
 			"stability": float(city.get("stability", 72.0)),
 			"security": float(city.get("security", 44.0)),
 			"wealth": float(city.get("wealth", 12.0)),
+			"abandoned": bool(city.get("abandoned", false)),
+			"abandoned_age": float(city.get("abandoned_age", 0.0)),
+			"abandoned_decay_timer": float(city.get("abandoned_decay_timer", 8.0)),
+			"ruined": bool(city.get("ruined", false)),
+			"buildings": _serialize_city_buildings(city),
 			"destroyed_building_debt": int(city.get("destroyed_building_debt", 0)),
 			"next_plot_index": int(city.get("next_plot_index", 0))
 		})
@@ -4969,8 +4987,26 @@ func _load_world() -> void:
 		city["stability"] = float(city_data.get("stability", 72.0))
 		city["security"] = float(city_data.get("security", 44.0))
 		city["wealth"] = float(city_data.get("wealth", 12.0))
+		city["abandoned"] = bool(city_data.get("abandoned", false))
+		city["abandoned_age"] = maxf(0.0, float(city_data.get("abandoned_age", 0.0)))
+		city["abandoned_decay_timer"] = maxf(0.0, float(city_data.get("abandoned_decay_timer", 8.0)))
+		city["ruined"] = bool(city_data.get("ruined", false))
 		city["destroyed_building_debt"] = maxi(0, int(city_data.get("destroyed_building_debt", 0)))
 		city["next_plot_index"] = maxi(0, int(city_data.get("next_plot_index", 0)))
+		var saved_buildings: Variant = city_data.get("buildings", [])
+		if typeof(saved_buildings) == TYPE_ARRAY:
+			for saved_building in saved_buildings:
+				if typeof(saved_building) != TYPE_DICTIONARY:
+					continue
+				var building_data: Dictionary = saved_building
+				var house := Node3D.new()
+				house.position = _array_to_vector3(building_data.get("pos", [0.0, 0.0, 0.0]))
+				city["node"].add_child(house)
+				var base_type: int = int(building_data.get("base_type", 0))
+				house.set_meta("building_type", base_type)
+				house.set_meta("base_building_type", base_type)
+				house.set_meta("plot_index", int(building_data.get("plot_index", 0)))
+				city["houses"].append(house)
 		cities[city_id] = city
 
 	for saved_person in saved_people:
@@ -5018,6 +5054,10 @@ func _load_world() -> void:
 		_apply_city_stage_appearance(city_id)
 	for city_id in range(cities.size()):
 		_refresh_city_development(city_id)
+		for house in cities[city_id]["houses"]:
+			if is_instance_valid(house):
+				house.scale = Vector3.ONE * (1.0 + float(cities[city_id].get("stage", 0)) * 0.07)
+		_apply_building_era_appearance(city_id, _world_year())
 	_refresh_city_territory(0)
 	for city_id in range(cities.size()):
 		_rebuild_city_roads(city_id)
@@ -5028,7 +5068,7 @@ func _load_world() -> void:
 		var rubble_data: Dictionary = rubble_entry_data
 		var rubble_position: Vector3 = _array_to_vector3(rubble_data.get("position", []))
 		var rubble_color: Color = Color.from_string(str(rubble_data.get("color", "777777")), Color(0.42, 0.40, 0.37))
-		_spawn_persistent_rubble(rubble_position, bool(rubble_data.get("tall", false)), rubble_color)
+		_spawn_persistent_rubble(rubble_position, bool(rubble_data.get("tall", false)), rubble_color, true, str(rubble_data.get("kind", "building")), int(rubble_data.get("id", -1)))
 
 	selected_city = int(save_data.get("selected_city", -1))
 	if selected_city < 0 or selected_city >= cities.size():
@@ -5066,9 +5106,11 @@ func _queue_nodes_from_entries(entries: Array) -> void:
 
 func _clear_loaded_world() -> void:
 	for existing_child in get_children():
-		if existing_child is Node3D and existing_child.name == "BuildingRubble":
+		if existing_child is Node3D and existing_child.name in ["BuildingRubble", "VehicleWreck"]:
 			existing_child.queue_free()
 	rubble_records.clear()
+	rubble_nodes.clear()
+	rubble_id_sequence = 1
 	for city in cities:
 		for key in ["node", "zone_fill", "zone_border"]:
 			if city.has(key) and city[key] is Node and is_instance_valid(city[key]):
