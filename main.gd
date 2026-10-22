@@ -7,6 +7,7 @@ const MAX_CITIES: int = 10
 const MAX_PEOPLE: int = 800
 const MAX_CITY_POPULATION: int = 600
 const MAX_CITY_HOUSES: int = 140
+const MAX_BUILDINGS_PER_DEVELOPMENT_TICK: int = 1
 const MAX_CARS: int = 36
 const ROAD_GRID_SIZE: float = 7.5
 const WATER_LEVEL: float = -0.15
@@ -1752,6 +1753,14 @@ func _apply_building_era_appearance(city_id: int, year: int, only_house_index: i
 			var canopy := BoxMesh.new()
 			canopy.size = Vector3(width * 0.62, 0.12, 0.42)
 			_add_mesh(house, canopy, _material(roof_color.lightened(0.18)), Vector3(0.0, minf(1.5, height * 0.48), depth * 0.5 + 0.18))
+		if kind == 7:
+			for stack_index in range(2):
+				var stack := CylinderMesh.new()
+				stack.top_radius = 0.16
+				stack.bottom_radius = 0.22
+				stack.height = 1.2
+				stack.radial_segments = 8
+				_add_mesh(house, stack, _material(Color(0.37, 0.38, 0.36)), Vector3((float(stack_index) - 0.5) * 1.25, height + 0.65, -depth * 0.22))
 		var door := BoxMesh.new()
 		door.size = Vector3(0.22, 0.42, 0.045)
 		_add_mesh(house, door, _material(Color(0.23, 0.16, 0.11)), Vector3(0.0, 0.22, depth * 0.5 + 0.03))
@@ -2140,7 +2149,9 @@ func _sync_city_buildings(city_id: int) -> bool:
 	var houses_before: int = houses.size()
 	var plot_index: int = int(city.get("next_plot_index", houses.size()))
 	var terrain_changed: bool = false
-	while houses.size() < desired_houses and houses.size() < MAX_CITY_HOUSES:
+	# A population or era update must not synchronously instantiate an entire
+	# neighbourhood in one frame. Queue at most one new lot per development call.
+	while houses.size() < desired_houses and houses.size() < MAX_CITY_HOUSES and houses.size() - houses_before < MAX_BUILDINGS_PER_DEVELOPMENT_TICK:
 		var offset_x: float = 0.0
 		var offset_z: float = 0.0
 		var found_building_site: bool = false
@@ -3574,7 +3585,10 @@ func _city_relationship_summary(city_id: int) -> String:
 			if _city_relation(city_id, other_id) > -35.0:
 				trade_partners += 1
 	if not wars_with.is_empty():
-		return "WAR WITH: %s" % ", ".join(wars_with.slice(0, 2))
+		var war_list: String = wars_with[0]
+		if wars_with.size() > 1:
+			war_list += ", " + wars_with[1]
+		return "WAR WITH: %s" % war_list
 	return "FRIENDS %d · TRADE ACCESS %d" % [friendly, trade_partners]
 
 
