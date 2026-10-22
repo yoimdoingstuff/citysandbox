@@ -37,6 +37,7 @@ var terrain: MeshInstance3D
 var terrain_material: StandardMaterial3D
 var terrain_lod_nodes: Array[MeshInstance3D] = []
 var terrain_lod_dirty: Array[bool] = [true, true, true, true]
+var last_road_terrain_lod: int = -1
 var terrain_moisture_noise: FastNoiseLite
 var terrain_temperature_noise: FastNoiseLite
 var selection_ring: MeshInstance3D
@@ -564,6 +565,224 @@ func _height_at(x: float, z: float) -> float:
 	return lerpf(lerpf(h00, h10, tx), lerpf(h01, h11, tx), tz)
 
 
+func _terrain_render_height_at(x: float, z: float) -> float:
+	# Match the actual triangle interpolation used by the currently visible
+	# terrain LOD, not the bilinear approximation. This keeps asphalt above
+	# the visible ground even when terrain is viewed at a coarse zoom level.
+	var resolution: int = terrain_heights.size()
+	if resolution < 2:
+		return _height_at(x, z)
+	var grid_x: float = clampf((x / TERRAIN_SIZE + 0.5) * float(resolution - 1), 0.0, float(resolution - 1))
+	var grid_z: float = clampf((z / TERRAIN_SIZE + 0.5) * float(resolution - 1), 0.0, float(resolution - 1))
+	var lod_index: int = clampi(_terrain_lod_index_for_distance(camera_distance), 0, TERRAIN_LOD_STEPS.size() - 1)
+	var stride: int = TERRAIN_LOD_STEPS[lod_index]
+	var x0: int = mini((int(floor(grid_x / float(stride))) * stride), resolution - 1)
+	var z0: int = mini((int(floor(grid_z / float(stride))) * stride), resolution - 1)
+	var x1: int = mini(x0 + stride, resolution - 1)
+	var z1: int = mini(z0 + stride, resolution - 1)
+	if x1 == x0 or z1 == z0:
+		return float(terrain_heights[z0][x0])
+	var tx: float = (grid_x - float(x0)) / float(x1 - x0)
+	var tz: float = (grid_z - float(z0)) / float(z1 - z0)
+	var h00: float = float(terrain_heights[z0][x0])
+	var h10: float = float(terrain_heights[z0][x1])
+	var h01: float = float(terrain_heights[z1][x0])
+	var h11: float = float(terrain_heights[z1][x1])
+	if tx + tz <= 1.0:
+		return h00 + tx * (h10 - h00) + tz * (h01 - h00)
+	return (1.0 - tz) * h10 + (tx + tz - 1.0) * h11 + (1.0 - tx) * h01
+
+
+func _max_terrain_height_in_radius(center_x: float, center_z: float, radius: float) -> float:
+	var resolution: int = terrain_heights.size()
+	var grid_step: float = TERRAIN_SIZE / float(resolution - 1)
+	var center_ix: int = clampi(roundi((center_x / TERRAIN_SIZE + 0.5) * float(resolution - 1)), 0, resolution - 1)
+	var center_iz: int = clampi(roundi((center_z / TERRAIN_SIZE + 0.5) * float(resolution - 1)), 0, resolution - 1)
+	var cell_radius: int = ceili(radius / grid_step)
+	var maximum: float = -INF
+	for zi in range(maxi(0, center_iz - cell_radius), mini(resolution, center_iz + cell_radius + 1)):
+		for xi in range(maxi(0, center_ix - cell_radius), mini(resolution, center_ix + cell_radius + 1)):
+			var wx: float = (float(xi) / float(resolution - 1) - 0.5) * TERRAIN_SIZE
+			var wz: float = (float(zi) / float(resolution - 1) - 0.5) * TERRAIN_SIZE
+			if Vector2(wx - center_x, wz - center_z).length() <= radius:
+				maximum = maxf(maximum, float(terrain_heights[zi][xi]))
+	return _height_at(center_x, center_z) if is_inf(maximum) else maximum
+
+
+func _grade_building_plot(center_x: float, center_z: float, radius: float) -> Dictionary:
+	# Low-slope plots receive a gently feathered pad. On steep ground preserve
+	# the hillside and lift the structure onto a terrace with visible supports.
+	var resolution: int = terrain_heights.size()
+	var grid_step: float = TERRAIN_SIZE / float(resolution - 1)
+	var center_ix: int = clampi(roundi((center_x / TERRAIN_SIZE + 0.5) * float(resolution - 1)), 0, resolution - 1)
+	var center_iz: int = clampi(roundi((center_z / TERRAIN_SIZE + 0.5) * float(resolution - 1)), 0, resolution - 1)
+	var cell_radius: int = ceili((radius + 0.25) / grid_step)
+	var minimum: float = INF
+	var maximum: float = -INF
+	var total: float = 0.0
+	var samples: int = 0
+	for zi in range(maxi(0, center_iz - cell_radius), mini(resolution, center_iz + cell_radius + 1)):
+		for xi in range(maxi(0, center_ix - cell_radius), mini(resolution, center_ix + cell_radius + 1)):
+			var wx: float = (float(xi) / float(resolution - 1) - 0.5) * TERRAIN_SIZE
+			var wz: float = (float(zi) / float(resolution - 1) - 0.5) * TERRAIN_SIZE
+			if Vector2(wx - center_x, wz - center_z).length() > radius:
+				continue
+			var height: float = float(terrain_heights[zi][xi])
+			minimum = minf(minimum, height)
+			maximum = maxf(maximum, height)
+			total += height
+			samples += 1
+	var base_height: float = _height_at(center_x, center_z)
+	if samples == 0:
+		return {"changed": false, "steep": false, "base_height": base_height}
+	var local_range: float = maximum - minimum
+	if local_range > 1.55:
+		return {"changed": false, "steep": true, "base_height": _max_terrain_height_in_radius(center_x, center_z, radius) + 0.18}
+	var target_height: float = total / float(samples)
+	var feather_radius: float = radius + 1.25
+	var changed: bool = false
+	for zi in range(maxi(0, center_iz - cell_radius - 2), mini(resolution, center_iz + cell_radius + 3)):
+		for xi in range(maxi(0, center_ix - cell_radius - 2), mini(resolution, center_ix + cell_radius + 3)):
+			var wx: float = (float(xi) / float(resolution - 1) - 0.5) * TERRAIN_SIZE
+			var wz: float = (float(zi) / float(resolution - 1) - 0.5) * TERRAIN_SIZE
+			var distance: float = Vector2(wx - center_x, wz - center_z).length()
+			if distance >= feather_radius:
+				continue
+			var weight: float = 1.0
+			if distance > radius * 0.62:
+				var blend_t: float = clampf((feather_radius - distance) / maxf(0.01, feather_radius - radius * 0.62), 0.0, 1.0)
+				weight = blend_t * blend_t * (3.0 - 2.0 * blend_t)
+			weight *= 0.92
+			var old_height: float = float(terrain_heights[zi][xi])
+			var new_height: float = lerpf(old_height, target_height, weight)
+			if absf(new_height - old_height) > 0.015:
+				terrain_heights[zi][xi] = new_height
+				changed = true
+	base_height = _height_at(center_x, center_z)
+	return {"changed": changed, "steep": false, "base_height": base_height}
+
+
+func _add_terraced_building_foundation(house: Node3D, width: float, depth: float) -> void:
+	if not is_instance_valid(house):
+		return
+	var support_mesh := BoxMesh.new()
+	var support_material: Material = _material(Color(0.43, 0.42, 0.39))
+	var corner_x: float = width * 0.44
+	var corner_z: float = depth * 0.44
+	for sign_x in [-1.0, 1.0]:
+		for sign_z in [-1.0, 1.0]:
+			var x_offset: float = float(sign_x) * corner_x
+			var z_offset: float = float(sign_z) * corner_z
+			var ground_y: float = _terrain_render_height_at(house.global_position.x + x_offset, house.global_position.z + z_offset) - house.global_position.y
+			if ground_y >= -0.28:
+				continue
+			var post_height: float = -ground_y + 0.12
+			support_mesh = BoxMesh.new()
+			support_mesh.size = Vector3(0.42, post_height, 0.42)
+			_add_mesh(house, support_mesh, support_material, Vector3(x_offset, (ground_y + 0.12) * 0.5, z_offset))
+
+
+func _road_point_damaged(city_id: int, point: Vector2, padding: float = 0.0) -> bool:
+	if city_id < 0 or city_id >= cities.size():
+		return false
+	for damage in cities[city_id].get("road_damage", []):
+		var center_data: Variant = damage.get("center", [])
+		if not (center_data is Array) or center_data.size() < 2:
+			continue
+		var center := Vector2(float(center_data[0]), float(center_data[1]))
+		if point.distance_to(center) <= float(damage.get("radius", 0.0)) + padding:
+			return true
+	return false
+
+
+func _road_segment_intersects_damage(city_id: int, from_point: Vector2, to_point: Vector2, half_width: float) -> bool:
+	if city_id < 0 or city_id >= cities.size():
+		return false
+	var segment: Vector2 = to_point - from_point
+	var length_squared: float = segment.length_squared()
+	for damage in cities[city_id].get("road_damage", []):
+		var center_data: Variant = damage.get("center", [])
+		if not (center_data is Array) or center_data.size() < 2:
+			continue
+		var center := Vector2(float(center_data[0]), float(center_data[1]))
+		var t: float = clampf((center - from_point).dot(segment) / maxf(0.001, length_squared), 0.0, 1.0)
+		var closest: Vector2 = from_point + segment * t
+		if closest.distance_to(center) <= float(damage.get("radius", 0.0)) + half_width:
+			return true
+	return false
+
+
+func _add_damaged_aware_road_segment(surface: SurfaceTool, city_id: int, city_position: Vector3, from_point: Vector2, to_point: Vector2, width: float = 0.48, height_offset: float = 0.10, endpoint_padding: float = 0.0) -> void:
+	var delta: Vector2 = to_point - from_point
+	var length: float = delta.length()
+	if length < 0.5:
+		return
+	var direction: Vector2 = delta / length
+	var start_point: Vector2 = from_point + direction * endpoint_padding
+	var finish_point: Vector2 = to_point - direction * endpoint_padding
+	var pieces: int = maxi(1, int(ceil(start_point.distance_to(finish_point) / 1.8)))
+	for piece_index in range(pieces):
+		var t0: float = float(piece_index) / float(pieces)
+		var t1: float = float(piece_index + 1) / float(pieces)
+		var a: Vector2 = start_point.lerp(finish_point, t0)
+		var b: Vector2 = start_point.lerp(finish_point, t1)
+		if _road_segment_intersects_damage(city_id, a, b, width * 0.5 + 0.08):
+			continue
+		_add_road_segment(surface, city_position, a, b, width, height_offset, 0.0)
+
+
+func _damage_city_roads(city_id: int, world_position: Vector3, radius: float, rebuild_after: bool = true) -> bool:
+	if city_id < 0 or city_id >= cities.size():
+		return false
+	var city: Dictionary = cities[city_id]
+	if bool(city.get("ruined", false)) and (city.get("road_damage", []) as Array).is_empty():
+		return false
+	var city_position: Vector3 = city["pos"]
+	var local_center := Vector2(world_position.x - city_position.x, world_position.z - city_position.z)
+	var min_x: float = float(city.get("road_grid_min_x", -7.5))
+	var max_x: float = float(city.get("road_grid_max_x", 7.5))
+	var min_z: float = float(city.get("road_grid_min_z", -7.5))
+	var max_z: float = float(city.get("road_grid_max_z", 7.5))
+	if local_center.x + radius < min_x or local_center.x - radius > max_x or local_center.y + radius < min_z or local_center.y - radius > max_z:
+		return false
+	var damages: Array = city.get("road_damage", [])
+	for damage_index in range(damages.size()):
+		var damage: Dictionary = damages[damage_index]
+		var center_data: Variant = damage.get("center", [])
+		if not (center_data is Array) or center_data.size() < 2:
+			continue
+		var existing_center := Vector2(float(center_data[0]), float(center_data[1]))
+		var existing_radius: float = float(damage.get("radius", 0.0))
+		var separation: float = existing_center.distance_to(local_center)
+		if separation <= existing_radius + radius * 0.70:
+			damage["radius"] = maxf(existing_radius, separation + radius * 0.72)
+			damages[damage_index] = damage
+			city["road_damage"] = damages
+			cities[city_id] = city
+			if rebuild_after:
+				_rebuild_city_roads(city_id)
+			return true
+	var damage_id: int = rubble_id_sequence
+	damages.append({"id": damage_id, "center": [local_center.x, local_center.y], "radius": radius})
+	city["road_damage"] = damages
+	cities[city_id] = city
+	_spawn_persistent_rubble(world_position, false, Color(0.23, 0.24, 0.24), true, "road", damage_id)
+	if rebuild_after:
+		_rebuild_city_roads(city_id)
+	return true
+
+
+func _damage_roads_at_position(world_position: Vector3, radius: float, rebuild_after: bool = true) -> Array[int]:
+	var affected_city_ids: Array[int] = []
+	for city_id in range(cities.size()):
+		if _damage_city_roads(city_id, world_position, radius, false):
+			affected_city_ids.append(city_id)
+	if rebuild_after:
+		for city_id in affected_city_ids:
+			_rebuild_city_roads(city_id)
+	return affected_city_ids
+
+
 func _surface_position(x: float, z: float) -> Vector3:
 	return Vector3(x, _height_at(x, z), z)
 
@@ -893,8 +1112,14 @@ func _update_placed_object_heights() -> void:
 		if is_instance_valid(city["node"]):
 			city["node"].position = p
 		for house in city["houses"]:
-			if is_instance_valid(house):
-				house.position.y = _height_at(p.x + house.position.x, p.z + house.position.z) - p.y
+			if not is_instance_valid(house):
+				continue
+			var house_world_x: float = p.x + house.position.x
+			var house_world_z: float = p.z + house.position.z
+			var base_height: float = _height_at(house_world_x, house_world_z)
+			if bool(house.get_meta("terrain_terraced", false)):
+				base_height = _max_terrain_height_in_radius(house_world_x, house_world_z, float(house.get_meta("plot_grade_radius", 2.25))) + 0.18
+			house.position.y = base_height - p.y
 	for city_id in range(cities.size()):
 		_refresh_city_territory(city_id)
 		_rebuild_city_roads(city_id)
@@ -1080,6 +1305,7 @@ func _create_city(position: Vector3, city_name: String, color: Color) -> int:
 		"zone_radius": 0.0,
 		"territory_cells": {},
 		"next_plot_index": 0,
+		"road_damage": [],
 		"plinth": plinth,
 		"body": body,
 		"roof": roof,
@@ -1405,6 +1631,8 @@ func _apply_building_era_appearance(city_id: int, year: int) -> void:
 			depth *= [1.03, 0.93, 1.0, 1.06, 0.97, 0.90, 1.05, 0.96, 1.01][variation]
 		else:
 			height *= [0.90, 1.0, 1.08, 0.95, 1.12, 0.92, 1.04, 0.98, 1.15][variation]
+		if bool(house.get_meta("terrain_terraced", false)):
+			_add_terraced_building_foundation(house, width, depth)
 		var body := BoxMesh.new()
 		body.size = Vector3(width, height, depth)
 		_add_mesh(house, body, _material(wall), Vector3(0.0, height * 0.5, 0.0))
@@ -1773,6 +2001,7 @@ func _sync_city_buildings(city_id: int) -> bool:
 	var houses: Array = city["houses"]
 	var houses_before: int = houses.size()
 	var plot_index: int = int(city.get("next_plot_index", houses.size()))
+	var terrain_changed: bool = false
 	while houses.size() < desired_houses and houses.size() < MAX_CITY_HOUSES:
 		var offset_x: float = 0.0
 		var offset_z: float = 0.0
@@ -1812,10 +2041,15 @@ func _sync_city_buildings(city_id: int) -> bool:
 		if not found_building_site:
 			break
 		plot_index = chosen_plot_index + 1
-		var terrain_delta: float = _height_at(city["pos"].x + offset_x, city["pos"].z + offset_z) - city["pos"].y
+		var plot_radius: float = 2.8 if candidate_large_plot else 2.25
+		var plot_grade: Dictionary = _grade_building_plot(city["pos"].x + offset_x, city["pos"].z + offset_z, plot_radius)
+		terrain_changed = terrain_changed or bool(plot_grade.get("changed", false))
+		var base_world_height: float = float(plot_grade.get("base_height", _height_at(city["pos"].x + offset_x, city["pos"].z + offset_z)))
 		var house := Node3D.new()
+		house.set_meta("terrain_terraced", bool(plot_grade.get("steep", false)))
+		house.set_meta("plot_grade_radius", plot_radius)
 		house.scale = Vector3.ONE * (1.0 + float(stage) * 0.07)
-		house.position = Vector3(offset_x, terrain_delta, offset_z)
+		house.position = Vector3(offset_x, base_world_height - float(city["pos"].y), offset_z)
 		city["node"].add_child(house)
 
 		var building_type: int = house_index_to_building_type(houses.size(), stage)
@@ -1831,8 +2065,12 @@ func _sync_city_buildings(city_id: int) -> bool:
 	city["next_plot_index"] = plot_index
 	cities[city_id] = city
 	var houses_changed: bool = houses.size() != houses_before
+	if terrain_changed:
+		_rebuild_terrain()
+		_update_placed_object_heights()
 	if houses_changed:
-		_rebuild_city_roads(city_id)
+		if not terrain_changed:
+			_rebuild_city_roads(city_id)
 		_apply_building_era_appearance(city_id, _world_year())
 	return houses_changed
 
@@ -1868,8 +2106,8 @@ func _add_road_segment(surface: SurfaceTool, city_position: Vector3, from_point:
 		var center_line: Vector2 = start_point.lerp(finish_point, t)
 		var left_xz: Vector2 = center_line + side
 		var right_xz: Vector2 = center_line - side
-		var left := Vector3(left_xz.x, _height_at(city_position.x + left_xz.x, city_position.z + left_xz.y) - city_position.y + height_offset, left_xz.y)
-		var right := Vector3(right_xz.x, _height_at(city_position.x + right_xz.x, city_position.z + right_xz.y) - city_position.y + height_offset, right_xz.y)
+		var left := Vector3(left_xz.x, _terrain_render_height_at(city_position.x + left_xz.x, city_position.z + left_xz.y) - city_position.y + height_offset, left_xz.y)
+		var right := Vector3(right_xz.x, _terrain_render_height_at(city_position.x + right_xz.x, city_position.z + right_xz.y) - city_position.y + height_offset, right_xz.y)
 		if segment > 0:
 			surface.add_vertex(previous_left)
 			surface.add_vertex(previous_right)
@@ -1892,10 +2130,10 @@ func _add_sidewalk_corner(surface: SurfaceTool, city_position: Vector3, intersec
 	var max_x: float = maxf(xa, xb)
 	var min_z: float = minf(za, zb)
 	var max_z: float = maxf(za, zb)
-	var a := Vector3(min_x, _height_at(city_position.x + min_x, city_position.z + min_z) - city_position.y + 0.44, min_z)
-	var b := Vector3(max_x, _height_at(city_position.x + max_x, city_position.z + min_z) - city_position.y + 0.44, min_z)
-	var c := Vector3(max_x, _height_at(city_position.x + max_x, city_position.z + max_z) - city_position.y + 0.44, max_z)
-	var d := Vector3(min_x, _height_at(city_position.x + min_x, city_position.z + max_z) - city_position.y + 0.44, max_z)
+	var a := Vector3(min_x, _terrain_render_height_at(city_position.x + min_x, city_position.z + min_z) - city_position.y + 0.55, min_z)
+	var b := Vector3(max_x, _terrain_render_height_at(city_position.x + max_x, city_position.z + min_z) - city_position.y + 0.55, min_z)
+	var c := Vector3(max_x, _terrain_render_height_at(city_position.x + max_x, city_position.z + max_z) - city_position.y + 0.55, max_z)
+	var d := Vector3(min_x, _terrain_render_height_at(city_position.x + min_x, city_position.z + max_z) - city_position.y + 0.55, max_z)
 	surface.add_vertex(a)
 	surface.add_vertex(b)
 	surface.add_vertex(c)
@@ -1997,12 +2235,12 @@ func _rebuild_city_roads(city_id: int) -> void:
 	var cursor_x: float = first_x
 	while cursor_x <= last_x + 0.001:
 		grid_x.append(cursor_x)
-		_add_road_segment(road_surface, city_position, Vector2(cursor_x, min_z), Vector2(cursor_x, max_z), 1.62, 0.24, 0.0)
+		_add_damaged_aware_road_segment(road_surface, city_id, city_position, Vector2(cursor_x, min_z), Vector2(cursor_x, max_z), 1.62, 0.34, 0.0)
 		cursor_x += ROAD_GRID_SIZE
 	var cursor_z: float = first_z
 	while cursor_z <= last_z + 0.001:
 		grid_z.append(cursor_z)
-		_add_road_segment(road_surface, city_position, Vector2(min_x, cursor_z), Vector2(max_x, cursor_z), 1.62, 0.24, 0.0)
+		_add_damaged_aware_road_segment(road_surface, city_id, city_position, Vector2(min_x, cursor_z), Vector2(max_x, cursor_z), 1.62, 0.34, 0.0)
 		cursor_z += ROAD_GRID_SIZE
 
 	for x_index in range(grid_x.size()):
@@ -2013,7 +2251,7 @@ func _rebuild_city_roads(city_id: int) -> void:
 			if sidewalk_end <= sidewalk_start:
 				continue
 			for side_sign in [-1.0, 1.0]:
-				_add_road_segment(sidewalk_surface, city_position, Vector2(x_value + side_sign * 1.05, sidewalk_start), Vector2(x_value + side_sign * 1.05, sidewalk_end), 0.48, 0.44, 0.0)
+				_add_damaged_aware_road_segment(sidewalk_surface, city_id, city_position, Vector2(x_value + side_sign * 1.05, sidewalk_start), Vector2(x_value + side_sign * 1.05, sidewalk_end), 0.48, 0.58, 0.0)
 	for z_index in range(grid_z.size()):
 		var z_value: float = grid_z[z_index]
 		for x_index in range(grid_x.size() - 1):
@@ -2022,7 +2260,7 @@ func _rebuild_city_roads(city_id: int) -> void:
 			if sidewalk_end_x <= sidewalk_start_x:
 				continue
 			for side_sign in [-1.0, 1.0]:
-				_add_road_segment(sidewalk_surface, city_position, Vector2(sidewalk_start_x, z_value + side_sign * 1.05), Vector2(sidewalk_end_x, z_value + side_sign * 1.05), 0.48, 0.44, 0.0)
+				_add_damaged_aware_road_segment(sidewalk_surface, city_id, city_position, Vector2(sidewalk_start_x, z_value + side_sign * 1.05), Vector2(sidewalk_end_x, z_value + side_sign * 1.05), 0.48, 0.58, 0.0)
 
 	for x_index in range(grid_x.size()):
 		var x_value: float = grid_x[x_index]
@@ -2030,13 +2268,14 @@ func _rebuild_city_roads(city_id: int) -> void:
 			var z_value: float = grid_z[z_index]
 			for side_x in [-1.0, 1.0]:
 				for side_z in [-1.0, 1.0]:
+					if not _road_point_damaged(city_id, Vector2(x_value + side_x * 1.05, z_value + side_z * 1.05), 0.12):
 					_add_sidewalk_corner(sidewalk_surface, city_position, x_value, z_value, side_x, side_z)
 			if _world_year() >= 1900:
 				for stripe_index in range(4):
 					var stripe_offset: float = 0.95 + float(stripe_index) * 0.25
 					for stripe_sign in [-1.0, 1.0]:
-						_add_road_segment(crosswalk_surface, city_position, Vector2(x_value - 0.78, z_value + stripe_sign * stripe_offset), Vector2(x_value + 0.78, z_value + stripe_sign * stripe_offset), 0.13, 0.30, 0.0)
-						_add_road_segment(crosswalk_surface, city_position, Vector2(x_value + stripe_sign * stripe_offset, z_value - 0.78), Vector2(x_value + stripe_sign * stripe_offset, z_value + 0.78), 0.13, 0.30, 0.0)
+						_add_damaged_aware_road_segment(crosswalk_surface, city_id, city_position, Vector2(x_value - 0.78, z_value + stripe_sign * stripe_offset), Vector2(x_value + 0.78, z_value + stripe_sign * stripe_offset), 0.13, 0.44, 0.0)
+						_add_damaged_aware_road_segment(crosswalk_surface, city_id, city_position, Vector2(x_value + stripe_sign * stripe_offset, z_value - 0.78), Vector2(x_value + stripe_sign * stripe_offset, z_value + 0.78), 0.13, 0.44, 0.0)
 			if x_index > 0 and z_index > 0 and x_index < grid_x.size() - 1 and z_index < grid_z.size() - 1 and (x_index * 3 + z_index * 5 + city_id) % 11 == 2:
 				var island_clear: bool = true
 				for house in houses:
@@ -2052,7 +2291,7 @@ func _rebuild_city_roads(city_id: int) -> void:
 						var angle_b: float = TAU * float(segment + 1) / 20.0
 						var a := Vector2(x_value, z_value) + Vector2(cos(angle_a), sin(angle_a)) * ring_radius
 						var b := Vector2(x_value, z_value) + Vector2(cos(angle_b), sin(angle_b)) * ring_radius
-						_add_road_segment(road_surface, city_position, a, b, 1.18, 0.27, 0.0)
+						_add_damaged_aware_road_segment(road_surface, city_id, city_position, a, b, 1.18, 0.37, 0.0)
 					_add_roundabout_island(island_surface, city_position, x_value, z_value, 0.92)
 
 	for x_index in range(grid_x.size() - 1):
@@ -2062,11 +2301,11 @@ func _rebuild_city_roads(city_id: int) -> void:
 			var start_point := Vector2(grid_x[x_index] + 1.25, grid_z[z_index] + 1.25)
 			var finish_point := Vector2(grid_x[x_index + 1] - 1.25, grid_z[z_index + 1] - 1.25)
 			if _diagonal_road_is_clear(city_id, start_point, finish_point, 2.4):
-				_add_road_segment(road_surface, city_position, start_point, finish_point, 0.88, 0.25, 0.0)
+				_add_damaged_aware_road_segment(road_surface, city_id, city_position, start_point, finish_point, 0.88, 0.36, 0.0)
 			var reverse_start := Vector2(grid_x[x_index] + 1.25, grid_z[z_index + 1] - 1.25)
 			var reverse_finish := Vector2(grid_x[x_index + 1] - 1.25, grid_z[z_index] + 1.25)
 			if (x_index + z_index + city_id) % 17 == 5 and _diagonal_road_is_clear(city_id, reverse_start, reverse_finish, 2.4):
-				_add_road_segment(road_surface, city_position, reverse_start, reverse_finish, 0.88, 0.25, 0.0)
+				_add_damaged_aware_road_segment(road_surface, city_id, city_position, reverse_start, reverse_finish, 0.88, 0.36, 0.0)
 	road_surface.generate_normals(true)
 	road_node.mesh = road_surface.commit()
 	if is_instance_valid(sidewalk_node):
@@ -5603,6 +5842,10 @@ func _update_world_detail_levels() -> void:
 	var active_lod: int = _terrain_lod_index_for_distance(camera_distance)
 	if active_lod < terrain_lod_dirty.size() and terrain_lod_dirty[active_lod]:
 		_build_terrain_lod(active_lod)
+	if active_lod != last_road_terrain_lod:
+		last_road_terrain_lod = active_lod
+		for city_id in range(cities.size()):
+			_rebuild_city_roads(city_id)
 	for lod_index in range(terrain_lod_nodes.size()):
 		terrain_lod_nodes[lod_index].visible = lod_index == active_lod
 	var show_city_models: bool = camera_distance <= 165.0
