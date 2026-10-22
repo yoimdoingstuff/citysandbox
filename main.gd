@@ -2050,6 +2050,10 @@ func _update_traffic_population() -> void:
 
 
 func _update_simulation_timers(delta: float) -> void:
+	city_defence_timer += delta
+	if city_defence_timer >= 1.0:
+		city_defence_timer = fmod(city_defence_timer, 1.0)
+		_update_city_defences()
 	if territory_refresh_pending:
 		territory_refresh_timer += delta
 		if territory_refresh_timer >= 5.0:
@@ -3737,133 +3741,184 @@ func _build_ui() -> void:
 	ui_root.mouse_filter = Control.MOUSE_FILTER_PASS
 	layer.add_child(ui_root)
 
-	var left_panel := PanelContainer.new()
-	left_panel.anchor_left = 0.0
-	left_panel.anchor_right = 0.0
-	left_panel.anchor_top = 0.0
-	left_panel.anchor_bottom = 1.0
-	left_panel.offset_left = 14.0
-	left_panel.offset_right = 310.0
-	left_panel.offset_top = 14.0
-	left_panel.offset_bottom = -14.0
-	left_panel.add_theme_stylebox_override("panel", _panel_style(Color(0.025, 0.040, 0.060, 0.95)))
-	ui_root.add_child(left_panel)
-	var margin := MarginContainer.new()
-	margin.add_theme_constant_override("margin_left", 14)
-	margin.add_theme_constant_override("margin_right", 14)
-	margin.add_theme_constant_override("margin_top", 14)
-	margin.add_theme_constant_override("margin_bottom", 14)
-	left_panel.add_child(margin)
-	var scroll := ScrollContainer.new()
-	scroll.size_flags_vertical = Control.SIZE_EXPAND_FILL
-	scroll.horizontal_scroll_mode = ScrollContainer.SCROLL_MODE_DISABLED
-	margin.add_child(scroll)
-	var content := VBoxContainer.new()
-	content.size_flags_horizontal = Control.SIZE_EXPAND_FILL
-	content.add_theme_constant_override("separation", 8)
-	scroll.add_child(content)
+	# Compact HUD across the top instead of a permanent controls sidebar.
+	var top_panel := PanelContainer.new()
+	top_panel.anchor_left = 0.0
+	top_panel.anchor_right = 1.0
+	top_panel.anchor_top = 0.0
+	top_panel.anchor_bottom = 0.0
+	top_panel.offset_left = 12.0
+	top_panel.offset_right = -12.0
+	top_panel.offset_top = 10.0
+	top_panel.offset_bottom = 78.0
+	top_panel.add_theme_stylebox_override("panel", _panel_style(Color(0.025, 0.040, 0.060, 0.94)))
+	ui_root.add_child(top_panel)
+	var top_margin := MarginContainer.new()
+	top_margin.add_theme_constant_override("margin_left", 12)
+	top_margin.add_theme_constant_override("margin_right", 12)
+	top_margin.add_theme_constant_override("margin_top", 8)
+	top_margin.add_theme_constant_override("margin_bottom", 8)
+	top_panel.add_child(top_margin)
+	var top_row := HBoxContainer.new()
+	top_row.add_theme_constant_override("separation", 8)
+	top_margin.add_child(top_row)
+	var brand := _make_label("CIVITERRA", 20, Color(0.46, 0.86, 0.98))
+	brand.custom_minimum_size = Vector2(140.0, 0.0)
+	top_row.add_child(brand)
+	stats_label = _make_label("YEAR 1200 · CITIES 05 · PEOPLE 24", 12, Color(0.72, 0.88, 0.81))
+	stats_label.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	top_row.add_child(stats_label)
 
-	content.add_child(_make_label("CIVITERRA", 26, Color(0.46, 0.86, 0.98)))
-	content.add_child(_make_label("WORLD SIMULATION  /  GOD MODE", 10, Color(0.62, 0.78, 0.87)))
-	content.add_child(_make_label("Shape continents. Guide civilizations. Rewrite history.", 12, Color(0.84, 0.89, 0.93)))
-	content.add_child(_make_separator())
-	stats_label = _make_label("CITIES  3     PEOPLE  16", 13, Color(0.52, 0.86, 0.70))
-	content.add_child(stats_label)
-	content.add_child(_make_label("WORLD TOOLS", 12, Color(0.46, 0.86, 0.98)))
-	tool_label = _make_label("Active: Select and inspect cities", 11, Color(0.77, 0.84, 0.88))
-	content.add_child(tool_label)
-	var grid := GridContainer.new()
-	grid.columns = 2
-	grid.add_theme_constant_override("h_separation", 6)
-	grid.add_theme_constant_override("v_separation", 6)
-	content.add_child(grid)
-	_add_tool_button(grid, "Select City", "select", Color(0.12, 0.23, 0.30))
-	_add_tool_button(grid, "Raise Land", "raise", Color(0.29, 0.32, 0.20))
-	_add_tool_button(grid, "Lower Land", "lower", Color(0.23, 0.29, 0.36))
-	_add_tool_button(grid, "Spawn Human", "human", Color(0.15, 0.32, 0.29))
-	_add_tool_button(grid, "Plant Trees", "tree", Color(0.12, 0.30, 0.20))
-	_add_tool_button(grid, "Spawn Stone", "stone", Color(0.27, 0.29, 0.31))
-	_add_tool_button(grid, "Spawn Food", "food", Color(0.35, 0.22, 0.21))
-	_add_tool_button(grid, "Erase", "erase", Color(0.29, 0.17, 0.19))
+	var era_box := VBoxContainer.new()
+	era_box.add_theme_constant_override("separation", 1)
+	era_box.add_child(_make_label("DEBUG ERA", 9, Color(0.51, 0.74, 0.84)))
+	era_skipper = OptionButton.new()
+	era_skipper.custom_minimum_size = Vector2(162.0, 30.0)
+	era_skipper.add_theme_font_size_override("font_size", 11)
+	era_skipper.add_theme_stylebox_override("normal", _button_style(Color(0.11, 0.23, 0.29)))
+	era_skipper.add_theme_stylebox_override("hover", _button_style(Color(0.16, 0.34, 0.42)))
+	for target_year in ERA_SKIP_YEARS:
+		era_skipper.add_item("%d · %s" % [target_year, _historical_era_name(target_year)])
+	era_skipper.item_selected.connect(_on_era_skipper_selected)
+	era_box.add_child(era_skipper)
+	top_row.add_child(era_box)
 
-	content.add_child(_make_separator())
-	content.add_child(_make_label("GOD POWERS", 12, Color(0.46, 0.86, 0.98)))
-	var power_grid := GridContainer.new()
-	power_grid.columns = 2
-	power_grid.add_theme_constant_override("h_separation", 6)
-	power_grid.add_theme_constant_override("v_separation", 6)
-	content.add_child(power_grid)
-	_add_tool_button(power_grid, "Lightning", "lightning", Color(0.14, 0.36, 0.57))
-	_add_tool_button(power_grid, "Fire", "fire", Color(0.58, 0.23, 0.09))
-	_add_tool_button(power_grid, "Meteor", "meteor", Color(0.52, 0.16, 0.12))
-	_add_tool_button(power_grid, "Tornado", "tornado", Color(0.31, 0.35, 0.43))
-	_add_tool_button(power_grid, "Plague", "plague", Color(0.34, 0.26, 0.40))
-	_add_tool_button(power_grid, "Heal / Bless", "heal", Color(0.12, 0.42, 0.30))
-	_add_tool_button(power_grid, "Create Forest", "forest", Color(0.10, 0.36, 0.19))
-	_add_tool_button(power_grid, "Earthquake", "quake", Color(0.42, 0.30, 0.16))
+	pause_button = _make_button("PAUSE", _toggle_pause, Color(0.13, 0.22, 0.29))
+	pause_button.custom_minimum_size = Vector2(76.0, 38.0)
+	top_row.add_child(pause_button)
+	speed_button = _make_button("1×", _cycle_speed, Color(0.13, 0.22, 0.29))
+	speed_button.custom_minimum_size = Vector2(54.0, 38.0)
+	top_row.add_child(speed_button)
+	top_row.add_child(_make_button("SAVE", _save_world, Color(0.10, 0.29, 0.34)))
+	top_row.add_child(_make_button("LOAD", _load_world, Color(0.12, 0.24, 0.32)))
+	top_row.add_child(_make_button("EVENT 1×: OFF", _toggle_reset_speed_on_city_event, Color(0.20, 0.28, 0.34)))
 
-	content.add_child(_make_label("TERRAIN BRUSH", 12, Color(0.46, 0.86, 0.98)))
-	var brush_row := HBoxContainer.new()
-	brush_row.add_theme_constant_override("separation", 6)
-	content.add_child(brush_row)
-	brush_row.add_child(_make_button("−", func(): _change_brush(-1.0), Color(0.13, 0.18, 0.23)))
-	radius_label = _make_label("Radius 4.0", 12, Color(0.84, 0.88, 0.90))
-	radius_label.size_flags_horizontal = Control.SIZE_EXPAND_FILL
-	radius_label.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
-	brush_row.add_child(radius_label)
-	brush_row.add_child(_make_button("+", func(): _change_brush(1.0), Color(0.13, 0.18, 0.23)))
-
-	content.add_child(_make_separator())
-	content.add_child(_make_label("CITY COMMAND", 12, Color(0.46, 0.86, 0.98)))
-	city_info_label = _make_label("Select a city to view its status.", 12, Color(0.86, 0.89, 0.91))
-	city_info_label.custom_minimum_size = Vector2(0, 142)
-	city_info_label.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
-	content.add_child(city_info_label)
-	control_button = _make_button("CONTROL SELECTED CITY", _take_control, Color(0.12, 0.36, 0.43))
-	content.add_child(control_button)
-	content.add_child(_make_button("Launch Missile", func(): _prepare_action("missile"), Color(0.45, 0.19, 0.12)))
-	content.add_child(_make_button("Order Invasion", func(): _prepare_action("army"), Color(0.39, 0.20, 0.16)))
-	content.add_child(_make_button("Offer Ceasefire", func(): _prepare_action("peace"), Color(0.20, 0.30, 0.34)))
-	pending_label = _make_label("No order pending.", 11, Color(0.98, 0.77, 0.43))
-	pending_label.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
-	content.add_child(pending_label)
-
-	content.add_child(_make_separator())
-	pause_button = _make_button("Pause Simulation", _toggle_pause, Color(0.13, 0.22, 0.29))
-	content.add_child(pause_button)
-	speed_button = _make_button("Simulation Speed: 1×", _cycle_speed, Color(0.13, 0.22, 0.29))
-	content.add_child(speed_button)
-	content.add_child(_make_button("Reset Speed on City Event: OFF", _toggle_reset_speed_on_city_event, Color(0.20, 0.28, 0.34)))
-	content.add_child(_make_button("Save World", _save_world, Color(0.10, 0.29, 0.34)))
-	content.add_child(_make_button("Load World", _load_world, Color(0.12, 0.24, 0.32)))
-	content.add_child(_make_label("CONTROLS", 12, Color(0.46, 0.86, 0.98)))
-	content.add_child(_make_label("WASD / arrows: move camera\nRight-drag: orbit\nMiddle-drag: pan\nMouse wheel: zoom\nDrag to paint terrain/resources.\nChoose a power, then click the world.", 11, Color(0.68, 0.75, 0.80)))
-
-	var right_panel := PanelContainer.new()
-	right_panel.anchor_left = 1.0
-	right_panel.anchor_right = 1.0
-	right_panel.anchor_top = 0.0
-	right_panel.anchor_bottom = 0.0
-	right_panel.offset_left = -340.0
-	right_panel.offset_right = -14.0
-	right_panel.offset_top = 14.0
-	right_panel.offset_bottom = 294.0
-	right_panel.add_theme_stylebox_override("panel", _panel_style(Color(0.025, 0.040, 0.060, 0.93)))
-	ui_root.add_child(right_panel)
-	var right_margin := MarginContainer.new()
-	right_margin.add_theme_constant_override("margin_left", 13)
-	right_margin.add_theme_constant_override("margin_right", 13)
-	right_margin.add_theme_constant_override("margin_top", 12)
-	right_margin.add_theme_constant_override("margin_bottom", 12)
-	right_panel.add_child(right_margin)
-	var right_content := VBoxContainer.new()
-	right_content.add_theme_constant_override("separation", 7)
-	right_margin.add_child(right_content)
-	right_content.add_child(_make_label("WORLD CHRONICLE", 13, Color(0.46, 0.86, 0.98)))
-	log_label = _make_label("Waiting for history to happen...", 11, Color(0.76, 0.83, 0.86))
+	# Small chronicle panel; it no longer dictates half the screen layout.
+	var chronicle := PanelContainer.new()
+	chronicle.anchor_left = 0.0
+	chronicle.anchor_right = 0.0
+	chronicle.anchor_top = 0.0
+	chronicle.anchor_bottom = 0.0
+	chronicle.offset_left = 12.0
+	chronicle.offset_right = 292.0
+	chronicle.offset_top = 88.0
+	chronicle.offset_bottom = 198.0
+	chronicle.add_theme_stylebox_override("panel", _panel_style(Color(0.025, 0.040, 0.060, 0.84)))
+	ui_root.add_child(chronicle)
+	var chronicle_margin := MarginContainer.new()
+	chronicle_margin.add_theme_constant_override("margin_left", 10)
+	chronicle_margin.add_theme_constant_override("margin_right", 10)
+	chronicle_margin.add_theme_constant_override("margin_top", 7)
+	chronicle_margin.add_theme_constant_override("margin_bottom", 7)
+	chronicle.add_child(chronicle_margin)
+	var chronicle_content := VBoxContainer.new()
+	chronicle_content.add_theme_constant_override("separation", 4)
+	chronicle_margin.add_child(chronicle_content)
+	chronicle_content.add_child(_make_label("WORLD CHRONICLE", 11, Color(0.46, 0.86, 0.98)))
+	log_label = _make_label("Waiting for history to happen...", 10, Color(0.76, 0.83, 0.86))
 	log_label.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
 	log_label.size_flags_vertical = Control.SIZE_EXPAND_FILL
-	right_content.add_child(log_label)
+	chronicle_content.add_child(log_label)
+
+	# City controls float only while a city is selected.
+	city_context_panel = PanelContainer.new()
+	city_context_panel.anchor_left = 1.0
+	city_context_panel.anchor_right = 1.0
+	city_context_panel.anchor_top = 0.0
+	city_context_panel.anchor_bottom = 0.0
+	city_context_panel.offset_left = -326.0
+	city_context_panel.offset_right = -12.0
+	city_context_panel.offset_top = 90.0
+	city_context_panel.offset_bottom = 408.0
+	city_context_panel.add_theme_stylebox_override("panel", _panel_style(Color(0.025, 0.040, 0.060, 0.94)))
+	ui_root.add_child(city_context_panel)
+	var city_margin := MarginContainer.new()
+	city_margin.add_theme_constant_override("margin_left", 12)
+	city_margin.add_theme_constant_override("margin_right", 12)
+	city_margin.add_theme_constant_override("margin_top", 10)
+	city_margin.add_theme_constant_override("margin_bottom", 10)
+	city_context_panel.add_child(city_margin)
+	var city_content := VBoxContainer.new()
+	city_content.add_theme_constant_override("separation", 6)
+	city_margin.add_child(city_content)
+	city_content.add_child(_make_label("CITY OVERVIEW", 12, Color(0.46, 0.86, 0.98)))
+	city_info_label = _make_label("Select a city to inspect its status.", 11, Color(0.86, 0.89, 0.91))
+	city_info_label.custom_minimum_size = Vector2(0.0, 126.0)
+	city_info_label.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+	city_content.add_child(city_info_label)
+	control_button = _make_button("TAKE CONTROL", _take_control, Color(0.12, 0.36, 0.43))
+	city_content.add_child(control_button)
+	missile_button = _make_button("Launch Missile", func(): _prepare_action("missile"), Color(0.45, 0.19, 0.12))
+	city_content.add_child(missile_button)
+	invasion_button = _make_button("Order Invasion", func(): _prepare_action("army"), Color(0.39, 0.20, 0.16))
+	city_content.add_child(invasion_button)
+	ceasefire_button = _make_button("Offer Ceasefire", func(): _prepare_action("peace"), Color(0.20, 0.30, 0.34))
+	city_content.add_child(ceasefire_button)
+	pending_label = _make_label("Select a city, or pick a world tool below.", 10, Color(0.98, 0.77, 0.43))
+	pending_label.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+	city_content.add_child(pending_label)
+	city_context_panel.visible = false
+
+	# Bottom tool dock is split into world tools and god powers.
+	var dock := PanelContainer.new()
+	dock.anchor_left = 0.5
+	dock.anchor_right = 0.5
+	dock.anchor_top = 1.0
+	dock.anchor_bottom = 1.0
+	dock.offset_left = -534.0
+	dock.offset_right = 534.0
+	dock.offset_top = -194.0
+	dock.offset_bottom = -10.0
+	dock.add_theme_stylebox_override("panel", _panel_style(Color(0.025, 0.040, 0.060, 0.95)))
+	ui_root.add_child(dock)
+	var dock_margin := MarginContainer.new()
+	dock_margin.add_theme_constant_override("margin_left", 12)
+	dock_margin.add_theme_constant_override("margin_right", 12)
+	dock_margin.add_theme_constant_override("margin_top", 8)
+	dock_margin.add_theme_constant_override("margin_bottom", 8)
+	dock.add_child(dock_margin)
+	var dock_content := VBoxContainer.new()
+	dock_content.add_theme_constant_override("separation", 5)
+	dock_margin.add_child(dock_content)
+	tool_label = _make_label("WORLD TOOLS · Select and inspect cities", 10, Color(0.77, 0.84, 0.88))
+	dock_content.add_child(tool_label)
+	var tools_grid := GridContainer.new()
+	tools_grid.columns = 8
+	tools_grid.add_theme_constant_override("h_separation", 5)
+	tools_grid.add_theme_constant_override("v_separation", 5)
+	dock_content.add_child(tools_grid)
+	_add_tool_button(tools_grid, "Select", "select", Color(0.12, 0.23, 0.30))
+	_add_tool_button(tools_grid, "Raise", "raise", Color(0.29, 0.32, 0.20))
+	_add_tool_button(tools_grid, "Lower", "lower", Color(0.23, 0.29, 0.36))
+	_add_tool_button(tools_grid, "Citizen", "human", Color(0.15, 0.32, 0.29))
+	_add_tool_button(tools_grid, "Trees", "tree", Color(0.12, 0.30, 0.20))
+	_add_tool_button(tools_grid, "Stone", "stone", Color(0.27, 0.29, 0.31))
+	_add_tool_button(tools_grid, "Food", "food", Color(0.35, 0.22, 0.21))
+	_add_tool_button(tools_grid, "Erase", "erase", Color(0.29, 0.17, 0.19))
+	var powers_grid := GridContainer.new()
+	powers_grid.columns = 8
+	powers_grid.add_theme_constant_override("h_separation", 5)
+	powers_grid.add_theme_constant_override("v_separation", 5)
+	dock_content.add_child(powers_grid)
+	_add_tool_button(powers_grid, "Lightning", "lightning", Color(0.14, 0.36, 0.57))
+	_add_tool_button(powers_grid, "Fire", "fire", Color(0.58, 0.23, 0.09))
+	_add_tool_button(powers_grid, "Meteor", "meteor", Color(0.52, 0.16, 0.12))
+	_add_tool_button(powers_grid, "Tornado", "tornado", Color(0.31, 0.35, 0.43))
+	_add_tool_button(powers_grid, "Plague", "plague", Color(0.34, 0.26, 0.40))
+	_add_tool_button(powers_grid, "Heal", "heal", Color(0.12, 0.42, 0.30))
+	_add_tool_button(powers_grid, "Forest", "forest", Color(0.10, 0.36, 0.19))
+	_add_tool_button(powers_grid, "Quake", "quake", Color(0.42, 0.30, 0.16))
+	var brush_row := HBoxContainer.new()
+	brush_row.add_theme_constant_override("separation", 7)
+	dock_content.add_child(brush_row)
+	brush_row.add_child(_make_button("−", func(): _change_brush(-1.0), Color(0.13, 0.18, 0.23)))
+	radius_label = _make_label("Radius 4.0", 10, Color(0.84, 0.88, 0.90))
+	radius_label.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	radius_label.custom_minimum_size = Vector2(80.0, 0.0)
+	brush_row.add_child(radius_label)
+	brush_row.add_child(_make_button("+", func(): _change_brush(1.0), Color(0.13, 0.18, 0.23)))
+	brush_row.add_child(_make_label("Click a tool, then click or drag on the world · RMB orbit · MMB pan · Wheel zoom", 10, Color(0.61, 0.70, 0.76)))
+	_refresh_ui()
 
 
 func _add_tool_button(parent: GridContainer, text: String, mode: String, tint: Color) -> void:
@@ -3900,7 +3955,11 @@ func _take_control() -> void:
 
 func _prepare_action(action: String) -> void:
 	if controlled_city < 0 or controlled_city >= cities.size():
-		_log("Choose a city and press CONTROL SELECTED CITY first.")
+		_log("Choose a city and press TAKE CONTROL first.")
+		return
+	if action == "missile" and _world_year() < MISSILE_UNLOCK_YEAR:
+		_log("Missiles unlock in 1945. Use DEBUG ERA to jump forward.")
+		_refresh_ui()
 		return
 	pending_action = action
 	tool_mode = "select"
@@ -3908,7 +3967,7 @@ func _prepare_action(action: String) -> void:
 		var button: Button = tool_buttons[existing_mode]
 		button.modulate = Color(1.18, 1.18, 1.18) if existing_mode == "select" else Color(0.82, 0.86, 0.89)
 	_refresh_ui()
-	_log("Order ready: click a target city on the map.")
+	_log("Order ready: %s." % ("click any ground point for the missile" if action == "missile" else "click a target city on the map"))
 
 
 func _toggle_pause() -> void:
@@ -4018,11 +4077,24 @@ func _joined_logs() -> String:
 
 func _refresh_ui() -> void:
 	var population_counts: Array[int] = _population_counts_by_city()
+	var year: int = _world_year()
 	if is_instance_valid(stats_label):
-		var active_wars: int = wars.size()
-		stats_label.text = "YEAR %d  •  %s\nCITIES %02d   PEOPLE %03d   CARS %02d\nWARS %02d   EVENTS %03d   TIME %s" % [_world_year(), _historical_era_name(_world_year()), cities.size(), people.size(), cars.size(), active_wars, city_events_total, _format_time(game_clock)]
-	if is_instance_valid(radius_label):
-		radius_label.text = "Radius %.1f" % brush_radius
+		stats_label.text = "YEAR %d  ·  %s     CITIES %02d  ·  PEOPLE %03d  ·  CARS %02d  ·  WARS %02d  ·  EVENTS %03d" % [year, _historical_era_name(year), cities.size(), people.size(), cars.size(), wars.size(), city_events_total]
+	if is_instance_valid(era_skipper):
+		var matching_era_index: int = 0
+		for era_index in range(ERA_SKIP_YEARS.size()):
+			if ERA_SKIP_YEARS[era_index] <= year:
+				matching_era_index = era_index
+		if era_skipper.selected != matching_era_index:
+			era_skipper.select(matching_era_index)
+	if is_instance_valid(pause_button):
+		pause_button.text = "RESUME" if paused else "PAUSE"
+	if is_instance_valid(speed_button):
+		speed_button.text = "%d×" % int(sim_speed)
+	for node in ui_root.find_children("*", "Button", true, false):
+		var setting_button: Button = node as Button
+		if setting_button.text.begins_with("Reset Speed on City Event:") or setting_button.text.begins_with("EVENT 1×:"):
+			setting_button.text = "EVENT 1×: ON" if reset_speed_on_city_event else "EVENT 1×: OFF"
 	if is_instance_valid(selection_ring):
 		if selected_city >= 0 and selected_city < cities.size():
 			selection_ring.visible = true
@@ -4030,42 +4102,46 @@ func _refresh_ui() -> void:
 		else:
 			selection_ring.visible = false
 	if is_instance_valid(tool_label):
-		var tool_names: Dictionary = {"select": "Select and inspect cities", "raise": "Raise terrain with the brush", "lower": "Lower terrain with the brush", "human": "Spawn humans; clusters can found settlements", "tree": "Plant a wood resource", "stone": "Place a stone deposit", "food": "Place a food resource", "erase": "Erase a nearby human or resource", "lightning": "Strike the ground with lightning", "fire": "Start a spreading fire", "meteor": "Call down a destructive meteor", "tornado": "Send a moving vortex through the world", "plague": "Infect humans and let sickness spread", "heal": "Bless an area with new people", "forest": "Create a grove of trees", "quake": "Shake and deform the land"}
-		tool_label.text = "Active: %s" % str(tool_names.get(tool_mode, tool_mode))
+		var tool_names: Dictionary = {"select": "WORLD TOOLS · Select city", "raise": "WORLD TOOLS · Raise terrain", "lower": "WORLD TOOLS · Lower terrain", "human": "WORLD TOOLS · Spawn citizens", "tree": "WORLD TOOLS · Plant trees", "stone": "WORLD TOOLS · Place stone", "food": "WORLD TOOLS · Place food", "erase": "WORLD TOOLS · Erase object", "lightning": "GOD POWERS · Lightning", "fire": "GOD POWERS · Fire", "meteor": "GOD POWERS · Meteor", "tornado": "GOD POWERS · Tornado", "plague": "GOD POWERS · Plague", "heal": "GOD POWERS · Bless", "forest": "GOD POWERS · Forest", "quake": "GOD POWERS · Earthquake"}
+		tool_label.text = str(tool_names.get(tool_mode, "WORLD TOOLS · Select city"))
 	for city_index in range(cities.size()):
 		var population_now: int = population_counts[city_index]
 		cities[city_index]["population"] = population_now
 		var stage: int = int(cities[city_index].get("stage", 0))
 		if is_instance_valid(cities[city_index]["label"]):
-			var city_status: String = "ABANDONED" if population_now <= 0 else _city_stage_name(stage)
-			var label_text: String = "%s\n%s | POP %d" % [cities[city_index]["name"], city_status, population_now]
+			var label_text: String = "%s\n%s | POP %d" % [cities[city_index]["name"], "ABANDONED" if population_now <= 0 else _city_stage_name(stage), population_now]
 			if cities[city_index]["label"].text != label_text:
 				cities[city_index]["label"].text = label_text
-			var label_color: Color = Color(0.66, 0.70, 0.72) if population_now <= 0 else Color.WHITE
-			if cities[city_index]["label"].modulate != label_color:
-				cities[city_index]["label"].modulate = label_color
+			cities[city_index]["label"].modulate = Color(0.66, 0.70, 0.72) if population_now <= 0 else Color.WHITE
+	if is_instance_valid(city_context_panel):
+		city_context_panel.visible = selected_city >= 0 and selected_city < cities.size()
 	if is_instance_valid(city_info_label):
 		if selected_city >= 0 and selected_city < cities.size():
 			var city: Dictionary = cities[selected_city]
 			var owner_id: int = int(city["owner"])
 			var owner_name: String = cities[owner_id]["name"] if owner_id >= 0 and owner_id < cities.size() else city["name"]
-			city_info_label.text = "SELECTED  %s\nDEVELOPMENT  %s\nPOPULATION  %d\nTERRITORY  %d land tiles\nSTABILITY %.0f%%  SECURITY %.0f%%\nWEALTH %d  OWNER %s\nFOOD %d   WOOD %d   STONE %d" % [city["name"], _city_stage_name(int(city.get("stage", 0))), _city_population(selected_city), (city.get("territory_cells", {}) as Dictionary).size(), float(city.get("stability", 72.0)), float(city.get("security", 44.0)), int(city.get("wealth", 12.0)), owner_name, int(city["food"]), int(city["wood"]), int(city["stone"])]
+			city_info_label.text = "%s\n%s · POP %d\nTERRITORY %d land tiles\nSTABILITY %.0f%% · SECURITY %.0f%%\nWEALTH %d · OWNER %s\nFOOD %d · WOOD %d · STONE %d" % [city["name"], _city_stage_name(int(city.get("stage", 0))), _city_population(selected_city), (city.get("territory_cells", {}) as Dictionary).size(), float(city.get("stability", 72.0)), float(city.get("security", 44.0)), int(city.get("wealth", 12.0)), owner_name, int(city["food"]), int(city["wood"]), int(city["stone"])]
 		else:
-			city_info_label.text = "Select a city to view its people, resources and owner."
+			city_info_label.text = "Select a city to inspect it."
 	if is_instance_valid(control_button):
-		if controlled_city >= 0 and controlled_city < cities.size():
-			control_button.text = "COMMANDING: %s" % cities[controlled_city]["name"]
-		else:
-			control_button.text = "CONTROL SELECTED CITY"
+		control_button.text = "COMMANDING: %s" % cities[controlled_city]["name"] if controlled_city >= 0 and controlled_city < cities.size() else "TAKE CONTROL"
+	if is_instance_valid(missile_button):
+		missile_button.disabled = year < MISSILE_UNLOCK_YEAR or controlled_city < 0 or controlled_city >= cities.size()
+		missile_button.tooltip_text = "Missiles unlock in 1945." if year < MISSILE_UNLOCK_YEAR else "Choose this, then click any point on the world."
+	if is_instance_valid(invasion_button):
+		invasion_button.disabled = controlled_city < 0 or controlled_city >= cities.size()
+	if is_instance_valid(ceasefire_button):
+		ceasefire_button.disabled = controlled_city < 0 or controlled_city >= cities.size()
 	if is_instance_valid(pending_label):
-		if pending_action == "missile":
-			pending_label.text = "MISSILE: click the city you want to hit."
-		elif pending_action == "army":
-			pending_label.text = "INVASION: click the city to attack."
-		elif pending_action == "peace":
-			pending_label.text = "CEASEFIRE: click the other city."
-		else:
-			pending_label.text = "Tool: %s" % tool_mode.capitalize()
+		match pending_action:
+			"missile":
+				pending_label.text = "MISSILE: click any ground point on the map."
+			"army":
+				pending_label.text = "INVASION: click the target city."
+			"peace":
+				pending_label.text = "CEASEFIRE: click the other city."
+			_:
+				pending_label.text = "Select a city, or pick a world tool below."
 	if is_instance_valid(log_label):
 		log_label.text = _joined_logs()
 
@@ -4568,6 +4644,25 @@ func _historical_era_name(year: int) -> String:
 			return "RENAISSANCE"
 		_:
 			return "MEDIEVAL AGE"
+
+
+func _on_era_skipper_selected(index: int) -> void:
+	if index < 0 or index >= ERA_SKIP_YEARS.size():
+		return
+	var target_year: int = ERA_SKIP_YEARS[index]
+	game_clock = maxf(0.0, float(target_year - STARTING_YEAR) * SECONDS_PER_YEAR)
+	last_architecture_era = -1
+	_update_historical_era(true)
+	if target_year < 1900:
+		for car in cars:
+			if is_instance_valid(car.get("node")):
+				car["node"].queue_free()
+		cars.clear()
+		_update_world_detail_levels()
+	else:
+		_update_traffic_population()
+	_refresh_ui()
+	_log("DEBUG ERA SKIP: Time set to %d (%s)." % [target_year, _historical_era_name(target_year)])
 
 
 func _update_historical_era(force: bool = false) -> void:
