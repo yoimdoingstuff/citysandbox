@@ -1747,6 +1747,10 @@ func _spawn_human(position: Vector3, city_id: int) -> void:
 		"city_id": assigned_city,
 		"home_offset": home_offset,
 		"target": p,
+		"activity": "wandering",
+		"activity_timer": 0.0,
+		"indoor_house": null,
+		"vehicle_node": null,
 		"walk_timer": randf_range(0.4, 2.2),
 		"walk_phase": randf() * TAU,
 		"alive": true,
@@ -1840,40 +1844,157 @@ func _add_mesh(parent: Node3D, mesh: Mesh, material: Material, local_position: V
 
 
 func _update_people(delta: float) -> void:
-	var animate_citizens: bool = camera_distance <= 85.0 and people.size() <= 320
+	var animate_citizens: bool = camera_distance <= 72.0 and people.size() <= 300
 	for i in range(people.size()):
 		var person: Dictionary = people[i]
+		if not bool(person.get("alive", true)):
+			continue
+		var node: Node3D = person["node"]
 		var position: Vector3 = person["pos"]
+		var activity: String = str(person.get("activity", "wandering"))
+		var activity_timer: float = float(person.get("activity_timer", 0.0))
+		if activity == "indoors":
+			activity_timer -= delta
+			if is_instance_valid(node):
+				node.visible = false
+			if activity_timer <= 0.0:
+				var indoor_house: Variant = person.get("indoor_house", null)
+				if indoor_house is Node3D and is_instance_valid(indoor_house):
+					position = indoor_house.global_position + Vector3(0.0, 0.0, 1.65)
+				position = _surface_position(position.x, position.z)
+				person["pos"] = position
+				person["target"] = position
+				person["activity"] = "wandering"
+				person["activity_timer"] = 0.0
+				person["indoor_house"] = null
+				person["walk_timer"] = 0.0
+				if is_instance_valid(node):
+					node.position = position
+					node.visible = true
+			else:
+				person["activity_timer"] = activity_timer
+			people[i] = person
+			continue
+
+		if activity == "riding" or activity == "boarding":
+			var vehicle: Variant = person.get("vehicle_node", null)
+			if not (vehicle is Node3D) or not is_instance_valid(vehicle):
+				if activity == "riding":
+					_adjust_car_occupancy(vehicle, -1)
+				person["activity"] = "wandering"
+				person["vehicle_node"] = null
+				person["activity_timer"] = 0.0
+				person["walk_timer"] = 0.0
+				people[i] = person
+				continue
+			var vehicle_position: Vector3 = vehicle.global_position
+			if activity == "boarding":
+				var boarding_distance: float = Vector2(position.x - vehicle_position.x, position.z - vehicle_position.z).length()
+				if boarding_distance <= 1.55:
+					person["activity"] = "riding"
+					person["activity_timer"] = randf_range(5.0, 15.0)
+					_adjust_car_occupancy(vehicle, 1)
+					if is_instance_valid(node):
+						node.visible = false
+				else:
+					person["target"] = vehicle_position
+					position = position.move_toward(Vector3(vehicle_position.x, position.y, vehicle_position.z), delta * 2.6)
+					position.y = _height_at(position.x, position.z)
+					person["pos"] = position
+					if is_instance_valid(node):
+						node.position = position
+						node.visible = true
+			else:
+				activity_timer -= delta
+				position = vehicle_position
+				person["pos"] = position
+				person["activity_timer"] = activity_timer
+				if is_instance_valid(node):
+					node.visible = false
+				if activity_timer <= 0.0:
+					_adjust_car_occupancy(vehicle, -1)
+					position = _surface_position(vehicle_position.x + randf_range(-1.8, 1.8), vehicle_position.z + randf_range(-1.8, 1.8))
+					person["pos"] = position
+					person["target"] = position
+					person["activity"] = "wandering"
+					person["activity_timer"] = 0.0
+					person["vehicle_node"] = null
+					person["walk_timer"] = 0.0
+					if is_instance_valid(node):
+						node.position = position
+						node.visible = true
+			people[i] = person
+			continue
+
 		person["walk_timer"] = float(person.get("walk_timer", 1.0)) - delta
 		var target: Vector3 = person["target"]
 		var distance_to_target: float = Vector2(position.x - target.x, position.z - target.z).length()
+		if activity == "entering":
+			var target_house: Variant = person.get("indoor_house", null)
+			if not (target_house is Node3D) or not is_instance_valid(target_house):
+				person["activity"] = "wandering"
+				person["indoor_house"] = null
+				person["walk_timer"] = 0.0
+			elif distance_to_target <= 0.9:
+				person["activity"] = "indoors"
+				person["activity_timer"] = randf_range(8.0, 28.0)
+				position = target
+				person["pos"] = position
+				if is_instance_valid(node):
+					node.visible = false
+				people[i] = person
+				continue
+
 		if person["walk_timer"] <= 0.0 or distance_to_target < 0.55:
+			var city_id: int = int(person.get("city_id", -1))
 			var destination_center: Vector3 = position
-			var city_id: int = int(person["city_id"])
-			var local_wander_radius: float = 5.0
+			var local_wander_radius: float = 6.0
 			if city_id >= 0 and city_id < cities.size():
 				var city: Dictionary = cities[city_id]
 				var home_offset: Vector2 = person.get("home_offset", Vector2.ZERO)
 				destination_center = city["pos"] + Vector3(home_offset.x, 0.0, home_offset.y)
-				local_wander_radius = clampf(4.5 + float(city["houses"].size()) * 0.045, 5.0, 10.5)
-			var chosen_target := Vector3(position.x, position.y, position.z)
-			for destination_attempt in range(6):
-				var angle: float = randf() * TAU
-				var radius: float = randf_range(2.0, local_wander_radius)
-				var target_x: float = clampf(destination_center.x + cos(angle) * radius, -TERRAIN_SIZE * 0.47, TERRAIN_SIZE * 0.47)
-				var target_z: float = clampf(destination_center.z + sin(angle) * radius, -TERRAIN_SIZE * 0.47, TERRAIN_SIZE * 0.47)
-				if _height_at(target_x, target_z) > WATER_LEVEL + 0.15:
-					chosen_target = _surface_position(target_x, target_z)
-					break
-			person["target"] = chosen_target
-			person["walk_timer"] = randf_range(1.6, 4.6)
-			target = chosen_target
+				local_wander_radius = clampf(6.0 + float(city["houses"].size()) * 0.06, 7.0, 14.0)
+			var next_target: Vector3 = _choose_citizen_street_target(city_id, destination_center, local_wander_radius)
+			var selected_house: Node3D = null
+			var selected_vehicle: Node3D = null
+			if city_id >= 0 and city_id < cities.size() and randf() < 0.16:
+				var candidates: Array[Node3D] = []
+				for house in cities[city_id]["houses"]:
+					if is_instance_valid(house) and int(house.get_meta("base_building_type", house.get_meta("building_type", 0))) in [0, 1, 2, 3]:
+						candidates.append(house)
+				if not candidates.is_empty():
+					selected_house = candidates[randi_range(0, candidates.size() - 1)]
+					next_target = _surface_position(selected_house.global_position.x, selected_house.global_position.z + 1.65)
+			elif city_id >= 0 and city_id < cities.size() and _world_year() >= 1900 and randf() < 0.12:
+				var best_distance: float = 24.0
+				for car_data in cars:
+					if int(car_data["city_id"]) != city_id or int(car_data.get("occupied", 0)) >= int(car_data.get("capacity", 2)):
+						continue
+					var car_node: Node3D = car_data["node"]
+					if not is_instance_valid(car_node):
+						continue
+					var candidate_distance: float = Vector2(car_node.position.x - position.x, car_node.position.z - position.z).length()
+					if candidate_distance < best_distance:
+						best_distance = candidate_distance
+						selected_vehicle = car_node
+				if is_instance_valid(selected_vehicle):
+					next_target = selected_vehicle.global_position
+			person["target"] = next_target
+			person["walk_timer"] = randf_range(2.0, 5.0)
+			if is_instance_valid(selected_house):
+				person["activity"] = "entering"
+				person["indoor_house"] = selected_house
+			elif is_instance_valid(selected_vehicle):
+				person["activity"] = "boarding"
+				person["vehicle_node"] = selected_vehicle
+			target = next_target
 		else:
 			target = person["target"]
+
 		var horizontal_target := Vector3(target.x, position.y, target.z)
 		var distance_before_move: float = Vector2(position.x - target.x, position.z - target.z).length()
 		var is_walking: bool = distance_before_move > 0.45
-		position = position.move_toward(horizontal_target, delta * 2.0)
+		position = position.move_toward(horizontal_target, delta * 2.2)
 		position.y = _height_at(position.x, position.z)
 		person["pos"] = position
 		if animate_citizens:
@@ -1892,11 +2013,55 @@ func _update_people(delta: float) -> void:
 				left_leg.rotation.x = -gait
 			if is_instance_valid(right_leg):
 				right_leg.rotation.x = gait
-		if is_instance_valid(person["node"]):
-			person["node"].position = position
+		if is_instance_valid(node):
+			node.position = position
+			node.visible = activity != "indoors" and activity != "riding"
 			if is_walking:
-				person["node"].rotation.y = atan2(target.x - position.x, target.z - position.z)
+				node.rotation.y = atan2(target.x - position.x, target.z - position.z)
 		people[i] = person
+
+
+func _choose_citizen_street_target(city_id: int, centre: Vector3, radius: float) -> Vector3:
+	if city_id >= 0 and city_id < cities.size():
+		var city: Dictionary = cities[city_id]
+		var min_x: float = float(city.get("road_grid_min_x", -7.5))
+		var max_x: float = float(city.get("road_grid_max_x", 7.5))
+		var min_z: float = float(city.get("road_grid_min_z", -7.5))
+		var max_z: float = float(city.get("road_grid_max_z", 7.5))
+		if max_x >= min_x and max_z >= min_z:
+			var local_x: float
+			var local_z: float
+			if randf() < 0.5:
+				var x_steps: int = maxi(0, roundi((max_x - min_x) / ROAD_GRID_SIZE))
+				local_x = min_x + float(randi_range(0, x_steps)) * ROAD_GRID_SIZE + randf_range(-1.1, 1.1)
+				local_z = randf_range(min_z, max_z)
+			else:
+				var z_steps: int = maxi(0, roundi((max_z - min_z) / ROAD_GRID_SIZE))
+				local_z = min_z + float(randi_range(0, z_steps)) * ROAD_GRID_SIZE + randf_range(-1.1, 1.1)
+				local_x = randf_range(min_x, max_x)
+			var street_x: float = clampf(float(city["pos"].x) + local_x, -TERRAIN_SIZE * 0.47, TERRAIN_SIZE * 0.47)
+			var street_z: float = clampf(float(city["pos"].z) + local_z, -TERRAIN_SIZE * 0.47, TERRAIN_SIZE * 0.47)
+			if _height_at(street_x, street_z) > WATER_LEVEL + 0.15:
+				return _surface_position(street_x, street_z)
+	for attempt in range(8):
+		var angle: float = randf() * TAU
+		var distance: float = randf_range(2.0, radius)
+		var x: float = clampf(centre.x + cos(angle) * distance, -TERRAIN_SIZE * 0.47, TERRAIN_SIZE * 0.47)
+		var z: float = clampf(centre.z + sin(angle) * distance, -TERRAIN_SIZE * 0.47, TERRAIN_SIZE * 0.47)
+		if _height_at(x, z) > WATER_LEVEL + 0.15:
+			return _surface_position(x, z)
+	return _surface_position(centre.x, centre.z)
+
+
+func _adjust_car_occupancy(vehicle: Variant, amount: int) -> void:
+	if not (vehicle is Node3D) or not is_instance_valid(vehicle):
+		return
+	for car_index in range(cars.size()):
+		var car: Dictionary = cars[car_index]
+		if car.get("node") == vehicle:
+			car["occupied"] = clampi(int(car.get("occupied", 0)) + amount, 0, int(car.get("capacity", 2)))
+			cars[car_index] = car
+			return
 
 
 func _spawn_car(city_id: int) -> void:
@@ -1951,7 +2116,8 @@ func _spawn_car(city_id: int) -> void:
 			current_count += 1
 	cars.append({
 		"node": car, "city_id": city_id, "pos": spawn_position,
-		"waypoint": route["waypoint"], "direction": direction, "speed": randf_range(3.2, 4.8)
+		"waypoint": route["waypoint"], "direction": direction, "speed": randf_range(3.2, 4.8),
+		"occupied": 0, "capacity": 2
 	})
 	car.visible = camera_distance <= 135.0
 	if current_count == 0:
@@ -4158,13 +4324,16 @@ func _update_world_detail_levels() -> void:
 	var show_people: bool = camera_distance <= 85.0
 	var show_city_labels: bool = camera_distance >= 48.0
 	var show_far_markers: bool = not show_city_models
+	var focus_cell_x: int = floori(camera_target.x / 10.0)
+	var focus_cell_z: int = floori(camera_target.z / 10.0)
 	var building_count: int = 0
 	for city in cities:
 		building_count += city["houses"].size()
-	var detail_signature: String = "%d|%d|%d|%d|%d|%d|%d|%d|%d|%d|%d|%d" % [
+	var detail_signature: String = "%d|%d|%d|%d|%d|%d|%d|%d|%d|%d|%d|%d|%d|%d" % [
 		active_lod, int(show_city_models), int(show_neighbourhoods), int(show_resources),
 		int(show_people), int(show_city_labels), int(show_far_markers), cities.size(),
-		building_count, people.size(), resources.size(), cars.size() + rubble_records.size()
+		building_count, people.size(), resources.size(), cars.size() + rubble_records.size(),
+		focus_cell_x, focus_cell_z
 	]
 	if detail_signature == last_detail_signature:
 		return
@@ -4192,14 +4361,26 @@ func _update_world_detail_levels() -> void:
 		for house in city["houses"]:
 			if is_instance_valid(house):
 				house.visible = show_neighbourhoods
+	var person_range: float = clampf(camera_distance * 0.54, 22.0, 68.0)
+	var person_range_squared: float = person_range * person_range
 	for person in people:
 		var person_node: Node3D = person["node"]
-		if is_instance_valid(person_node):
-			person_node.visible = show_people and bool(person.get("alive", true))
+		if not is_instance_valid(person_node):
+			continue
+		var position: Vector3 = person["pos"]
+		var dx: float = position.x - camera_target.x
+		var dz: float = position.z - camera_target.z
+		var indoors: bool = str(person.get("activity", "")) == "indoors" or str(person.get("activity", "")) == "riding"
+		person_node.visible = show_people and not indoors and bool(person.get("alive", true)) and dx * dx + dz * dz <= person_range_squared
 	for car in cars:
 		var car_node: Node3D = car["node"]
-		if is_instance_valid(car_node):
-			car_node.visible = show_neighbourhoods
+		if not is_instance_valid(car_node):
+			continue
+		var car_position: Vector3 = car["pos"]
+		var dx: float = car_position.x - camera_target.x
+		var dz: float = car_position.z - camera_target.z
+		var render_range: float = maxf(42.0, camera_distance * 0.68)
+		car_node.visible = show_neighbourhoods and dx * dx + dz * dz <= render_range * render_range
 	for resource in resources:
 		var resource_node: Node3D = resource["node"]
 		if is_instance_valid(resource_node):
