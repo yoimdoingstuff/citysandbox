@@ -1864,6 +1864,7 @@ func _update_people(delta: float) -> void:
 				position = _surface_position(position.x, position.z)
 				person["pos"] = position
 				person["target"] = position
+				last_detail_signature = ""
 				person["activity"] = "wandering"
 				person["activity_timer"] = 0.0
 				person["indoor_house"] = null
@@ -1892,6 +1893,7 @@ func _update_people(delta: float) -> void:
 				var boarding_distance: float = Vector2(position.x - vehicle_position.x, position.z - vehicle_position.z).length()
 				if boarding_distance <= 1.55:
 					person["activity"] = "riding"
+					last_detail_signature = ""
 					person["activity_timer"] = randf_range(5.0, 15.0)
 					_adjust_car_occupancy(vehicle, 1)
 					if is_instance_valid(node):
@@ -1916,6 +1918,7 @@ func _update_people(delta: float) -> void:
 					position = _surface_position(vehicle_position.x + randf_range(-1.8, 1.8), vehicle_position.z + randf_range(-1.8, 1.8))
 					person["pos"] = position
 					person["target"] = position
+					last_detail_signature = ""
 					person["activity"] = "wandering"
 					person["activity_timer"] = 0.0
 					person["vehicle_node"] = null
@@ -1937,6 +1940,7 @@ func _update_people(delta: float) -> void:
 				person["walk_timer"] = 0.0
 			elif distance_to_target <= 0.9:
 				person["activity"] = "indoors"
+				last_detail_signature = ""
 				person["activity_timer"] = randf_range(8.0, 28.0)
 				position = target
 				person["pos"] = position
@@ -1945,7 +1949,7 @@ func _update_people(delta: float) -> void:
 				people[i] = person
 				continue
 
-		if person["walk_timer"] <= 0.0 or distance_to_target < 0.55:
+		if activity != "entering" and (person["walk_timer"] <= 0.0 or distance_to_target < 0.55):
 			var city_id: int = int(person.get("city_id", -1))
 			var destination_center: Vector3 = position
 			var local_wander_radius: float = 6.0
