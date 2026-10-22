@@ -137,6 +137,21 @@ var auto_war_timer: float = 24.0
 var ui_timer: float = 0.0
 var performance_log: FileAccess
 var performance_frame_count: int = 0
+var stress_csv: FileAccess
+var stress_suite_active: bool = false
+var stress_suite_started_usec: int = 0
+var stress_scenarios: Array[Dictionary] = []
+var stress_scenario_index: int = -1
+var stress_scenario_started_usec: int = 0
+var stress_last_sample_usec: int = 0
+var stress_repeat_started_usec: int = 0
+var stress_scenarios_completed: int = 0
+var stress_frames_total: int = 0
+var stress_window_frame_ms: Array[float] = []
+var stress_window_process_ms: Array[float] = []
+var stress_scenario_frame_ms: Array[float] = []
+var stress_scenario_process_ms: Array[float] = []
+var stress_scenario_max_action_ms: float = 0.0
 
 var camera: Camera3D
 var camera_target: Vector3 = Vector3.ZERO
@@ -200,9 +215,10 @@ func _ready() -> void:
 	_log("Tip: spawn humans in a cluster and they can found a new settlement on their own.")
 	_update_historical_era(true)
 	_refresh_ui()
-	if OS.get_cmdline_user_args().has("--civiterra-freeze-stress-test"):
-		_run_freeze_stress_test()
-	if OS.get_cmdline_user_args().has("--civiterra-save-load-smoke-test"):
+	var command_args: PackedStringArray = OS.get_cmdline_user_args()
+	if command_args.has("--civiterra-runtime-stress-tests") or command_args.has("--civiterra-freeze-stress-test"):
+		_start_runtime_stress_tests()
+	if command_args.has("--civiterra-save-load-smoke-test"):
 		call_deferred("_run_save_load_smoke_test")
 
 
@@ -227,35 +243,404 @@ func _write_performance_sample(operation_name: String, elapsed_usec: int) -> voi
 		performance_log.flush()
 
 
-func _run_freeze_stress_test() -> void:
-	# The diagnostic runner starts in a modern era with enough citizens per city
-	# to exercise building creation, citizen entry/exit, town services, and LOD
-	# without requiring a person to click controls in an unattended CI runner.
+func _start_runtime_stress_tests() -> void:
+	stress_scenarios = [
+		{"name": "baseline_1x", "duration": 7.0, "speed": 1.0, "action": "none"},
+		{"name": "simulation_4x", "duration": 6.0, "speed": 4.0, "action": "none"},
+		{"name": "simulation_16x", "duration": 8.0, "speed": 16.0, "action": "none"},
+		{"name": "dense_cities_and_crowds", "duration": 9.0, "speed": 4.0, "action": "dense_cities"},
+		{"name": "mass_civilian_spawn", "duration": 7.0, "speed": 4.0, "action": "spawn_wave"},
+		{"name": "resources_and_traffic", "duration": 8.0, "speed": 8.0, "action": "resources_traffic"},
+		{"name": "large_debris_field", "duration": 8.0, "speed": 8.0, "action": "debris"},
+		{"name": "wildfire_plague_tornado", "duration": 8.0, "speed": 8.0, "action": "fire_plague"},
+		{"name": "meteors_lightning_disasters", "duration": 9.0, "speed": 16.0, "action": "meteor_storm"},
+		{"name": "earthquake_terrain_edits", "duration": 8.0, "speed": 4.0, "action": "terrain_edits"},
+		{"name": "mass_building_collapse", "duration": 9.0, "speed": 8.0, "action": "collapse"},
+		{"name": "combined_16x_city_load", "duration": 12.0, "speed": 16.0, "action": "combined"}
+	]
+	stress_suite_active = true
+	stress_suite_started_usec = Time.get_ticks_usec()
+	stress_scenario_index = -1
+	stress_scenarios_completed = 0
+	stress_frames_total = 0
+	stress_csv = FileAccess.open("user://civiterra-stresstests.csv", FileAccess.WRITE)
+	if stress_csv != null:
+		stress_csv.store_line("record_type,scenario,elapsed_seconds,frame_samples,engine_fps,mean_loop_fps,avg_frame_interval_ms,p95_frame_interval_ms,p99_frame_interval_ms,max_frame_interval_ms,max_process_ms,max_action_ms,cities,buildings,citizens,cars,resources,rubble,fire_zones,meteors,tornadoes,effects,construction_sites,armies,missiles")
+		stress_csv.flush()
+	paused = false
 	game_clock = float(2026 - STARTING_YEAR) * SECONDS_PER_YEAR
-	sim_speed = 16.0
+	last_architecture_era = -1
+	_update_historical_era(true)
+	sim_speed = 1.0
 	camera_distance = 68.0
 	if not cities.is_empty():
 		camera_target = cities[0]["pos"]
-	for city_id in range(cities.size()):
-		var city_position: Vector3 = cities[city_id]["pos"]
-		var local_index: int = 0
-		while _city_population(city_id) < 18 and people.size() < MAX_PEOPLE:
-			var angle: float = float(local_index) * 2.39996
-			var radius: float = 1.8 + float(local_index % 5) * 0.55
-			var spawn_position: Vector3 = _surface_position(city_position.x + cos(angle) * radius, city_position.z + sin(angle) * radius)
-			_spawn_human(spawn_position, city_id)
-			local_index += 1
-		_refresh_city_development(city_id)
-	last_architecture_era = -1
-	_update_historical_era(true)
 	_update_camera()
 	_refresh_ui()
-	var line: String = "CIVITERRA_FREEZE_STRESS_TEST_STARTED | year=%d | speed=%dx | cities=%d | buildings=%d | people=%d" % [_world_year(), int(sim_speed), cities.size(), _total_building_count(), people.size()]
+	_stress_emit("STRESS_SUITE_BEGIN|commit_runtime=godot|scenarios=%d|rendering_fps=Engine.get_frames_per_second|note=GUI-rendered run where supported; process/frame timings are also recorded" % stress_scenarios.size())
+	_begin_next_runtime_stress_scenario()
+
+
+func _begin_next_runtime_stress_scenario() -> void:
+	if stress_scenario_index >= 0:
+		_finish_runtime_stress_scenario()
+	stress_scenario_index += 1
+	if stress_scenario_index >= stress_scenarios.size():
+		_finish_runtime_stress_suite()
+		return
+	var scenario: Dictionary = stress_scenarios[stress_scenario_index]
+	stress_window_frame_ms.clear()
+	stress_window_process_ms.clear()
+	stress_scenario_frame_ms.clear()
+	stress_scenario_process_ms.clear()
+	stress_scenario_max_action_ms = 0.0
+	sim_speed = clampf(float(scenario.get("speed", 1.0)), 1.0, 16.0)
+	paused = false
+	var scenario_name: String = str(scenario["name"])
+	if scenario_name in ["dense_cities_and_crowds", "large_debris_field", "mass_building_collapse"]:
+		camera_distance = 38.0
+	elif scenario_name in ["resources_and_traffic", "wildfire_plague_tornado"]:
+		camera_distance = 54.0
+	elif scenario_name == "earthquake_terrain_edits":
+		camera_distance = 94.0
+	else:
+		camera_distance = 68.0
+	if not cities.is_empty():
+		camera_target = cities[0]["pos"]
+	_update_camera()
+	var begin_line: String = "STRESS_SCENARIO_BEGIN|%s|speed=%dx|duration=%.1fs|cities=%d|buildings=%d|citizens=%d|resources=%d|rubble=%d" % [
+		scenario_name, int(sim_speed), float(scenario["duration"]), cities.size(), _total_building_count(), people.size(), resources.size(), rubble_nodes.size()
+	]
+	_stress_emit(begin_line)
+	var action_name: String = str(scenario.get("action", "none"))
+	var action_started_usec: int = Time.get_ticks_usec()
+	if action_name != "none":
+		_run_runtime_stress_action(action_name)
+	var action_elapsed_ms: float = float(Time.get_ticks_usec() - action_started_usec) / 1000.0
+	stress_scenario_max_action_ms = maxf(stress_scenario_max_action_ms, action_elapsed_ms)
+	_stress_emit("STRESS_ACTION|scenario=%s|action=%s|duration_ms=%.2f|cities=%d|buildings=%d|citizens=%d|cars=%d|resources=%d|rubble=%d|fires=%d|meteors=%d|tornadoes=%d" % [
+		scenario_name, action_name, action_elapsed_ms, cities.size(), _total_building_count(), people.size(), cars.size(), resources.size(), rubble_nodes.size(), fire_zones.size(), falling_meteors.size(), tornadoes.size()
+	])
+	stress_scenario_started_usec = Time.get_ticks_usec()
+	stress_last_sample_usec = stress_scenario_started_usec
+	stress_repeat_started_usec = stress_scenario_started_usec
+
+
+func _tick_runtime_stress_tests() -> void:
+	if not stress_suite_active or stress_scenario_index < 0 or stress_scenario_index >= stress_scenarios.size():
+		return
+	var now_usec: int = Time.get_ticks_usec()
+	var scenario: Dictionary = stress_scenarios[stress_scenario_index]
+	var scenario_elapsed: float = float(now_usec - stress_scenario_started_usec) / 1000000.0
+	if scenario_elapsed >= float(scenario.get("duration", 8.0)):
+		_begin_next_runtime_stress_scenario()
+		return
+	if str(scenario.get("action", "")) == "combined" and now_usec - stress_repeat_started_usec >= 2500000:
+		var action_started_usec: int = Time.get_ticks_usec()
+		_run_runtime_stress_action("combined_pulse")
+		var action_elapsed_ms: float = float(Time.get_ticks_usec() - action_started_usec) / 1000.0
+		stress_scenario_max_action_ms = maxf(stress_scenario_max_action_ms, action_elapsed_ms)
+		_stress_emit("STRESS_ACTION|scenario=%s|action=combined_pulse|duration_ms=%.2f|citizens=%d|resources=%d|rubble=%d|fires=%d|tornadoes=%d" % [
+			str(scenario["name"]), action_elapsed_ms, people.size(), resources.size(), rubble_nodes.size(), fire_zones.size(), tornadoes.size()
+		])
+		stress_repeat_started_usec = Time.get_ticks_usec()
+
+
+func _record_runtime_stress_frame(delta: float, process_usec: int) -> void:
+	var interval_ms: float = maxf(0.01, delta * 1000.0)
+	var process_ms: float = float(process_usec) / 1000.0
+	stress_window_frame_ms.append(interval_ms)
+	stress_window_process_ms.append(process_ms)
+	stress_scenario_frame_ms.append(interval_ms)
+	stress_scenario_process_ms.append(process_ms)
+	stress_frames_total += 1
+	var now_usec: int = Time.get_ticks_usec()
+	if now_usec - stress_last_sample_usec >= 1000000:
+		_write_runtime_stress_metrics("SAMPLE", false)
+		stress_last_sample_usec = now_usec
+
+
+func _write_runtime_stress_metrics(record_type: String, whole_scenario: bool) -> void:
+	var interval_samples: Array[float] = stress_scenario_frame_ms if whole_scenario else stress_window_frame_ms
+	var process_samples: Array[float] = stress_scenario_process_ms if whole_scenario else stress_window_process_ms
+	var frame_count: int = interval_samples.size()
+	var interval_sum_ms: float = 0.0
+	var process_max_ms: float = 0.0
+	for sample_ms in interval_samples:
+		interval_sum_ms += sample_ms
+	for sample_ms in process_samples:
+		process_max_ms = maxf(process_max_ms, sample_ms)
+	var average_interval_ms: float = interval_sum_ms / float(maxi(1, frame_count))
+	var mean_fps: float = 1000.0 / maxf(0.01, average_interval_ms)
+	var sorted_intervals: Array[float] = interval_samples.duplicate()
+	sorted_intervals.sort()
+	var p95_frame_ms: float = 0.0
+	var p99_frame_ms: float = 0.0
+	var max_frame_ms: float = 0.0
+	if not sorted_intervals.is_empty():
+		p95_frame_ms = sorted_intervals[clampi(ceili(float(sorted_intervals.size()) * 0.95) - 1, 0, sorted_intervals.size() - 1)]
+		p99_frame_ms = sorted_intervals[clampi(ceili(float(sorted_intervals.size()) * 0.99) - 1, 0, sorted_intervals.size() - 1)]
+		max_frame_ms = sorted_intervals[sorted_intervals.size() - 1]
+	var scenario_name: String = "startup" if stress_scenario_index < 0 or stress_scenario_index >= stress_scenarios.size() else str(stress_scenarios[stress_scenario_index]["name"])
+	var scenario_elapsed: float = 0.0
+	if stress_scenario_started_usec > 0:
+		scenario_elapsed = float(Time.get_ticks_usec() - stress_scenario_started_usec) / 1000000.0
+	var counts: Dictionary = _runtime_stress_counts()
+	var metric_line: String = "STRESS_%s|scenario=%s|elapsed_s=%.2f|samples=%d|engine_fps=%d|mean_loop_fps=%.2f|avg_frame_ms=%.2f|p95_frame_ms=%.2f|p99_frame_ms=%.2f|max_frame_ms=%.2f|max_process_ms=%.2f|max_action_ms=%.2f|cities=%d|buildings=%d|citizens=%d|cars=%d|resources=%d|rubble=%d|fire_zones=%d|meteors=%d|tornadoes=%d|effects=%d|construction_sites=%d|armies=%d|missiles=%d" % [
+		record_type, scenario_name, scenario_elapsed, frame_count, Engine.get_frames_per_second(), mean_fps, average_interval_ms, p95_frame_ms, p99_frame_ms, max_frame_ms, process_max_ms, stress_scenario_max_action_ms,
+		int(counts["cities"]), int(counts["buildings"]), int(counts["citizens"]), int(counts["cars"]), int(counts["resources"]), int(counts["rubble"]), int(counts["fires"]), int(counts["meteors"]), int(counts["tornadoes"]), int(counts["effects"]), int(counts["construction_sites"]), int(counts["armies"]), int(counts["missiles"])
+	]
+	_stress_emit(metric_line)
+	if stress_csv != null:
+		stress_csv.store_line("%s,%s,%.3f,%d,%d,%.3f,%.3f,%.3f,%.3f,%.3f,%.3f,%.3f,%d,%d,%d,%d,%d,%d,%d,%d,%d,%d,%d,%d,%d" % [
+			record_type.to_lower(), scenario_name, scenario_elapsed, frame_count, Engine.get_frames_per_second(), mean_fps, average_interval_ms, p95_frame_ms, p99_frame_ms, max_frame_ms, process_max_ms, stress_scenario_max_action_ms,
+			int(counts["cities"]), int(counts["buildings"]), int(counts["citizens"]), int(counts["cars"]), int(counts["resources"]), int(counts["rubble"]), int(counts["fires"]), int(counts["meteors"]), int(counts["tornadoes"]), int(counts["effects"]), int(counts["construction_sites"]), int(counts["armies"]), int(counts["missiles"])
+		])
+		stress_csv.flush()
+	if not whole_scenario:
+		stress_window_frame_ms.clear()
+		stress_window_process_ms.clear()
+
+
+func _finish_runtime_stress_scenario() -> void:
+	if stress_scenario_index < 0 or stress_scenario_index >= stress_scenarios.size():
+		return
+	_write_runtime_stress_metrics("SCENARIO_END", true)
+	var scenario: Dictionary = stress_scenarios[stress_scenario_index]
+	_stress_emit("STRESS_SCENARIO_COMPLETE|%s|speed=%dx|duration_s=%.2f|action_max_ms=%.2f" % [
+		str(scenario["name"]), int(scenario.get("speed", 1.0)), float(Time.get_ticks_usec() - stress_scenario_started_usec) / 1000000.0, stress_scenario_max_action_ms
+	])
+	stress_scenarios_completed += 1
+
+
+func _finish_runtime_stress_suite() -> void:
+	stress_suite_active = false
+	sim_speed = 1.0
+	var elapsed_seconds: float = float(Time.get_ticks_usec() - stress_suite_started_usec) / 1000000.0
+	_stress_emit("STRESS_SUITE_END|status=completed|scenarios_completed=%d|frames=%d|elapsed_s=%.2f|cities=%d|buildings=%d|citizens=%d|cars=%d|resources=%d|rubble=%d|fires=%d|meteors=%d|tornadoes=%d" % [
+		stress_scenarios_completed, stress_frames_total, elapsed_seconds, cities.size(), _total_building_count(), people.size(), cars.size(), resources.size(), rubble_nodes.size(), fire_zones.size(), falling_meteors.size(), tornadoes.size()
+	])
+	if stress_csv != null:
+		stress_csv.flush()
+		stress_csv.close()
+		stress_csv = null
+	if performance_log != null:
+		performance_log.flush()
+	get_tree().quit(0)
+
+
+func _stress_emit(line: String) -> void:
 	print(line)
 	if performance_log != null:
 		performance_log.store_line(line)
 		performance_log.flush()
 
+
+func _runtime_stress_counts() -> Dictionary:
+	return {
+		"cities": cities.size(),
+		"buildings": _total_building_count(),
+		"citizens": people.size(),
+		"cars": cars.size(),
+		"resources": resources.size(),
+		"rubble": rubble_nodes.size(),
+		"fires": fire_zones.size(),
+		"meteors": falling_meteors.size(),
+		"tornadoes": tornadoes.size(),
+		"effects": god_effects.size(),
+		"construction_sites": construction_sites.size(),
+		"armies": armies.size(),
+		"missiles": missiles.size()
+	}
+
+
+func _run_runtime_stress_action(action_name: String) -> void:
+	match action_name:
+		"dense_cities":
+			_stress_create_extra_cities(MAX_CITIES)
+			_stress_spawn_crowd(mini(MAX_PEOPLE, maxi(people.size(), 560)))
+			for city_id in range(cities.size()):
+				cities[city_id]["treasury"] = 5000.0
+				cities[city_id]["wood"] = 45.0
+				cities[city_id]["stone"] = 35.0
+				cities[city_id]["iron"] = 30.0
+				cities[city_id]["copper"] = 25.0
+				cities[city_id]["coal"] = 35.0
+				_refresh_city_development(city_id)
+				_queue_city_roads_rebuild(city_id)
+		"spawn_wave":
+			_stress_spawn_crowd(mini(MAX_PEOPLE, 760))
+		"resources_traffic":
+			_stress_spawn_resources(260)
+			while cars.size() < MAX_CARS and not cities.is_empty():
+				_spawn_car(randi_range(0, cities.size() - 1))
+		"debris":
+			for debris_index in range(65):
+				_stress_spawn_rubble_piece()
+		"fire_plague":
+			if cities.is_empty():
+				return
+			for fire_index in range(7):
+				_god_fire(_stress_city_target(fire_index))
+			_god_plague(cities[0]["pos"])
+			for tornado_index in range(3):
+				_god_tornado(_stress_city_target(tornado_index + 2))
+		"meteor_storm":
+			if cities.is_empty():
+				return
+			brush_radius = 7.0
+			for meteor_index in range(6):
+				_god_meteor(_stress_city_target(meteor_index))
+			for tornado_index in range(4):
+				_god_tornado(_stress_city_target(tornado_index + 1))
+			for lightning_index in range(3):
+				_god_lightning(_stress_city_target(lightning_index + 2))
+		"terrain_edits":
+			if cities.is_empty():
+				return
+			brush_radius = 7.0
+			for terrain_edit_index in range(3):
+				var target: Vector3 = _stress_city_target(terrain_edit_index)
+				_sculpt_terrain(target, 0.28 if terrain_edit_index % 2 == 0 else -0.24)
+		"collapse":
+			var collapse_count: int = 0
+			for city_id in range(cities.size()):
+				var houses: Array = cities[city_id]["houses"]
+				for house in houses:
+					if collapse_count >= 22:
+						break
+					if is_instance_valid(house) and not bool(house.get_meta("is_collapsing", false)):
+						if _collapse_specific_building(city_id, house, true, false, 0, 0.45):
+							collapse_count += 1
+				if collapse_count >= 22:
+					break
+		"combined":
+			_stress_spawn_crowd(mini(MAX_PEOPLE, people.size() + 30))
+			_stress_spawn_resources(75)
+			while cars.size() < MAX_CARS and not cities.is_empty():
+				_spawn_car(randi_range(0, cities.size() - 1))
+			for debris_index in range(15):
+				_stress_spawn_rubble_piece()
+			if not cities.is_empty():
+				_god_plague(cities[0]["pos"])
+				_god_fire(_stress_city_target(0))
+				_god_fire(_stress_city_target(2))
+				_god_tornado(_stress_city_target(1))
+				for city_id in range(cities.size()):
+					_refresh_city_development(city_id)
+		"combined_pulse":
+			_stress_spawn_crowd(mini(MAX_PEOPLE, people.size() + 3))
+			_stress_spawn_resources(8)
+			for debris_index in range(3):
+				_stress_spawn_rubble_piece()
+			if not cities.is_empty():
+				_god_fire(_stress_city_target(randi_range(0, cities.size() - 1)))
+				if tornadoes.size() < 5:
+					_god_tornado(_stress_city_target(randi_range(0, cities.size() - 1)))
+				for city_id in range(cities.size()):
+					_queue_city_development(city_id)
+		_:
+			return
+
+
+func _stress_create_extra_cities(target_city_count: int) -> void:
+	while cities.size() < target_city_count:
+		var site_found: bool = false
+		var candidate_position: Vector3 = Vector3.ZERO
+		for attempt in range(120):
+			var x: float = randf_range(-TERRAIN_SIZE * 0.40, TERRAIN_SIZE * 0.40)
+			var z: float = randf_range(-TERRAIN_SIZE * 0.40, TERRAIN_SIZE * 0.40)
+			var surface: Vector3 = _surface_position(x, z)
+			if surface.y <= WATER_LEVEL + 0.55:
+				continue
+			var has_room: bool = true
+			for existing_city in cities:
+				var existing_position: Vector3 = existing_city["pos"]
+				if Vector2(existing_position.x - surface.x, existing_position.z - surface.z).length() < 30.0:
+					has_room = false
+					break
+			if has_room:
+				candidate_position = surface
+				site_found = true
+				break
+		if not site_found:
+			_stress_emit("STRESS_WARNING|could_not_place_additional_city|cities=%d|target=%d" % [cities.size(), target_city_count])
+			break
+		var city_name: String = "Stress City %d" % (cities.size() + 1)
+		var color: Color = city_colors[cities.size() % city_colors.size()]
+		var new_city_id: int = _create_city(candidate_position, city_name, color)
+		cities[new_city_id]["treasury"] = 5000.0
+		cities[new_city_id]["wood"] = 45.0
+		cities[new_city_id]["stone"] = 35.0
+		cities[new_city_id]["iron"] = 30.0
+		cities[new_city_id]["copper"] = 25.0
+		cities[new_city_id]["coal"] = 35.0
+
+
+func _stress_spawn_crowd(target_people: int) -> void:
+	var population_by_city: Array[int] = []
+	population_by_city.resize(cities.size())
+	population_by_city.fill(0)
+	for person in people:
+		var city_id: int = int(person.get("city_id", -1))
+		if city_id >= 0 and city_id < population_by_city.size():
+			population_by_city[city_id] += 1
+	var spawn_sequence: int = 0
+	while people.size() < mini(target_people, MAX_PEOPLE) and people.size() < MAX_PEOPLE and not cities.is_empty():
+		var selected_city_id: int = 0
+		for city_id in range(1, cities.size()):
+			if population_by_city[city_id] < population_by_city[selected_city_id]:
+				selected_city_id = city_id
+		var city_position: Vector3 = cities[selected_city_id]["pos"]
+		var angle: float = float(spawn_sequence) * 2.39996
+		var radius: float = 4.0 + float(spawn_sequence % 17) * 0.70
+		var x: float = clampf(city_position.x + cos(angle) * radius, -TERRAIN_SIZE * 0.47, TERRAIN_SIZE * 0.47)
+		var z: float = clampf(city_position.z + sin(angle) * radius, -TERRAIN_SIZE * 0.47, TERRAIN_SIZE * 0.47)
+		var spawn_position: Vector3 = _surface_position(x, z)
+		if spawn_position.y <= WATER_LEVEL + 0.1:
+			spawn_position = _surface_position(city_position.x, city_position.z)
+		_spawn_human(spawn_position, selected_city_id)
+		population_by_city[selected_city_id] += 1
+		spawn_sequence += 1
+
+
+func _stress_spawn_resources(amount: int) -> void:
+	var kinds: Array[String] = ["tree", "stone", "food", "iron_ore", "copper_ore", "coal", "gold_ore"]
+	if cities.is_empty():
+		return
+	for resource_index in range(amount):
+		var city_id: int = resource_index % cities.size()
+		var city_position: Vector3 = cities[city_id]["pos"]
+		var angle: float = float(resource_index) * 2.39996 + float(city_id) * 0.41
+		var radius: float = 12.0 + float(resource_index % 41) * 0.75
+		var x: float = clampf(city_position.x + cos(angle) * radius, -TERRAIN_SIZE * 0.48, TERRAIN_SIZE * 0.48)
+		var z: float = clampf(city_position.z + sin(angle) * radius, -TERRAIN_SIZE * 0.48, TERRAIN_SIZE * 0.48)
+		var candidate: Vector3 = _surface_position(x, z)
+		if candidate.y <= WATER_LEVEL + 0.1:
+			candidate = _surface_position(city_position.x, city_position.z)
+		_spawn_resource(candidate, kinds[resource_index % kinds.size()], randi_range(4, 12))
+
+
+func _stress_spawn_rubble_piece() -> void:
+	if cities.is_empty():
+		return
+	var city_id: int = randi_range(0, cities.size() - 1)
+	var city_position: Vector3 = cities[city_id]["pos"]
+	var angle: float = randf() * TAU
+	var radius: float = randf_range(0.0, 25.0)
+	var debris_position: Vector3 = _surface_position(city_position.x + cos(angle) * radius, city_position.z + sin(angle) * radius)
+	var tall: bool = randf() < 0.25
+	_spawn_persistent_rubble(debris_position, tall, cities[city_id]["color"], true, "building")
+
+
+func _stress_city_target(offset: int = 0) -> Vector3:
+	if cities.is_empty():
+		return Vector3.ZERO
+	var city_id: int = posmod(offset, cities.size())
+	var city_position: Vector3 = cities[city_id]["pos"]
+	var angle: float = float(offset + stress_scenario_index + 1) * 1.618
+	var radius: float = 3.0 + float((offset * 3) % 6) * 1.2
+	return _surface_position(city_position.x + cos(angle) * radius, city_position.z + sin(angle) * radius)
 
 func _total_building_count() -> int:
 	var total: int = 0
@@ -415,9 +800,13 @@ func _process(delta: float) -> void:
 		var ui_started_usec: int = Time.get_ticks_usec()
 		_refresh_ui()
 		_trace_slow_operation("ui-refresh", ui_started_usec)
+	if stress_suite_active:
+		_tick_runtime_stress_tests()
 	var frame_elapsed_usec: int = Time.get_ticks_usec() - frame_started_usec
 	if frame_elapsed_usec >= FRAME_HITCH_THRESHOLD_USEC:
 		_write_performance_sample("FRAME-HITCH", frame_elapsed_usec)
+	if stress_suite_active:
+		_record_runtime_stress_frame(delta, frame_elapsed_usec)
 	# Start this cooldown only after synchronous construction/mesh work has
 	# finished. A slow build must not overrun a cooldown stamped at its start.
 	if building_visual_mutation_consumed_this_frame:
