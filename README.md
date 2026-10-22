@@ -64,7 +64,7 @@ The Windows build is currently unsigned. Direct downloads avoid the Actions ZIP 
 - A debug-era selector can jump directly to test years from 1200 through 2026.
 - Select any city and take control of it.
 - Order missile strikes and invasions against rival cities.
-- Armies march, fight, capture cities, and trigger AI wars.
+- Combined-arms warfare evolves with the era: visible infantry squads, tanks (from 1916), aircraft (from 1945), attack helicopters (from 1970), and modern APCs (from 2000). Each unit type has its own model, speed, attack range, damage, and durability. Armies march toward enemy cities, fight, capture cities, and trigger AI wars.
 - Pause and simulation speed controls.
 - Native 3D desktop UI with refreshed dark panels, rounded controls, hover states, and clearer world-simulation branding.
 - Automatic Windows/Linux validation, main-scene smoke tests, save/load regression tests, and desktop exports through GitHub Actions.
