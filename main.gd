@@ -2269,7 +2269,7 @@ func _rebuild_city_roads(city_id: int) -> void:
 			for side_x in [-1.0, 1.0]:
 				for side_z in [-1.0, 1.0]:
 					if not _road_point_damaged(city_id, Vector2(x_value + side_x * 1.05, z_value + side_z * 1.05), 0.12):
-					_add_sidewalk_corner(sidewalk_surface, city_position, x_value, z_value, side_x, side_z)
+						_add_sidewalk_corner(sidewalk_surface, city_position, x_value, z_value, side_x, side_z)
 			if _world_year() >= 1900:
 				for stripe_index in range(4):
 					var stripe_offset: float = 0.95 + float(stripe_index) * 0.25
