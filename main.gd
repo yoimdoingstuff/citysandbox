@@ -2083,7 +2083,7 @@ func _setup_construction_site(house: Node3D, city_id: int, building_type: int, p
 		Vector3(half + 0.45, 0.0, half + 0.35)
 	]
 	var assigned_workers: int = 0
-	var assigned_worker_indices: Array[int] = []
+	var assigned_worker_entries: Array[Dictionary] = []
 	for person_index in range(people.size()):
 		if assigned_workers >= worker_targets.size():
 			break
@@ -2103,7 +2103,7 @@ func _setup_construction_site(house: Node3D, city_id: int, building_type: int, p
 		person["walk_timer"] = 999.0
 		person["indoor_house"] = null
 		people[person_index] = person
-		assigned_worker_indices.append(person_index)
+		assigned_worker_entries.append({"person": person, "phase_index": person_index})
 		assigned_workers += 1
 	construction_sites.append({
 		"id": site_id, "node": house, "city_id": city_id,
@@ -2111,7 +2111,7 @@ func _setup_construction_site(house: Node3D, city_id: int, building_type: int, p
 		"progress": clampf(progress, 0.0, 0.99),
 		"duration": randf_range(6.0, 10.0) if refurbishment else randf_range(10.0, 18.0),
 		"refurbishment": refurbishment, "scaffold": scaffold, "phase": randf() * TAU,
-		"worker_count": assigned_workers, "worker_indices": assigned_worker_indices, "pad_size": pad_size
+		"worker_count": assigned_workers, "worker_entries": assigned_worker_entries, "pad_size": pad_size
 	})
 
 
@@ -2128,19 +2128,15 @@ func _cancel_construction_site(house: Node3D) -> void:
 		if site.get("node") != house:
 			continue
 		var site_id: int = int(site.get("id", -1))
-		var worker_indices: Array = site.get("worker_indices", [])
-		for raw_person_index in worker_indices:
-			var person_index: int = int(raw_person_index)
-			if person_index < 0 or person_index >= people.size():
-				continue
-			var person: Dictionary = people[person_index]
+		var worker_entries: Array = site.get("worker_entries", [])
+		for worker_entry in worker_entries:
+			var person: Dictionary = worker_entry.get("person", {})
 			if int(person.get("construction_site_id", -1)) != site_id:
 				continue
 			person["construction_site_id"] = -1
 			person["activity"] = "wandering"
 			person["walk_timer"] = 0.0
 			person["activity_timer"] = 0.0
-			people[person_index] = person
 		construction_sites.remove_at(site_index)
 		return
 
@@ -2159,25 +2155,22 @@ func _update_construction_sites(delta: float) -> void:
 		var scaffold: Node3D = site.get("scaffold") as Node3D
 		if is_instance_valid(scaffold):
 			scaffold.scale.y = 0.32 + progress * 0.68
-		var worker_indices: Array = site.get("worker_indices", [])
-		for raw_person_index in worker_indices:
-			var person_index: int = int(raw_person_index)
-			if person_index < 0 or person_index >= people.size():
-				continue
-			var person: Dictionary = people[person_index]
+		var worker_entries: Array = site.get("worker_entries", [])
+		for worker_entry in worker_entries:
+			var person: Dictionary = worker_entry.get("person", {})
 			if int(person.get("construction_site_id", -1)) != int(site["id"]):
 				continue
 			var worker_node: Node3D = person.get("node") as Node3D
-			if not is_instance_valid(worker_node):
+			if not bool(person.get("alive", true)) or not is_instance_valid(worker_node):
 				continue
 			var activity: String = str(person.get("activity", ""))
 			if activity == "constructing":
-				var phase: float = float(site["phase"]) + float(person_index) * 0.75
+				var phase_index: int = int(worker_entry.get("phase_index", 0))
+				var phase: float = float(site["phase"]) + float(phase_index) * 0.75
 				var reach: float = float(site["pad_size"]) * 0.35
 				var worker_position: Vector3 = _surface_position(house.global_position.x + cos(phase) * reach, house.global_position.z + sin(phase) * reach)
 				person["pos"] = worker_position
 				person["target"] = worker_position
-				people[person_index] = person
 				worker_node.position = worker_position
 				worker_node.rotation.y = -phase
 				var arm: Node3D = person.get("right_arm") as Node3D
@@ -2191,11 +2184,8 @@ func _update_construction_sites(delta: float) -> void:
 			for child in house.get_children():
 				child.free()
 			house.set_meta("is_construction_site", false)
-			for raw_person_index in worker_indices:
-				var person_index: int = int(raw_person_index)
-				if person_index < 0 or person_index >= people.size():
-					continue
-				var person: Dictionary = people[person_index]
+			for worker_entry in worker_entries:
+				var person: Dictionary = worker_entry.get("person", {})
 				if int(person.get("construction_site_id", -1)) != site_id:
 					continue
 				person["construction_site_id"] = -1
@@ -2203,7 +2193,6 @@ func _update_construction_sites(delta: float) -> void:
 				person["activity_timer"] = 0.0
 				person["walk_timer"] = 0.0
 				person["target"] = _choose_citizen_street_target(city_id, person.get("pos", house.global_position), 12.0)
-				people[person_index] = person
 			house.set_meta("is_refurbishment_site", false)
 			var completed_house_index: int = -1
 			var city_houses: Array = cities[city_id]["houses"]
