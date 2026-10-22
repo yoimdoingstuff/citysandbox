@@ -9,6 +9,8 @@ const MAX_CITY_POPULATION: int = 600
 const MAX_CITY_HOUSES: int = 140
 const MAX_BUILDINGS_PER_DEVELOPMENT_TICK: int = 1
 const MAX_BUILDING_STARTS_PER_FRAME: int = 1
+const BUILDING_VISUAL_MUTATION_INTERVAL_USEC: int = 120000
+const CITY_ROAD_REBUILD_INTERVAL_USEC: int = 450000
 const MAX_CARS: int = 36
 const ROAD_GRID_SIZE: float = 7.5
 const WATER_LEVEL: float = -0.15
@@ -91,7 +93,8 @@ var pending_city_development: Array[int] = []
 var pending_city_development_set: Dictionary = {}
 var pending_city_road_rebuilds: Array[int] = []
 var pending_city_road_rebuild_set: Dictionary = {}
-var city_road_rebuild_cooldown: float = 0.0
+var next_city_road_rebuild_usec: int = 0
+var next_building_visual_mutation_usec: int = 0
 var building_start_budget_remaining: int = 0
 var in_simulation_frame: bool = false
 var people_lod_proxy: MultiMeshInstance3D
@@ -314,10 +317,9 @@ func _process(delta: float) -> void:
 	var frame_started_usec: int = Time.get_ticks_usec()
 	performance_frame_count += 1
 	in_simulation_frame = not paused
-	building_start_budget_remaining = MAX_BUILDING_STARTS_PER_FRAME
+	building_start_budget_remaining = MAX_BUILDING_STARTS_PER_FRAME if Time.get_ticks_usec() >= next_building_visual_mutation_usec else 0
 	detail_refresh_cooldown = maxf(0.0, detail_refresh_cooldown - delta)
 	people_lod_refresh_cooldown = maxf(0.0, people_lod_refresh_cooldown - delta)
-	city_road_rebuild_cooldown = maxf(0.0, city_road_rebuild_cooldown - delta)
 	_process_one_pending_city_road_rebuild()
 	_update_traffic_lights(delta)
 	if not paused:
@@ -2165,6 +2167,8 @@ func _update_construction_sites(delta: float) -> void:
 			construction_sites.remove_at(site_index)
 			continue
 		var progress: float = minf(1.0, float(site.get("progress", 0.0)) + delta / maxf(4.0, float(site.get("duration", 14.0))))
+		if progress >= 1.0 and in_simulation_frame and building_start_budget_remaining <= 0:
+			progress = 0.999
 		site["progress"] = progress
 		house.set_meta("construction_progress", progress)
 		site["phase"] = float(site.get("phase", 0.0)) + delta * 2.8
@@ -2194,6 +2198,9 @@ func _update_construction_sites(delta: float) -> void:
 					arm.rotation.x = sin(phase * 3.0) * 0.75
 		construction_sites[site_index] = site
 		if progress >= 1.0:
+			if in_simulation_frame:
+				building_start_budget_remaining = maxi(0, building_start_budget_remaining - 1)
+				next_building_visual_mutation_usec = Time.get_ticks_usec() + BUILDING_VISUAL_MUTATION_INTERVAL_USEC
 			var city_id: int = int(site["city_id"])
 			var site_id: int = int(site["id"])
 			construction_sites.remove_at(site_index)
@@ -2237,7 +2244,7 @@ func _queue_city_roads_rebuild(city_id: int) -> void:
 
 
 func _process_one_pending_city_road_rebuild() -> void:
-	if city_road_rebuild_cooldown > 0.0 or pending_city_road_rebuilds.is_empty():
+	if Time.get_ticks_usec() < next_city_road_rebuild_usec or pending_city_road_rebuilds.is_empty():
 		return
 	var city_id: int = pending_city_road_rebuilds.pop_front()
 	pending_city_road_rebuild_set.erase(city_id)
@@ -2246,7 +2253,7 @@ func _process_one_pending_city_road_rebuild() -> void:
 	var road_started_usec: int = Time.get_ticks_usec()
 	_rebuild_city_roads(city_id)
 	_trace_slow_operation("city-road-mesh-rebuild", road_started_usec)
-	city_road_rebuild_cooldown = 0.24
+	next_city_road_rebuild_usec = Time.get_ticks_usec() + CITY_ROAD_REBUILD_INTERVAL_USEC
 
 
 func _queue_city_development(city_id: int) -> void:
@@ -2376,6 +2383,7 @@ func _sync_city_buildings(city_id: int) -> bool:
 		city["node"].add_child(house)
 		if in_simulation_frame:
 			building_start_budget_remaining = maxi(0, building_start_budget_remaining - 1)
+			next_building_visual_mutation_usec = Time.get_ticks_usec() + BUILDING_VISUAL_MUTATION_INTERVAL_USEC
 
 		var building_type: int = pending_building_type
 		house.set_meta("building_type", building_type)
@@ -7147,7 +7155,8 @@ func _clear_loaded_world() -> void:
 	pending_city_development_set.clear()
 	pending_city_road_rebuilds.clear()
 	pending_city_road_rebuild_set.clear()
-	city_road_rebuild_cooldown = 0.0
+	next_city_road_rebuild_usec = 0
+	next_building_visual_mutation_usec = 0
 	building_start_budget_remaining = 0
 	in_simulation_frame = false
 	for existing_child in get_children():
