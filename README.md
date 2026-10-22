@@ -6,7 +6,15 @@ This is a prototype, not a finished commercial-scale game. It uses procedural ge
 
 ## Download a build
 
-Open the repository's **Actions** tab and download the latest `Civiterra-desktop-builds` artifact from a successful **Build desktop game** run. The artifact includes a Windows x86-64 executable and a Linux x86-64 build. GitHub Actions produces these from the source whenever code is pushed to `main` and can also be run manually.
+**Direct Windows download:** [Civiterra.exe](https://github.com/yoimdoingstuff/citysandbox/releases/download/civiterra-latest/Civiterra.exe)
+
+**Direct Linux download:** [Civiterra.x86_64](https://github.com/yoimdoingstuff/citysandbox/releases/download/civiterra-latest/Civiterra.x86_64)
+
+**Checksums:** [SHA256SUMS.txt](https://github.com/yoimdoingstuff/citysandbox/releases/download/civiterra-latest/SHA256SUMS.txt) · [All release assets](https://github.com/yoimdoingstuff/citysandbox/releases/tag/civiterra-latest)
+
+GitHub Actions updates these direct-download assets after validation, save/load tests, and successful Windows/Linux exports. The usual Actions artifact is still available for diagnostics, but downloading that artifact causes GitHub to wrap the files in a ZIP.
+
+The Windows build is currently unsigned. Direct downloads avoid the Actions ZIP wrapper, but they cannot force Google Chrome Safe Browsing or Windows SmartScreen to trust a new executable. Those reputation warnings may persist until the app has established reputation or is signed with a trusted code-signing certificate. Compare the downloaded file's SHA-256 hash against `SHA256SUMS.txt` if you need to verify its integrity.
 
 ## Roadmap
 
@@ -30,14 +38,21 @@ Open the repository's **Actions** tab and download the latest `Civiterra-desktop
 - Brush-radius preview follows the real terrain surface; terrain/resource tools can be painted by dragging.
 - Humans wander, join nearby settlements, and can spontaneously found towns when enough gather.
 - Cities progress through visible village, town, city, metropolis, and megacity stages as population grows; larger stages add more homes and expand the central landmark.
-- City neighbourhoods now mix homes, apartments, workshops, and civic/commercial buildings with doors, windows, and other small details.
+- City neighbourhoods mix homes, apartments, workshops, civic/commercial buildings, era-specific facades, multi-sided windows, and streetscape details. Skyscrapers are rebuilt as complete structures, gated by the city's age, population, and wealth instead of growing on top of medieval houses.
+- Cities have a larger 256-unit world with multiple broad landmasses, leaving more room for grids, neighbourhoods, and city expansion.
+- Grid roads now have separate sidewalk meshes; pedestrians route along sidewalk strips, enter houses and disappear indoors for a while, and sometimes board moving cars. Only nearby citizens render as detailed characters.
 - Farms provide food, workshops convert a little wood into wealth, apartments and commercial buildings contribute to prosperity, and commercial buildings gradually improve city security.
 - New buildings search for open land and avoid obvious overlaps, so coastal towns expand along the available terrain instead of placing houses in the sea.
 - Initial condition-driven city events include protests, strikes, rebellions, bank robberies, rare extremist incidents, and positive festivals, influenced by stability, security, food, and wealth.
 - City incidents display temporary floating alerts above the affected settlement as well as entries in the world chronicle.
-- City roads are generated from the town centre to each home, follow terrain height, and rebuild when terrain is sculpted or new houses appear.
+- City roads use a grid with occasional diagonal connectors and terrain-following surfaces. Separate sidewalks give citizens pedestrian routes and rebuild when the street layout changes.
 - Each city has a coloured territory zone that expands as it builds more houses, with shared boundaries calculated when city influence zones meet.
 - Selecting a city smoothly focuses the camera and automatically zooms out when its territory expands; manual camera input overrides auto-zoom.
+- Abandoned cities stop growing new buildings, lose structures gradually to collapse, and eventually become permanent ruins. Ruin states, city buildings, and building/vehicle debris survive save/load.
+- Collapsing skyscrapers can knock nearby buildings down in a bounded chain reaction. Falling structures can kill exposed citizens, destroy nearby cars, scatter lasting rubble, and create wrecks.
+- Living citizens can walk to rubble and spend time cleaning it up, removing debris from the world instead of leaving every disaster site permanently cluttered.
+- Missile strikes can target any point on the playable ground after 1945; hostile armies trigger city defence units that intercept attackers near home.
+- A debug-era selector can jump directly to test years from 1200 through 2026.
 - Select any city and take control of it.
 - Order missile strikes and invasions against rival cities.
 - Armies march, fight, capture cities, and trigger AI wars.
@@ -54,7 +69,8 @@ Open the repository's **Actions** tab and download the latest `Civiterra-desktop
 - **Mouse wheel:** zoom
 - Select a world tool, then click or drag over the island.
 - Choose **Lightning**, **Fire**, **Meteor**, **Tornado**, **Plague**, **Heal / Bless**, **Create Forest**, or **Earthquake**, then click the world to cast it. Blessing cures plague; tornadoes and wildfires move/spread and damage nearby populations.
-- Click a city, choose **Control Selected City**, then choose **Launch Missile** or **Order Invasion** and click a target city.
+- Click a city and choose **TAKE CONTROL**. **Order Invasion** targets another city. **Launch Missile** becomes available in 1945 and lets you click any ground point, including a point outside city centres.
+- Use **DEBUG ERA** in the top bar to jump to historical years for testing. Citizens sometimes go indoors, board cars, and clean debris; car wrecks can be cleared the same way as building rubble.
 
 ## Project status
 
