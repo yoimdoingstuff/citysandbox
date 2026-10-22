@@ -1689,9 +1689,16 @@ func _apply_building_era_appearance(city_id: int, year: int, only_house_index: i
 		var large_plot: bool = bool(house.get_meta("large_plot", false))
 		var previous_visual_era: int = int(house.get_meta("visual_era", -1))
 		if only_house_index < 0 and not update_all and previous_visual_era >= 0 and previous_visual_era < era:
-			# Older building: erect visible scaffolding and refurbish it instead of
-			# instantly swapping every building in the city to the new architecture.
+			# Era renewals are visual mutations too. Queue the city when this frame's
+			# shared building budget is spent, instead of starting one refurbishment
+			# in every city during the same era transition.
+			if in_simulation_frame and building_start_budget_remaining <= 0:
+				_queue_city_development(city_id)
+				break
 			_setup_construction_site(house, city_id, original_type, plot_id, 0.0, true)
+			if in_simulation_frame:
+				building_start_budget_remaining = maxi(0, building_start_budget_remaining - 1)
+				next_building_visual_mutation_usec = Time.get_ticks_usec() + BUILDING_VISUAL_MUTATION_INTERVAL_USEC
 			break
 		var kind: int = original_type
 		# Farms give way to urban blocks after industrialisation.
