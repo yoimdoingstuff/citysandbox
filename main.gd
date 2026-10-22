@@ -14,7 +14,7 @@ const STARTING_YEAR: int = 1200
 const SECONDS_PER_YEAR: float = 3.0
 const TERRITORY_CELL_SIZE: float = 4.0
 const SAVE_PATH: String = "user://civiterra_world.json"
-const SAVE_VERSION: int = 3
+const SAVE_VERSION: int = 4
 const MISSILE_UNLOCK_YEAR: int = 1945
 const ERA_SKIP_YEARS: Array[int] = [1200, 1450, 1780, 1880, 1950, 2000, 2026]
 const TRADE_GOODS: Array[String] = ["food", "wood", "stone", "iron", "copper", "coal", "gold"]
@@ -1824,6 +1824,7 @@ func _refresh_city_development(city_id: int) -> void:
 	if population > 0 and not bool(city.get("ruined", false)):
 		# Cached era/population/wealth bands make this check cheap unless a building needs to change.
 		_apply_building_era_appearance(city_id, _world_year())
+	_ensure_city_infrastructure(city_id, _world_year())
 	if houses_changed or stage_changed:
 		_schedule_city_territory_refresh()
 	city = cities[city_id]
@@ -3443,15 +3444,19 @@ func _update_simulation_timers(delta: float) -> void:
 	growth_timer += delta
 	city_event_timer += delta
 	resource_timer += delta
+	trade_timer += delta
 	founding_timer += delta
 	auto_war_timer += delta
 	if city_event_timer >= 22.0:
 		city_event_timer = 0.0
 		_process_city_events()
 	if resource_timer >= 4.0:
-		resource_timer = 0.0
+		resource_timer = fmod(resource_timer, 4.0)
 		_collect_resources()
 		_update_city_economies()
+	if trade_timer >= 12.0:
+		trade_timer = fmod(trade_timer, 12.0)
+		_update_city_trade()
 	if growth_timer >= 9.0:
 		growth_timer = 0.0
 		_grow_cities()
@@ -4300,7 +4305,8 @@ func _are_at_war(a: int, b: int) -> bool:
 func _declare_war(a: int, b: int) -> void:
 	if not _are_at_war(a, b):
 		wars.append({"a": a, "b": b})
-		_log("WAR: %s vs %s." % [cities[a]["name"], cities[b]["name"]])
+		city_relations[_city_relation_key(a, b)] = -100.0
+		_log("WAR: %s vs %s. Trade between the city-states is suspended." % [cities[a]["name"], cities[b]["name"]])
 
 
 func _make_peace(a: int, b: int) -> void:
@@ -4309,7 +4315,9 @@ func _make_peace(a: int, b: int) -> void:
 		if not ((int(war["a"]) == a and int(war["b"]) == b) or (int(war["a"]) == b and int(war["b"]) == a)):
 			remaining.append(war)
 	wars = remaining
-	_log("A ceasefire was declared between %s and %s." % [cities[a]["name"], cities[b]["name"]])
+	var relation_key: String = _city_relation_key(a, b)
+	city_relations[relation_key] = maxf(-25.0, float(city_relations.get(relation_key, -25.0)))
+	_log("A ceasefire was declared between %s and %s. Trade can resume if supplies and funds allow." % [cities[a]["name"], cities[b]["name"]])
 
 
 func _launch_army(source_id: int, target_id: int, automatic: bool) -> void:
@@ -5986,7 +5994,7 @@ func _build_ui() -> void:
 	city_margin.add_child(city_content)
 	city_content.add_child(_make_label("CITY OVERVIEW", 12, Color(0.46, 0.86, 0.98)))
 	city_info_label = _make_label("Select a city to inspect its status.", 11, Color(0.86, 0.89, 0.91))
-	city_info_label.custom_minimum_size = Vector2(0.0, 126.0)
+	city_info_label.custom_minimum_size = Vector2(0.0, 150.0)
 	city_info_label.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
 	city_content.add_child(city_info_label)
 	control_button = _make_button("TAKE CONTROL", _take_control, Color(0.12, 0.36, 0.43))
@@ -6278,7 +6286,7 @@ func _refresh_ui() -> void:
 			var city: Dictionary = cities[selected_city]
 			var owner_id: int = int(city["owner"])
 			var owner_name: String = cities[owner_id]["name"] if owner_id >= 0 and owner_id < cities.size() else city["name"]
-			city_info_label.text = "%s\n%s · POP %d\nTERRITORY %d land tiles\nSTABILITY %.0f%% · SECURITY %.0f%%\nWEALTH %d · OWNER %s\nFOOD %d · WOOD %d · STONE %d" % [city["name"], _city_stage_name(int(city.get("stage", 0))), _city_population(selected_city), (city.get("territory_cells", {}) as Dictionary).size(), float(city.get("stability", 72.0)), float(city.get("security", 44.0)), int(city.get("wealth", 12.0)), owner_name, int(city["food"]), int(city["wood"]), int(city["stone"])]
+			city_info_label.text = "%s\n%s · POP %d · TERR %d\nSTAB %.0f%% · SEC %.0f%% · WEALTH %d\nFUNDS %d · FOOD %d · WOOD %d · STONE %d\nIRON %d · COPPER %d · COAL %d · GOLD %d\nPOWER %d%% · INTERNET %d%%\nOWNER %s · %s" % [city["name"], _city_stage_name(int(city.get("stage", 0))), _city_population(selected_city), (city.get("territory_cells", {}) as Dictionary).size(), float(city.get("stability", 72.0)), float(city.get("security", 44.0)), int(city.get("wealth", 12.0)), int(city.get("treasury", 0.0)), int(city["food"]), int(city["wood"]), int(city["stone"]), int(city.get("iron", 0.0)), int(city.get("copper", 0.0)), int(city.get("coal", 0.0)), int(city.get("gold", 0.0)), int(city.get("electricity", 0.0)), int(city.get("internet", 0.0)), owner_name, _city_relationship_summary(selected_city)]
 		else:
 			city_info_label.text = "Select a city to inspect it."
 	if is_instance_valid(control_button):
@@ -6428,6 +6436,10 @@ func _update_world_detail_levels() -> void:
 		var far_marker: MeshInstance3D = city["far_marker"]
 		if is_instance_valid(far_marker):
 			far_marker.visible = show_far_markers and not ruined
+		for utility_key in ["power_plant", "internet_hub"]:
+			var utility_node: Node3D = city.get(utility_key) as Node3D
+			if is_instance_valid(utility_node):
+				utility_node.visible = show_neighbourhoods and not ruined
 		var city_label: Label3D = city["label"]
 		if is_instance_valid(city_label):
 			city_label.visible = show_city_labels
@@ -6613,6 +6625,14 @@ func _save_world() -> void:
 			"food": float(city["food"]),
 			"wood": float(city["wood"]),
 			"stone": float(city["stone"]),
+			"iron": float(city.get("iron", 0.0)),
+			"copper": float(city.get("copper", 0.0)),
+			"coal": float(city.get("coal", 0.0)),
+			"gold": float(city.get("gold", 0.0)),
+			"treasury": float(city.get("treasury", 85.0)),
+			"electricity": float(city.get("electricity", 0.0)),
+			"internet": float(city.get("internet", 0.0)),
+			"trade_volume": float(city.get("trade_volume", 0.0)),
 			"stability": float(city.get("stability", 72.0)),
 			"security": float(city.get("security", 44.0)),
 			"wealth": float(city.get("wealth", 12.0)),
@@ -6655,6 +6675,9 @@ func _save_world() -> void:
 
 	var save_data: Dictionary = {
 		"version": SAVE_VERSION,
+		"city_relations": city_relations,
+		"trade_timer": trade_timer,
+		"trade_events_total": trade_events_total,
 		"terrain_size": TERRAIN_SIZE,
 		"world_seed": world_seed,
 		"game_clock": game_clock,
@@ -6761,6 +6784,10 @@ func _load_world() -> void:
 	_rebuild_terrain()
 	game_clock = float(save_data.get("game_clock", 0.0))
 	city_events_total = int(save_data.get("city_events_total", 0))
+	var saved_relations: Variant = save_data.get("city_relations", {})
+	city_relations = saved_relations if typeof(saved_relations) == TYPE_DICTIONARY else {}
+	trade_timer = maxf(0.0, float(save_data.get("trade_timer", 0.0)))
+	trade_events_total = maxi(0, int(save_data.get("trade_events_total", 0)))
 	wars.clear()
 	armies.clear()
 	missiles.clear()
@@ -6788,6 +6815,14 @@ func _load_world() -> void:
 		city["food"] = float(city_data.get("food", 8.0))
 		city["wood"] = float(city_data.get("wood", 5.0))
 		city["stone"] = float(city_data.get("stone", 3.0))
+		city["iron"] = float(city_data.get("iron", 0.0))
+		city["copper"] = float(city_data.get("copper", 0.0))
+		city["coal"] = float(city_data.get("coal", 0.0))
+		city["gold"] = float(city_data.get("gold", 0.0))
+		city["treasury"] = float(city_data.get("treasury", 85.0))
+		city["electricity"] = float(city_data.get("electricity", 0.0))
+		city["internet"] = float(city_data.get("internet", 0.0))
+		city["trade_volume"] = float(city_data.get("trade_volume", 0.0))
 		city["stability"] = float(city_data.get("stability", 72.0))
 		city["security"] = float(city_data.get("security", 44.0))
 		city["wealth"] = float(city_data.get("wealth", 12.0))
@@ -6857,7 +6892,7 @@ func _load_world() -> void:
 		var resource_position: Vector3 = _array_to_vector3(resource_data.get("pos", []))
 		resource_position.y = _height_at(resource_position.x, resource_position.z)
 		var kind: String = str(resource_data.get("type", "tree"))
-		if kind not in ["tree", "stone", "food"]:
+		if kind not in ["tree", "stone", "food", "iron_ore", "copper_ore", "coal", "gold_ore"]:
 			continue
 		_spawn_resource(resource_position, kind, maxi(1, int(resource_data.get("amount", 1))))
 
@@ -6882,6 +6917,7 @@ func _load_world() -> void:
 	_refresh_city_territory(0)
 	for city_id in range(cities.size()):
 		_rebuild_city_roads(city_id)
+		_ensure_city_infrastructure(city_id, _world_year())
 
 	for rubble_entry_data in saved_rubble:
 		if typeof(rubble_entry_data) != TYPE_DICTIONARY:
@@ -6963,9 +6999,122 @@ func _clear_loaded_world() -> void:
 	falling_meteors.clear()
 	tornadoes.clear()
 	wars.clear()
+	city_relations.clear()
+	trade_timer = 0.0
+	trade_events_total = 0
 	selected_city = -1
 	controlled_city = -1
 
+
+func _find_city_utility_site(city_id: int, inner_radius: float, outer_radius: float) -> Vector3:
+	if city_id < 0 or city_id >= cities.size():
+		return Vector3.ZERO
+	var city: Dictionary = cities[city_id]
+	var city_pos: Vector3 = city["pos"]
+	for ring_index in range(32):
+		var radius: float = lerpf(inner_radius, outer_radius, float(ring_index) / 31.0)
+		for spoke in range(8):
+			var angle: float = float(spoke) * TAU / 8.0 + float(city_id) * 0.41 + float(ring_index) * 0.17
+			var world_x: float = city_pos.x + cos(angle) * radius
+			var world_z: float = city_pos.z + sin(angle) * radius
+			if absf(world_x) >= TERRAIN_SIZE * 0.46 or absf(world_z) >= TERRAIN_SIZE * 0.46 or _height_at(world_x, world_z) <= WATER_LEVEL + 0.25:
+				continue
+			var clear: bool = true
+			for house in city["houses"]:
+				if not is_instance_valid(house):
+					continue
+				var existing_width: float = float(house.get_meta("plot_footprint", 3.6))
+				if Vector2(house.global_position.x - world_x, house.global_position.z - world_z).length() < existing_width * 0.55 + 3.6:
+					clear = false
+					break
+			if not clear:
+				continue
+			for utility_key in ["power_plant", "internet_hub"]:
+				var existing_utility: Node3D = city.get(utility_key) as Node3D
+				if is_instance_valid(existing_utility) and Vector2(existing_utility.global_position.x - world_x, existing_utility.global_position.z - world_z).length() < 7.0:
+					clear = false
+					break
+			if clear:
+				return Vector3(world_x - city_pos.x, _height_at(world_x, world_z) - city_pos.y, world_z - city_pos.z)
+	return Vector3(inner_radius, 0.0, inner_radius)
+
+
+func _create_city_power_plant(city_id: int) -> void:
+	var city: Dictionary = cities[city_id]
+	var plant := Node3D.new()
+	plant.name = "CoalPowerStation"
+	plant.position = _find_city_utility_site(city_id, 24.0, 42.0)
+	city["node"].add_child(plant)
+	var foundation := BoxMesh.new()
+	foundation.size = Vector3(6.8, 0.32, 5.2)
+	_add_mesh(plant, foundation, _material(Color(0.31, 0.33, 0.33)), Vector3(0.0, 0.16, 0.0))
+	var generator_hall := BoxMesh.new()
+	generator_hall.size = Vector3(4.0, 2.7, 3.1)
+	_add_mesh(plant, generator_hall, _material(Color(0.43, 0.46, 0.45)), Vector3(0.0, 1.65, 0.0))
+	var roof := BoxMesh.new()
+	roof.size = Vector3(4.25, 0.22, 3.35)
+	_add_mesh(plant, roof, _material(Color(0.24, 0.27, 0.28)), Vector3(0.0, 3.1, 0.0))
+	for stack_index in range(2):
+		var stack := CylinderMesh.new()
+		stack.top_radius = 0.30
+		stack.bottom_radius = 0.43
+		stack.height = 3.1
+		stack.radial_segments = 8
+		_add_mesh(plant, stack, _material(Color(0.33, 0.31, 0.29)), Vector3((float(stack_index) - 0.5) * 2.25, 4.45, -0.75))
+	city["power_plant"] = plant
+	cities[city_id] = city
+	_log("%s built a coal-fired power station. Electricity now depends on fuel and upkeep." % city["name"])
+
+
+func _create_city_internet_hub(city_id: int) -> void:
+	var city: Dictionary = cities[city_id]
+	var hub := Node3D.new()
+	hub.name = "TelecommunicationsExchange"
+	hub.position = _find_city_utility_site(city_id, 20.0, 38.0)
+	city["node"].add_child(hub)
+	var base := BoxMesh.new()
+	base.size = Vector3(4.6, 1.5, 3.8)
+	_add_mesh(hub, base, _material(Color(0.49, 0.53, 0.55)), Vector3(0.0, 0.75, 0.0))
+	var roof := BoxMesh.new()
+	roof.size = Vector3(4.9, 0.18, 4.1)
+	_add_mesh(hub, roof, _material(Color(0.24, 0.32, 0.37)), Vector3(0.0, 1.58, 0.0))
+	var mast := CylinderMesh.new()
+	mast.top_radius = 0.055
+	mast.bottom_radius = 0.09
+	mast.height = 7.0
+	_add_mesh(hub, mast, _material(Color(0.48, 0.52, 0.52)), Vector3(0.65, 5.0, 0.0))
+	for antenna_index in range(3):
+		var antenna := BoxMesh.new()
+		antenna.size = Vector3(1.3, 0.08, 0.10)
+		_add_mesh(hub, antenna, _material(Color(0.61, 0.72, 0.76)), Vector3(0.65, 4.0 + float(antenna_index) * 0.85, 0.0))
+	city["internet_hub"] = hub
+	cities[city_id] = city
+	_log("%s established a telecommunications exchange. Internet service is now available." % city["name"])
+
+
+func _ensure_city_infrastructure(city_id: int, year: int) -> void:
+	if city_id < 0 or city_id >= cities.size():
+		return
+	var city: Dictionary = cities[city_id]
+	if year >= 1880:
+		if not is_instance_valid(city.get("power_plant")):
+			_create_city_power_plant(city_id)
+	else:
+		var obsolete_plant: Node3D = city.get("power_plant") as Node3D
+		if is_instance_valid(obsolete_plant):
+			obsolete_plant.queue_free()
+		city["power_plant"] = null
+		city["electricity"] = 0.0
+	if year >= 2000:
+		if not is_instance_valid(city.get("internet_hub")):
+			_create_city_internet_hub(city_id)
+	else:
+		var obsolete_hub: Node3D = city.get("internet_hub") as Node3D
+		if is_instance_valid(obsolete_hub):
+			obsolete_hub.queue_free()
+		city["internet_hub"] = null
+		city["internet"] = 0.0
+	cities[city_id] = city
 
 func _world_year() -> int:
 	return STARTING_YEAR + int(game_clock / SECONDS_PER_YEAR)
@@ -7032,6 +7181,7 @@ func _update_historical_era(force: bool = false) -> void:
 	traffic_lights_enabled = lights_available
 	for city_id in range(cities.size()):
 		_apply_building_era_appearance(city_id, year)
+		_ensure_city_infrastructure(city_id, year)
 		# The street plan evolves too: diagonal avenues and broad arterials appear
 		# as the city enters later eras, rather than waiting for its next house.
 		if lights_transitioned or force or era != previous_era:
