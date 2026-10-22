@@ -6786,6 +6786,12 @@ func _update_world_detail_levels() -> void:
 
 
 func _run_save_load_smoke_test() -> void:
+	# The persistence regression includes electricity and internet, so test in a
+	# period where those utilities legitimately exist instead of injecting them
+	# into a medieval save that should remove anachronistic services on load.
+	game_clock = float(2026 - STARTING_YEAR) * SECONDS_PER_YEAR
+	last_architecture_era = -1
+	_update_historical_era(true)
 	reset_speed_on_city_event = true
 	sim_speed = 16.0
 	_record_city_event(0, "SMOKE TEST", Color(0.30, 0.80, 0.95))
