@@ -7,6 +7,7 @@ const TERRAIN_CHUNK_CELLS: int = 48
 const TERRAIN_CHUNKS_PER_AXIS: int = 5
 const TERRAIN_EDIT_REBUILD_INTERVAL: float = 0.12
 const MAX_TERRAIN_CHUNKS_PER_FRAME: int = 2
+const MAX_METEOR_IMPACTS_PER_FRAME: int = 2
 const MAX_CITIES: int = 10
 const MAX_PEOPLE: int = 800
 const MAX_CITY_POPULATION: int = 600
@@ -6779,6 +6780,8 @@ func _god_meteor(position: Vector3) -> void:
 
 func _update_falling_meteors(delta: float) -> void:
 	var terrain_impacts: Array[Vector3] = []
+	var impacts_processed: int = 0
+	var impact_batch_started_usec: int = Time.get_ticks_usec()
 	for i in range(falling_meteors.size() - 1, -1, -1):
 		var meteor: Dictionary = falling_meteors[i]
 		meteor["age"] = float(meteor["age"]) + delta
@@ -6789,7 +6792,14 @@ func _update_falling_meteors(delta: float) -> void:
 		if is_instance_valid(node):
 			node.position = start_position.lerp(target_position + Vector3(0.0, 0.8, 0.0), progress)
 			node.rotate_y(delta * 5.0)
+		if progress >= 1.0 and impacts_processed >= MAX_METEOR_IMPACTS_PER_FRAME:
+			# Keep excess impacts queued at the target. Handling a full meteor volley
+			# synchronously means several city scans, rubble bursts and collapse
+			# animations can all land in one frame. Resolve the remainder next frame.
+			falling_meteors[i] = meteor
+			continue
 		if progress >= 1.0:
+			impacts_processed += 1
 			if is_instance_valid(node):
 				node.queue_free()
 			_spawn_god_effect(target_position, Color(1.0, 0.28, 0.035), maxf(4.0, brush_radius * 1.4), 0.75)
@@ -6801,9 +6811,10 @@ func _update_falling_meteors(delta: float) -> void:
 			falling_meteors[i] = meteor
 
 	if not terrain_impacts.is_empty():
-		# Each crater queued its height edit above. The terrain flush combines all
-		# impacts into one partial mesh rebuild and one world-object scan.
+		# Each crater queues its height edit. The terrain flush merges the crater
+		# areas, then meters the mesh rebuild to two chunks per frame.
 		_log("Terrain lowered by %d meteor impact(s)." % terrain_impacts.size())
+	_trace_slow_operation("meteor-impact-batch", impact_batch_started_usec)
 
 
 func _god_heal(position: Vector3) -> void:
