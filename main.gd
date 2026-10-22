@@ -3,6 +3,9 @@ extends Node3D
 const TERRAIN_RES: int = 241
 const TERRAIN_SIZE: float = 256.0
 const TERRAIN_LOD_STEPS: Array[int] = [1, 2, 4, 8]
+const TERRAIN_CHUNK_CELLS: int = 48
+const TERRAIN_CHUNKS_PER_AXIS: int = 5
+const TERRAIN_EDIT_REBUILD_INTERVAL: float = 0.12
 const MAX_CITIES: int = 10
 const MAX_PEOPLE: int = 800
 const MAX_CITY_POPULATION: int = 600
@@ -46,7 +49,10 @@ const GLASS_PALETTE := [
 var terrain: MeshInstance3D
 var terrain_material: StandardMaterial3D
 var terrain_lod_nodes: Array[MeshInstance3D] = []
+var terrain_lod_chunk_nodes: Array = []
 var terrain_lod_dirty: Array[bool] = [true, true, true, true]
+var pending_terrain_edits: Array[Dictionary] = []
+var terrain_rebuild_cooldown: float = 0.0
 var last_road_terrain_lod: int = -1
 var terrain_moisture_noise: FastNoiseLite
 var terrain_temperature_noise: FastNoiseLite
@@ -764,6 +770,7 @@ func _process(delta: float) -> void:
 	building_visual_mutation_consumed_this_frame = false
 	building_start_budget_remaining = MAX_BUILDING_STARTS_PER_FRAME if Time.get_ticks_usec() >= next_building_visual_mutation_usec else 0
 	detail_refresh_cooldown = maxf(0.0, detail_refresh_cooldown - delta)
+	terrain_rebuild_cooldown = maxf(0.0, terrain_rebuild_cooldown - delta)
 	var occlusion_was_cooling: bool = building_occlusion_refresh_cooldown > 0.0
 	building_occlusion_refresh_cooldown = maxf(0.0, building_occlusion_refresh_cooldown - delta)
 	if occlusion_was_cooling and building_occlusion_refresh_cooldown <= 0.0:
@@ -845,6 +852,8 @@ func _process(delta: float) -> void:
 		var era_started_usec: int = Time.get_ticks_usec()
 		_update_historical_era()
 		_trace_slow_operation("era-refurbishment", era_started_usec)
+	if not pending_terrain_edits.is_empty() and terrain_rebuild_cooldown <= 0.0:
+		_flush_pending_terrain_edits()
 	ui_timer += delta
 	if ui_timer >= 0.35:
 		ui_timer = 0.0
@@ -1001,54 +1010,83 @@ func _generate_terrain_heights() -> void:
 		terrain_heights.append(row)
 
 
+func _ensure_terrain_lod_chunks() -> void:
+	if terrain_lod_chunk_nodes.size() == TERRAIN_LOD_STEPS.size():
+		return
+	terrain_lod_nodes.clear()
+	terrain_lod_chunk_nodes.clear()
+	for lod_index in range(TERRAIN_LOD_STEPS.size()):
+		var chunk_nodes: Array[MeshInstance3D] = []
+		for chunk_z in range(TERRAIN_CHUNKS_PER_AXIS):
+			for chunk_x in range(TERRAIN_CHUNKS_PER_AXIS):
+				var chunk_node: MeshInstance3D
+				if lod_index == 0 and chunk_x == 0 and chunk_z == 0 and is_instance_valid(terrain):
+					chunk_node = terrain
+				else:
+					chunk_node = MeshInstance3D.new()
+					chunk_node.name = "TerrainLOD_%d_Chunk_%d_%d" % [lod_index, chunk_x, chunk_z]
+					add_child(chunk_node)
+				chunk_node.material_override = terrain_material
+				chunk_nodes.append(chunk_node)
+		terrain_lod_chunk_nodes.append(chunk_nodes)
+		terrain_lod_nodes.append(chunk_nodes[0])
+
+
+func _set_active_terrain_lod_visibility(active_lod: int) -> void:
+	for lod_index in range(terrain_lod_chunk_nodes.size()):
+		var chunk_nodes: Array = terrain_lod_chunk_nodes[lod_index]
+		var lod_visible: bool = lod_index == active_lod
+		for chunk_variant in chunk_nodes:
+			var chunk_node: MeshInstance3D = chunk_variant as MeshInstance3D
+			if is_instance_valid(chunk_node):
+				chunk_node.visible = lod_visible
+
+
 func _rebuild_terrain() -> void:
-	# Terrain sculpting invalidates each LOD, but only rebuild the currently
-	# visible one. Other resolutions are regenerated lazily if the player zooms
-	# to them, avoiding four mesh rebuilds for every brush stroke.
-	if terrain_lod_nodes.is_empty():
-		terrain_lod_nodes.append(terrain)
-	while terrain_lod_nodes.size() < TERRAIN_LOD_STEPS.size():
-		var lod_index: int = terrain_lod_nodes.size()
-		var lod_node := MeshInstance3D.new()
-		lod_node.name = "TerrainLOD_%d" % int(ceil(float(TERRAIN_RES - 1) / float(TERRAIN_LOD_STEPS[lod_index])) + 1.0)
-		lod_node.material_override = terrain_material
-		add_child(lod_node)
-		terrain_lod_nodes.append(lod_node)
-
-	if terrain_lod_dirty.size() != TERRAIN_LOD_STEPS.size():
-		terrain_lod_dirty.clear()
-		for lod_index in range(TERRAIN_LOD_STEPS.size()):
-			terrain_lod_dirty.append(true)
-	else:
-		for lod_index in range(TERRAIN_LOD_STEPS.size()):
-			terrain_lod_dirty[lod_index] = true
-
+	# Full rebuild is reserved for initial generation/load and other operations that
+	# replace the whole heightmap. Normal edits rebuild only touched terrain chunks.
+	_ensure_terrain_lod_chunks()
+	for lod_index in range(TERRAIN_LOD_STEPS.size()):
+		terrain_lod_dirty[lod_index] = true
 	var active_lod: int = _terrain_lod_index_for_distance(camera_distance)
 	_build_terrain_lod(active_lod)
-	for lod_index in range(terrain_lod_nodes.size()):
-		terrain_lod_nodes[lod_index].visible = lod_index == active_lod
+	_set_active_terrain_lod_visibility(active_lod)
 
 
 func _build_terrain_lod(lod_index: int) -> void:
-	if lod_index < 0 or lod_index >= terrain_lod_nodes.size():
+	if lod_index < 0 or lod_index >= terrain_lod_chunk_nodes.size():
+		return
+	for chunk_z in range(TERRAIN_CHUNKS_PER_AXIS):
+		for chunk_x in range(TERRAIN_CHUNKS_PER_AXIS):
+			_build_terrain_chunk(lod_index, chunk_x, chunk_z)
+	terrain_lod_dirty[lod_index] = false
+
+
+func _build_terrain_chunk(lod_index: int, chunk_x: int, chunk_z: int) -> void:
+	if lod_index < 0 or lod_index >= terrain_lod_chunk_nodes.size():
+		return
+	if chunk_x < 0 or chunk_x >= TERRAIN_CHUNKS_PER_AXIS or chunk_z < 0 or chunk_z >= TERRAIN_CHUNKS_PER_AXIS:
 		return
 	var stride: int = TERRAIN_LOD_STEPS[lod_index]
 	var spacing: float = TERRAIN_SIZE / float(TERRAIN_RES - 1)
 	var surface := SurfaceTool.new()
 	surface.begin(Mesh.PRIMITIVE_TRIANGLES)
-	for z_index in range(0, TERRAIN_RES - 1, stride):
-		var z_next: int = min(z_index + stride, TERRAIN_RES - 1)
+	var start_x: int = chunk_x * TERRAIN_CHUNK_CELLS
+	var start_z: int = chunk_z * TERRAIN_CHUNK_CELLS
+	var end_x: int = mini(start_x + TERRAIN_CHUNK_CELLS, TERRAIN_RES - 1)
+	var end_z: int = mini(start_z + TERRAIN_CHUNK_CELLS, TERRAIN_RES - 1)
+	for z_index in range(start_z, end_z, stride):
+		var z_next: int = mini(z_index + stride, end_z)
 		var z0: float = -TERRAIN_SIZE * 0.5 + float(z_index) * spacing
 		var z1: float = -TERRAIN_SIZE * 0.5 + float(z_next) * spacing
-		for x_index in range(0, TERRAIN_RES - 1, stride):
-			var x_next: int = min(x_index + stride, TERRAIN_RES - 1)
+		for x_index in range(start_x, end_x, stride):
+			var x_next: int = mini(x_index + stride, end_x)
 			var x0: float = -TERRAIN_SIZE * 0.5 + float(x_index) * spacing
 			var x1: float = -TERRAIN_SIZE * 0.5 + float(x_next) * spacing
 			var p00 := Vector3(x0, terrain_heights[z_index][x_index], z0)
 			var p10 := Vector3(x1, terrain_heights[z_index][x_next], z0)
 			var p01 := Vector3(x0, terrain_heights[z_next][x_index], z1)
 			var p11 := Vector3(x1, terrain_heights[z_next][x_next], z1)
-			# Keep the known working top-facing triangle order for every LOD.
 			_add_terrain_vertex(surface, p00)
 			_add_terrain_vertex(surface, p10)
 			_add_terrain_vertex(surface, p01)
@@ -1057,10 +1095,59 @@ func _build_terrain_lod(lod_index: int) -> void:
 			_add_terrain_vertex(surface, p01)
 	surface.index()
 	surface.generate_normals(true)
-	var lod_node: MeshInstance3D = terrain_lod_nodes[lod_index]
-	lod_node.mesh = surface.commit()
-	lod_node.material_override = terrain_material
-	terrain_lod_dirty[lod_index] = false
+	var chunk_index: int = chunk_z * TERRAIN_CHUNKS_PER_AXIS + chunk_x
+	var chunk_nodes: Array = terrain_lod_chunk_nodes[lod_index]
+	var chunk_node: MeshInstance3D = chunk_nodes[chunk_index] as MeshInstance3D
+	chunk_node.mesh = surface.commit()
+	chunk_node.material_override = terrain_material
+
+
+func _rebuild_terrain_around_many(edits: Array[Dictionary]) -> void:
+	if edits.is_empty():
+		return
+	_ensure_terrain_lod_chunks()
+	for lod_index in range(TERRAIN_LOD_STEPS.size()):
+		terrain_lod_dirty[lod_index] = true
+	var active_lod: int = _terrain_lod_index_for_distance(camera_distance)
+	var spacing: float = TERRAIN_SIZE / float(TERRAIN_RES - 1)
+	var chunks_to_rebuild: Dictionary = {}
+	for edit in edits:
+		var center: Vector3 = edit.get("center", Vector3.ZERO)
+		var radius: float = maxf(0.1, float(edit.get("radius", brush_radius)))
+		var min_x: int = clampi(floori((center.x - radius + TERRAIN_SIZE * 0.5) / spacing), 0, TERRAIN_RES - 1)
+		var max_x: int = clampi(ceili((center.x + radius + TERRAIN_SIZE * 0.5) / spacing), 0, TERRAIN_RES - 1)
+		var min_z: int = clampi(floori((center.z - radius + TERRAIN_SIZE * 0.5) / spacing), 0, TERRAIN_RES - 1)
+		var max_z: int = clampi(ceili((center.z + radius + TERRAIN_SIZE * 0.5) / spacing), 0, TERRAIN_RES - 1)
+		var min_chunk_x: int = clampi(floori(float(min_x) / float(TERRAIN_CHUNK_CELLS)), 0, TERRAIN_CHUNKS_PER_AXIS - 1)
+		var max_chunk_x: int = clampi(floori(float(max_x) / float(TERRAIN_CHUNK_CELLS)), 0, TERRAIN_CHUNKS_PER_AXIS - 1)
+		var min_chunk_z: int = clampi(floori(float(min_z) / float(TERRAIN_CHUNK_CELLS)), 0, TERRAIN_CHUNKS_PER_AXIS - 1)
+		var max_chunk_z: int = clampi(floori(float(max_z) / float(TERRAIN_CHUNK_CELLS)), 0, TERRAIN_CHUNKS_PER_AXIS - 1)
+		for chunk_z in range(min_chunk_z, max_chunk_z + 1):
+			for chunk_x in range(min_chunk_x, max_chunk_x + 1):
+				chunks_to_rebuild[chunk_z * TERRAIN_CHUNKS_PER_AXIS + chunk_x] = true
+	for chunk_key in chunks_to_rebuild.keys():
+		var chunk_index: int = int(chunk_key)
+		var chunk_x: int = posmod(chunk_index, TERRAIN_CHUNKS_PER_AXIS)
+		var chunk_z: int = floori(float(chunk_index) / float(TERRAIN_CHUNKS_PER_AXIS))
+		_build_terrain_chunk(active_lod, chunk_x, chunk_z)
+	terrain_lod_dirty[active_lod] = false
+	_set_active_terrain_lod_visibility(active_lod)
+
+
+func _queue_terrain_edit_update(center: Vector3, radius: float) -> void:
+	pending_terrain_edits.append({"center": center, "radius": maxf(0.1, radius)})
+
+
+func _flush_pending_terrain_edits() -> void:
+	if pending_terrain_edits.is_empty():
+		return
+	var edits: Array[Dictionary] = pending_terrain_edits.duplicate()
+	pending_terrain_edits.clear()
+	var rebuild_started_usec: int = Time.get_ticks_usec()
+	_rebuild_terrain_around_many(edits)
+	_update_placed_object_heights_near_many(edits)
+	terrain_rebuild_cooldown = TERRAIN_EDIT_REBUILD_INTERVAL
+	_trace_slow_operation("terrain-chunk-rebuild-and-object-alignment", rebuild_started_usec)
 
 
 func _terrain_lod_index_for_distance(distance: float) -> int:
@@ -1692,10 +1779,9 @@ func _sculpt_terrain(center: Vector3, amount: float, finalize_edit: bool = true)
 			var strength: float = 1.0 - distance / radius
 			var h: float = float(terrain_heights[z_index][x_index])
 			terrain_heights[z_index][x_index] = clampf(h + amount * strength, -4.5, 10.0)
+	_queue_terrain_edit_update(center, radius)
 	if not finalize_edit:
 		return
-	_rebuild_terrain()
-	_update_placed_object_heights_near(center, radius)
 	_log("Terrain %s." % ("raised" if amount > 0.0 else "lowered"))
 
 
@@ -1751,13 +1837,28 @@ func _update_placed_object_heights() -> void:
 
 
 func _update_placed_object_heights_near(center: Vector3, radius: float) -> void:
-	var radius_squared: float = radius * radius
+	_update_placed_object_heights_near_many([{"center": center, "radius": radius}])
+
+
+func _terrain_edit_affects_point(x: float, z: float, edits: Array[Dictionary], extra_radius: float = 0.0) -> bool:
+	for edit in edits:
+		var center: Vector3 = edit.get("center", Vector3.ZERO)
+		var radius: float = maxf(0.1, float(edit.get("radius", brush_radius))) + extra_radius
+		var dx: float = x - center.x
+		var dz: float = z - center.z
+		if dx * dx + dz * dz <= radius * radius:
+			return true
+	return false
+
+
+func _update_placed_object_heights_near_many(edits: Array[Dictionary]) -> void:
+	if edits.is_empty():
+		return
+	# Scan each world collection once for all brush strokes or meteor craters.
 	for person_index in range(people.size()):
 		var person: Dictionary = people[person_index]
 		var position: Vector3 = person["pos"]
-		var dx: float = position.x - center.x
-		var dz: float = position.z - center.z
-		if dx * dx + dz * dz > radius_squared:
+		if not _terrain_edit_affects_point(position.x, position.z, edits):
 			continue
 		position.y = _height_at(position.x, position.z)
 		person["pos"] = position
@@ -1768,9 +1869,7 @@ func _update_placed_object_heights_near(center: Vector3, radius: float) -> void:
 	for resource_index in range(resources.size()):
 		var resource: Dictionary = resources[resource_index]
 		var position: Vector3 = resource["pos"]
-		var dx: float = position.x - center.x
-		var dz: float = position.z - center.z
-		if dx * dx + dz * dz > radius_squared:
+		if not _terrain_edit_affects_point(position.x, position.z, edits):
 			continue
 		position.y = _height_at(position.x, position.z)
 		resource["pos"] = position
@@ -1781,17 +1880,13 @@ func _update_placed_object_heights_near(center: Vector3, radius: float) -> void:
 	for car_index in range(cars.size()):
 		var car: Dictionary = cars[car_index]
 		var car_position: Vector3 = car["pos"]
-		var car_dx: float = car_position.x - center.x
-		var car_dz: float = car_position.z - center.z
 		var car_changed: bool = false
-		if car_dx * car_dx + car_dz * car_dz <= radius_squared:
+		if _terrain_edit_affects_point(car_position.x, car_position.z, edits):
 			car_position.y = _height_at(car_position.x, car_position.z)
 			car["pos"] = car_position
 			car_changed = true
 		var waypoint: Vector3 = car["waypoint"]
-		var waypoint_dx: float = waypoint.x - center.x
-		var waypoint_dz: float = waypoint.z - center.z
-		if waypoint_dx * waypoint_dx + waypoint_dz * waypoint_dz <= radius_squared:
+		if _terrain_edit_affects_point(waypoint.x, waypoint.z, edits):
 			waypoint.y = _height_at(waypoint.x, waypoint.z)
 			car["waypoint"] = waypoint
 			car_changed = true
@@ -1805,29 +1900,21 @@ func _update_placed_object_heights_near(center: Vector3, radius: float) -> void:
 		var city: Dictionary = cities[city_id]
 		var old_city_position: Vector3 = city["pos"]
 		var city_position: Vector3 = old_city_position
-		var city_dx: float = city_position.x - center.x
-		var city_dz: float = city_position.z - center.z
-		var city_centre_affected: bool = city_dx * city_dx + city_dz * city_dz <= radius_squared
+		var city_centre_affected: bool = _terrain_edit_affects_point(city_position.x, city_position.z, edits)
 		if city_centre_affected:
 			city_position.y = _height_at(city_position.x, city_position.z)
 			city["pos"] = city_position
 			var city_node: Node3D = city.get("node") as Node3D
 			if is_instance_valid(city_node):
 				city_node.position = city_position
-
-		# If the city anchor itself moves vertically, preserve unaffected buildings'
-		# world height while recalculating only plots close enough to the edit.
 		var anchor_y_offset: float = old_city_position.y - city_position.y
 		for house in city["houses"]:
 			if not is_instance_valid(house):
 				continue
 			var house_world_x: float = old_city_position.x + house.position.x
 			var house_world_z: float = old_city_position.z + house.position.z
-			var house_dx: float = house_world_x - center.x
-			var house_dz: float = house_world_z - center.z
 			var grade_radius: float = float(house.get_meta("plot_grade_radius", 2.25)) if bool(house.get_meta("terrain_terraced", false)) else 0.0
-			var house_update_radius: float = radius + maxf(grade_radius, 1.0)
-			if house_dx * house_dx + house_dz * house_dz <= house_update_radius * house_update_radius:
+			if _terrain_edit_affects_point(house_world_x, house_world_z, edits, grade_radius):
 				var base_height: float = _height_at(house_world_x, house_world_z)
 				if grade_radius > 0.0:
 					base_height = _max_terrain_height_in_radius(house_world_x, house_world_z, grade_radius) + 0.18
@@ -1835,13 +1922,19 @@ func _update_placed_object_heights_near(center: Vector3, radius: float) -> void:
 			elif city_centre_affected:
 				house.position.y += anchor_y_offset
 
-		var local_x: float = center.x - city_position.x
-		var local_z: float = center.z - city_position.z
 		var road_min_x: float = float(city.get("road_grid_min_x", -7.5))
 		var road_max_x: float = float(city.get("road_grid_max_x", 7.5))
 		var road_min_z: float = float(city.get("road_grid_min_z", -7.5))
 		var road_max_z: float = float(city.get("road_grid_max_z", 7.5))
-		var road_intersects_edit: bool = local_x + radius >= road_min_x - 1.5 and local_x - radius <= road_max_x + 1.5 and local_z + radius >= road_min_z - 1.5 and local_z - radius <= road_max_z + 1.5
+		var road_intersects_edit: bool = false
+		for edit in edits:
+			var center: Vector3 = edit.get("center", Vector3.ZERO)
+			var radius: float = maxf(0.1, float(edit.get("radius", brush_radius))) + 1.5
+			var local_x: float = center.x - city_position.x
+			var local_z: float = center.z - city_position.z
+			if local_x + radius >= road_min_x and local_x - radius <= road_max_x and local_z + radius >= road_min_z and local_z - radius <= road_max_z:
+				road_intersects_edit = true
+				break
 		if road_intersects_edit or (city_centre_affected and not is_equal_approx(anchor_y_offset, 0.0)):
 			_queue_city_roads_rebuild(city_id)
 		cities[city_id] = city
@@ -1849,9 +1942,7 @@ func _update_placed_object_heights_near(center: Vector3, radius: float) -> void:
 	for army_index in range(armies.size()):
 		var army: Dictionary = armies[army_index]
 		var position: Vector3 = army["pos"]
-		var dx: float = position.x - center.x
-		var dz: float = position.z - center.z
-		if dx * dx + dz * dz > radius_squared:
+		if not _terrain_edit_affects_point(position.x, position.z, edits):
 			continue
 		position.y = _height_at(position.x, position.z)
 		army["pos"] = position
@@ -6526,7 +6617,7 @@ func _power_damage(center: Vector3, radius: float, people_limit: int, resource_c
 	for road_city_id in road_rebuild_city_ids.keys():
 		var affected_city_id: int = int(road_city_id)
 		if affected_city_id >= 0 and affected_city_id < cities.size():
-			_rebuild_city_roads(affected_city_id)
+			_queue_city_roads_rebuild(affected_city_id)
 	_refresh_ui()
 
 
@@ -6648,11 +6739,8 @@ func _update_falling_meteors(delta: float) -> void:
 			falling_meteors[i] = meteor
 
 	if not terrain_impacts.is_empty():
-		# A storm can land several meteors during the same long simulation frame.
-		# Apply every crater first, then rebuild and realign the world once per frame.
-		_rebuild_terrain()
-		for impact_position in terrain_impacts:
-			_update_placed_object_heights_near(impact_position, maxf(0.1, brush_radius))
+		# Each crater queued its height edit above. The terrain flush combines all
+		# impacts into one partial mesh rebuild and one world-object scan.
 		_log("Terrain lowered by %d meteor impact(s)." % terrain_impacts.size())
 
 
@@ -7551,8 +7639,7 @@ func _update_world_detail_levels() -> void:
 		last_road_terrain_lod = active_lod
 		for city_id in range(cities.size()):
 			_queue_city_roads_rebuild(city_id)
-	for lod_index in range(terrain_lod_nodes.size()):
-		terrain_lod_nodes[lod_index].visible = lod_index == active_lod
+	_set_active_terrain_lod_visibility(active_lod)
 	var show_city_models: bool = camera_distance <= 165.0
 	var show_neighbourhoods: bool = camera_distance <= 135.0
 	var show_resources: bool = camera_distance <= 110.0
