@@ -185,6 +185,7 @@ var chronicle_expanded: bool = false
 var traffic_light_records: Array = []
 var traffic_light_timer: float = 0.0
 var detail_refresh_cooldown: float = 0.0
+var building_occlusion_refresh_cooldown: float = 0.0
 var people_lod_refresh_cooldown: float = 0.0
 var traffic_light_phase: int = 0
 var traffic_lights_enabled: bool = false
@@ -763,6 +764,7 @@ func _process(delta: float) -> void:
 	building_visual_mutation_consumed_this_frame = false
 	building_start_budget_remaining = MAX_BUILDING_STARTS_PER_FRAME if Time.get_ticks_usec() >= next_building_visual_mutation_usec else 0
 	detail_refresh_cooldown = maxf(0.0, detail_refresh_cooldown - delta)
+	building_occlusion_refresh_cooldown = maxf(0.0, building_occlusion_refresh_cooldown - delta)
 	people_lod_refresh_cooldown = maxf(0.0, people_lod_refresh_cooldown - delta)
 	_process_one_pending_city_road_rebuild()
 	_update_traffic_lights(delta)
@@ -2642,41 +2644,70 @@ func _is_diagonal_avenue_plot(city_id: int, plot: Vector2i, year: int) -> bool:
 	var city: Dictionary = cities[city_id]
 	if int(city.get("stage", 0)) < 2:
 		return false
+
+	# Five distinct grid/arterial patterns, all grounded in North American and
+	# Australian urban forms. The rectangular local grid stays intact; diagonals
+	# are reserved for major corridors rather than turning the whole city into a
+	# pinwheel of roads.
 	var primary_diagonal: bool = false
-	match city_id % 4:
-		0:
+	match city_id % 5:
+		0: # Los Angeles-inspired: broad diagonal supergrid.
 			primary_diagonal = plot.x == plot.y
-		1:
+		1: # New York-inspired: dense orthogonal grid with a few offset avenues.
 			primary_diagonal = plot.x == -plot.y
-		2:
+		2: # Melbourne-inspired: regular grid with a diagonal CBD cut-through.
 			primary_diagonal = plot.x == plot.y - 2
-		_:
+		3: # San Francisco-inspired: diagonal streets and hillside connectors.
 			primary_diagonal = plot.x == -plot.y + 2
+		_: # Brisbane-inspired: offset arterial crossing the regular street grid.
+			primary_diagonal = plot.x == plot.y + 2
 	if primary_diagonal:
 		return true
-	# Later automobile-era cities often add a second arterial, while the older
-	# street grid remains visible around the historic core.
-	if year >= 1950:
-		if city_id % 2 == 0:
-			return plot.x == -plot.y
-		return plot.x == plot.y
-	return false
+	if year < 1950:
+		return false
+
+	# Auto-era road widening adds a second corridor, with different spacing and
+	# offsets for each planning style so cities do not all copy the same template.
+	match city_id % 5:
+		0:
+			return plot.x == plot.y - 4 or plot.x == plot.y + 4
+		1:
+			return plot.x == -plot.y + 5
+		2:
+			return plot.x == -plot.y + 2
+		3:
+			return plot.x == plot.y
+		_:
+			return plot.x == -plot.y - 2
 
 
-func _large_plot_period_for_year(year: int) -> int:
+func _large_plot_period_for_year(year: int, city_id: int = -1) -> int:
+	var period: int = 16
 	if year >= 2000:
-		return 6
-	if year >= 1950:
-		return 8
-	if year >= 1880:
-		return 11
-	return 16
+		period = 6
+	elif year >= 1950:
+		period = 8
+	elif year >= 1880:
+		period = 11
+	if city_id >= 0:
+		# Dense downtown plans get more multi-lot office/apartment sites, while
+		# hillside and river-edge plans keep more small parcels for irregular lots.
+		match city_id % 5:
+			0:
+				period -= 1
+			1:
+				period -= 1 if year >= 1950 else 0
+			3:
+				period += 1
+			_:
+				pass
+	return maxi(4, period)
 
 
 func _is_large_city_plot(city_id: int, plot_index: int, year: int) -> bool:
 	if year < 1780:
 		return false
-	var period: int = _large_plot_period_for_year(year)
+	var period: int = _large_plot_period_for_year(year, city_id)
 	return (plot_index + city_id * 3) % period == int(period / 2)
 
 
@@ -6558,11 +6589,18 @@ func _update_plague(delta: float) -> void:
 			expired_indices.append(i)
 			expired_lookup[i] = true
 
+	# If no infected citizen is due to spread this frame, don't build a spatial index.
+	# Timer/death handling above is all the work needed until the next spread pulse.
+	if spreader_indices.is_empty():
+		for expired_index in expired_indices:
+			people.remove_at(expired_index)
+		return
+
 	# People only need to be compared with residents in neighbouring 2.25-unit
 	# cells. This turns a crowded plague update from O(infected * population) into
 	# a small local-neighbour query while retaining the same infection radius.
-	const INFECTION_RADIUS: float = 2.25
-	var cell_size: float = INFECTION_RADIUS
+	var infection_radius: float = 2.25
+	var cell_size: float = infection_radius
 	var cells: Dictionary = {}
 	for person_index in range(people.size()):
 		if expired_lookup.has(person_index):
@@ -6573,7 +6611,7 @@ func _update_plague(delta: float) -> void:
 		bucket.append(person_index)
 		cells[cell] = bucket
 
-	var infection_radius_squared: float = INFECTION_RADIUS * INFECTION_RADIUS
+	var infection_radius_squared: float = infection_radius * infection_radius
 	for spreader_index in spreader_indices:
 		var infected_position: Vector3 = people[spreader_index]["pos"]
 		var source_cell := Vector2i(floori(infected_position.x / cell_size), floori(infected_position.z / cell_size))
@@ -7293,6 +7331,7 @@ func _cull_buildings_behind_nearby_structures() -> void:
 			if occluder_bounds.has_point(center):
 				occluded = true
 				break
+		building.set_meta("lod_occluded", occluded)
 		building.visible = not occluded
 		if not occluded and building_height >= 6.0:
 			var record := {"distance": depth, "height": building_height, "bounds": candidate["bounds"]}
@@ -7397,8 +7436,16 @@ func _update_world_detail_levels() -> void:
 			var top_point: Vector3 = house.global_position + Vector3(0.0, building_height, 0.0)
 			var in_frustum: bool = _is_point_in_camera_view(view_point, 54.0) or _is_point_in_camera_view(top_point, 54.0)
 			var distance_squared: float = house.global_position.distance_squared_to(camera.global_position)
-			house.visible = show_neighbourhoods and not ruined and distance_squared <= 220.0 * 220.0 and in_frustum
-	_cull_buildings_behind_nearby_structures()
+			var base_visible: bool = show_neighbourhoods and not ruined and distance_squared <= 220.0 * 220.0 and in_frustum
+			if building_occlusion_refresh_cooldown > 0.0:
+				house.visible = base_visible and not bool(house.get_meta("lod_occluded", false))
+			else:
+				house.visible = base_visible
+	if building_occlusion_refresh_cooldown <= 0.0:
+		var occlusion_started_usec: int = Time.get_ticks_usec()
+		_cull_buildings_behind_nearby_structures()
+		_trace_slow_operation("building-occlusion-culling", occlusion_started_usec)
+		building_occlusion_refresh_cooldown = 0.85
 	var person_range: float = clampf(camera_distance * 0.54, 22.0, 68.0)
 	var person_range_squared: float = person_range * person_range
 	for person in people:
