@@ -6,6 +6,7 @@ const TERRAIN_LOD_STEPS: Array[int] = [1, 2, 4, 8]
 const TERRAIN_CHUNK_CELLS: int = 48
 const TERRAIN_CHUNKS_PER_AXIS: int = 5
 const TERRAIN_EDIT_REBUILD_INTERVAL: float = 0.12
+const MAX_TERRAIN_CHUNKS_PER_FRAME: int = 2
 const MAX_CITIES: int = 10
 const MAX_PEOPLE: int = 800
 const MAX_CITY_POPULATION: int = 600
@@ -52,6 +53,7 @@ var terrain_lod_nodes: Array[MeshInstance3D] = []
 var terrain_lod_chunk_nodes: Array = []
 var terrain_lod_dirty: Array[bool] = [true, true, true, true]
 var pending_terrain_edits: Array[Dictionary] = []
+var pending_terrain_chunk_updates: Dictionary = {}
 var terrain_rebuild_cooldown: float = 0.0
 var last_road_terrain_lod: int = -1
 var terrain_moisture_noise: FastNoiseLite
@@ -859,6 +861,7 @@ func _process(delta: float) -> void:
 		_trace_slow_operation("era-refurbishment", era_started_usec)
 	if not pending_terrain_edits.is_empty() and terrain_rebuild_cooldown <= 0.0:
 		_flush_pending_terrain_edits()
+	_process_pending_terrain_chunk_updates()
 	ui_timer += delta
 	if ui_timer >= 0.35:
 		ui_timer = 0.0
@@ -1073,6 +1076,10 @@ func _build_terrain_lod(lod_index: int) -> void:
 		for chunk_x in range(TERRAIN_CHUNKS_PER_AXIS):
 			_build_terrain_chunk(lod_index, chunk_x, chunk_z)
 	terrain_lod_dirty[lod_index] = false
+	# A full active-LOD build includes every edit already applied to the heightmap,
+	# so any incremental chunk work queued for that same visible LOD is redundant.
+	if lod_index == _terrain_lod_index_for_distance(camera_distance):
+		pending_terrain_chunk_updates.clear()
 
 
 func _build_terrain_chunk(lod_index: int, chunk_x: int, chunk_z: int) -> void:
@@ -1129,8 +1136,6 @@ func _rebuild_terrain_around_many(edits: Array[Dictionary]) -> void:
 		terrain_lod_dirty[lod_index] = true
 	var active_lod: int = _terrain_lod_index_for_distance(camera_distance)
 	var spacing: float = TERRAIN_SIZE / float(TERRAIN_RES - 1)
-	var chunks_to_rebuild: Dictionary = {}
-	var chunk_mesh_started_usec: int = Time.get_ticks_usec()
 	for edit in edits:
 		var center: Vector3 = edit.get("center", Vector3.ZERO)
 		var radius: float = maxf(0.1, float(edit.get("radius", brush_radius)))
@@ -1144,15 +1149,38 @@ func _rebuild_terrain_around_many(edits: Array[Dictionary]) -> void:
 		var max_chunk_z: int = clampi(floori(float(max_z) / float(TERRAIN_CHUNK_CELLS)), 0, TERRAIN_CHUNKS_PER_AXIS - 1)
 		for chunk_z in range(min_chunk_z, max_chunk_z + 1):
 			for chunk_x in range(min_chunk_x, max_chunk_x + 1):
-				chunks_to_rebuild[chunk_z * TERRAIN_CHUNKS_PER_AXIS + chunk_x] = true
-	for chunk_key in chunks_to_rebuild.keys():
+				var chunk_index: int = chunk_z * TERRAIN_CHUNKS_PER_AXIS + chunk_x
+				pending_terrain_chunk_updates[chunk_index] = true
+
+	# The heightmap has already been edited. Rebuild only a small number of affected
+	# meshes per frame instead of committing several chunks on the brush/disaster
+	# frame. A full LOD rebuild remains the fallback when the camera changes LOD.
+	terrain_lod_dirty[active_lod] = false
+	_set_active_terrain_lod_visibility(active_lod)
+
+
+func _process_pending_terrain_chunk_updates() -> void:
+	if pending_terrain_chunk_updates.is_empty():
+		return
+	var active_lod: int = _terrain_lod_index_for_distance(camera_distance)
+	if active_lod < 0 or active_lod >= terrain_lod_dirty.size() or terrain_lod_dirty[active_lod]:
+		# A pending LOD transition will rebuild the complete visible mesh once.
+		return
+	var started_usec: int = Time.get_ticks_usec()
+	var chunk_keys: Array = pending_terrain_chunk_updates.keys()
+	chunk_keys.sort()
+	var rebuilt_count: int = 0
+	for chunk_key in chunk_keys:
+		if rebuilt_count >= MAX_TERRAIN_CHUNKS_PER_FRAME:
+			break
 		var chunk_index: int = int(chunk_key)
 		var chunk_x: int = posmod(chunk_index, TERRAIN_CHUNKS_PER_AXIS)
 		var chunk_z: int = floori(float(chunk_index) / float(TERRAIN_CHUNKS_PER_AXIS))
 		_build_terrain_chunk(active_lod, chunk_x, chunk_z)
-	_trace_slow_operation("terrain-mesh-chunks-only", chunk_mesh_started_usec)
+		pending_terrain_chunk_updates.erase(chunk_index)
+		rebuilt_count += 1
 	terrain_lod_dirty[active_lod] = false
-	_set_active_terrain_lod_visibility(active_lod)
+	_trace_slow_operation("terrain-mesh-chunk-budget", started_usec)
 
 
 func _queue_terrain_edit_update(center: Vector3, radius: float) -> void:
