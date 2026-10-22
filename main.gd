@@ -3484,9 +3484,11 @@ func _collapse_specific_building(city_id: int, house: Node3D, allow_chain: bool 
 	var local_position: Vector3 = house.position
 	var building_height: float = float(house.get_meta("building_height", 2.0 * house.scale.y))
 	var tall_building: bool = building_height >= 5.0 or bool(house.get_meta("is_skyscraper", false))
+	var fall_angle: float = randf() * TAU
+	var fall_direction := Vector2(cos(fall_angle), sin(fall_angle))
 	_kill_people_near_falling_building(impact_position, clampf(building_height * 0.23 + 1.6, 2.2, 7.0))
 	_destroy_cars_in_radius(impact_position, clampf(building_height * 0.18 + 2.0, 2.8, 6.5))
-	_animate_building_fall(house, tall_building, city["color"])
+	_animate_building_fall(house, tall_building, city["color"], fall_direction)
 	houses.remove_at(house_index)
 	city["houses"] = houses
 	city["destroyed_building_debt"] = int(city.get("destroyed_building_debt", 0)) + 1
@@ -3494,8 +3496,6 @@ func _collapse_specific_building(city_id: int, house: Node3D, allow_chain: bool 
 	# A tall building can knock into a neighbour. Limit cascades to four structures,
 	# so a metropolitan disaster cannot turn into an unbounded chain.
 	if allow_chain and chain_depth < 3 and (tall_building or randf() < 0.12):
-		var angle: float = randf() * TAU
-		var fall_direction := Vector2(cos(angle), sin(angle))
 		var chain_radius: float = minf(21.0, maxf(7.8, building_height * 0.62 + 2.0))
 		var target_house: Node3D = null
 		var target_score: float = INF
@@ -3527,9 +3527,13 @@ func _kill_people_near_falling_building(center: Vector3, radius: float) -> int:
 		if not bool(person.get("alive", true)):
 			continue
 		var activity: String = str(person.get("activity", "wandering"))
-		if activity == "indoors" or activity == "riding":
-			continue
 		var position: Vector3 = person["pos"]
+		if activity == "riding":
+			continue
+		if activity == "indoors":
+			var indoor_house: Variant = person.get("indoor_house", null)
+			if not (indoor_house is Node3D and is_instance_valid(indoor_house)) or indoor_house.global_position.distance_to(center) > 1.8:
+				continue
 		var dx: float = position.x - center.x
 		var dz: float = position.z - center.z
 		if dx * dx + dz * dz > radius_squared:
@@ -3588,17 +3592,21 @@ func _destroy_cars_in_radius(center: Vector3, radius: float) -> int:
 	return destroyed
 
 
-func _animate_building_fall(house: Node3D, tall_building: bool, building_color: Color) -> void:
+func _animate_building_fall(house: Node3D, tall_building: bool, building_color: Color, fall_direction: Vector2 = Vector2.ZERO) -> void:
 	if not is_instance_valid(house):
 		return
+	if fall_direction.length_squared() < 0.01:
+		var angle: float = randf() * TAU
+		fall_direction = Vector2(cos(angle), sin(angle))
+	fall_direction = fall_direction.normalized()
 	var duration: float = 0.78 if tall_building else 0.52
 	var fall_angle: float = deg_to_rad(randf_range(72.0, 88.0) if tall_building else randf_range(58.0, 78.0))
-	if randf() < 0.5:
-		fall_angle = -fall_angle
+	var z_fall: float = -fall_direction.x * fall_angle
+	var x_fall: float = fall_direction.y * fall_angle
 	var tween := create_tween()
 	tween.set_parallel(true)
-	tween.tween_property(house, "rotation:z", house.rotation.z + fall_angle, duration).set_trans(Tween.TRANS_CUBIC).set_ease(Tween.EASE_IN)
-	tween.tween_property(house, "rotation:x", house.rotation.x + fall_angle * randf_range(0.08, 0.22), duration).set_trans(Tween.TRANS_CUBIC).set_ease(Tween.EASE_IN)
+	tween.tween_property(house, "rotation:z", house.rotation.z + z_fall, duration).set_trans(Tween.TRANS_CUBIC).set_ease(Tween.EASE_IN)
+	tween.tween_property(house, "rotation:x", house.rotation.x + x_fall, duration).set_trans(Tween.TRANS_CUBIC).set_ease(Tween.EASE_IN)
 	tween.tween_property(house, "scale:y", house.scale.y * 0.93, duration)
 	tween.chain().tween_callback(_finish_building_collapse.bind(house, tall_building, building_color))
 
@@ -4644,11 +4652,11 @@ func _update_world_detail_levels() -> void:
 		return
 	last_detail_signature = detail_signature
 	for city in cities:
+		var ruined: bool = bool(city.get("ruined", false))
 		for visual_key in ["plinth", "body", "roof", "flag_pole", "flag"]:
 			var city_visual: MeshInstance3D = city[visual_key]
 			if is_instance_valid(city_visual):
 				city_visual.visible = show_city_models and not ruined
-		var ruined: bool = bool(city.get("ruined", false))
 		var zone_fill: MeshInstance3D = city["zone_fill"]
 		var zone_border: MeshInstance3D = city["zone_border"]
 		if is_instance_valid(zone_fill):
@@ -4657,7 +4665,7 @@ func _update_world_detail_levels() -> void:
 			zone_border.visible = camera_distance <= TERRAIN_SIZE * 2.0 and not ruined
 		var far_marker: MeshInstance3D = city["far_marker"]
 		if is_instance_valid(far_marker):
-			far_marker.visible = show_far_markers
+			far_marker.visible = show_far_markers and not ruined
 		var city_label: Label3D = city["label"]
 		if is_instance_valid(city_label):
 			city_label.visible = show_city_labels
