@@ -5237,36 +5237,145 @@ func _launch_army(source_id: int, target_id: int, automatic: bool) -> void:
 		return
 	_declare_war(source_id, target_id)
 	var population: int = _city_population(source_id)
-	var strength: int = clamp(1 + int(population / 4), 1, 5)
+	var strength: int = clampi(1 + int(population / 4), 1, 5)
 	if automatic:
-		strength = clamp(strength, 1, 3)
+		strength = clampi(strength, 1, 3)
 	else:
-		_log("%s is marching on %s with %d units." % [cities[source_id]["name"], cities[target_id]["name"], strength])
+		_log("%s is marching on %s with %d infantry units." % [cities[source_id]["name"], cities[target_id]["name"], strength])
+
+	# Armies evolve with the world era. Infantry remains the backbone; tanks,
+	# aircraft and helicopters are separate visible units with their own speed,
+	# durability and attack power, rather than decorative upgrades to soldiers.
+	var unit_types: Array[String] = []
 	for unit_index in range(strength):
-		var angle: float = float(unit_index) * TAU / float(max(1, strength))
-		var source_position: Vector3 = cities[source_id]["pos"]
-		var spawn_position: Vector3 = _surface_position(source_position.x + cos(angle) * 2.3, source_position.z + sin(angle) * 2.3)
-		var soldier := Node3D.new()
-		var uniform := BoxMesh.new()
-		uniform.size = Vector3(0.42, 0.78, 0.32)
-		_add_mesh(soldier, uniform, _material(cities[source_id]["color"].darkened(0.12)), Vector3(0.0, 0.60, 0.0))
-		var helmet := SphereMesh.new()
-		helmet.radius = 0.23
-		helmet.height = 0.38
-		_add_mesh(soldier, helmet, _material(Color(0.26, 0.28, 0.27)), Vector3(0.0, 1.14, 0.0))
-		add_child(soldier)
-		soldier.position = spawn_position
+		unit_types.append("infantry")
+	var year: int = _world_year()
+	if year >= 1916:
+		unit_types.append("tank")
+		if year >= 1940 and strength >= 3:
+			unit_types.append("tank")
+	if year >= 1945:
+		unit_types.append("aircraft")
+	if year >= 1970 and not automatic:
+		unit_types.append("helicopter")
+	if year >= 2000 and strength >= 4:
+		unit_types.append("apc")
+
+	var source_position: Vector3 = cities[source_id]["pos"]
+	var total_units: int = unit_types.size()
+	for unit_index in range(total_units):
+		var angle: float = float(unit_index) * TAU / float(maxi(1, total_units))
+		var spawn_position: Vector3 = _surface_position(source_position.x + cos(angle) * (2.3 + float(unit_index % 2) * 0.8), source_position.z + sin(angle) * (2.3 + float(unit_index % 2) * 0.8))
+		var unit_type: String = unit_types[unit_index]
+		var unit_node: Node3D = _create_military_unit_node(unit_type, cities[source_id]["color"])
+		add_child(unit_node)
+		if unit_type == "aircraft" or unit_type == "helicopter":
+			spawn_position.y += 8.0 if unit_type == "aircraft" else 4.5
+		unit_node.position = spawn_position
 		armies.append({
-			"node": soldier,
+			"node": unit_node,
 			"pos": spawn_position,
 			"source": source_id,
 			"target": target_id,
+			"unit_type": unit_type,
+			"hp": _military_unit_health(unit_type),
+			"attack_power": _military_unit_attack(unit_type),
+			"attack_range": _military_unit_range(unit_type),
 			"attack_timer": randf_range(0.0, 2.0),
 			"alive": true
 		})
 	if not automatic:
-		_log("%s will respond if the attacking force reaches its outskirts." % cities[target_id]["name"])
+		_log("%s deploys %d units including %s toward %s." % [cities[source_id]["name"], total_units, _military_unit_roster(unit_types), cities[target_id]["name"]])
+		if year < 1916:
+			_log("This era's armies use infantry only. Tanks unlock in 1916, aircraft in 1945 and attack helicopters in 1970.")
 
+
+func _military_unit_roster(unit_types: Array[String]) -> String:
+	var counts: Dictionary = {}
+	for unit_type in unit_types:
+		counts[unit_type] = int(counts.get(unit_type, 0)) + 1
+	var labels: Array[String] = []
+	for unit_type in ["infantry", "tank", "apc", "aircraft", "helicopter"]:
+		if int(counts.get(unit_type, 0)) > 0:
+			labels.append("%d %s" % [int(counts[unit_type]), unit_type])
+	return ", ".join(labels)
+
+
+func _military_unit_health(unit_type: String) -> float:
+	match unit_type:
+		"tank":
+			return 5.0
+		"apc":
+			return 3.5
+		"aircraft":
+			return 2.8
+		"helicopter":
+			return 3.2
+		_:
+			return 1.0
+
+
+func _military_unit_attack(unit_type: String) -> float:
+	match unit_type:
+		"tank":
+			return 3.0
+		"apc":
+			return 1.5
+		"aircraft":
+			return 3.5
+		"helicopter":
+			return 2.8
+		_:
+			return 1.0
+
+
+func _military_unit_range(unit_type: String) -> float:
+	match unit_type:
+		"tank":
+			return 5.5
+		"apc":
+			return 3.0
+		"aircraft":
+			return 10.0
+		"helicopter":
+			return 7.0
+		_:
+			return 1.5
+
+
+func _create_military_unit_node(unit_type: String, faction_color: Color) -> Node3D:
+	var root := Node3D.new()
+	root.name = "Military_" + unit_type.capitalize()
+	var uniform_color: Color = faction_color.darkened(0.14)
+	match unit_type:
+		"tank":
+			_add_mesh(root, _cached_box_mesh(Vector3(1.65, 0.52, 2.25)), _material(Color(0.28, 0.34, 0.25)), Vector3(0.0, 0.62, 0.0))
+			_add_mesh(root, _cached_box_mesh(Vector3(0.92, 0.36, 0.95)), _material(Color(0.34, 0.39, 0.29)), Vector3(0.0, 1.02, -0.12))
+			_add_mesh(root, _cached_box_mesh(Vector3(0.16, 0.16, 1.28)), _material(Color(0.20, 0.23, 0.19)), Vector3(0.0, 1.07, -0.88))
+			for side in [-1.0, 1.0]:
+				_add_mesh(root, _cached_box_mesh(Vector3(0.28, 0.42, 2.0)), _material(Color(0.16, 0.18, 0.16)), Vector3(side * 0.88, 0.45, 0.0))
+		"apc":
+			_add_mesh(root, _cached_box_mesh(Vector3(1.2, 0.72, 2.0)), _material(Color(0.34, 0.39, 0.29)), Vector3(0.0, 0.58, 0.0))
+			_add_mesh(root, _cached_box_mesh(Vector3(0.52, 0.25, 0.58)), _material(Color(0.23, 0.27, 0.22)), Vector3(0.0, 1.04, -0.15))
+			for side in [-1.0, 1.0]:
+				for axle in [-0.65, 0.0, 0.65]:
+					_add_mesh(root, _cached_box_mesh(Vector3(0.22, 0.30, 0.30)), _material(Color(0.12, 0.13, 0.12)), Vector3(side * 0.66, 0.30, axle))
+		"aircraft":
+			_add_mesh(root, _cached_box_mesh(Vector3(0.32, 0.28, 2.1)), _material(Color(0.48, 0.51, 0.48)), Vector3(0.0, 0.0, 0.0))
+			_add_mesh(root, _cached_box_mesh(Vector3(2.65, 0.12, 0.62)), _material(Color(0.40, 0.44, 0.41)), Vector3(0.0, -0.04, -0.12))
+			_add_mesh(root, _cached_box_mesh(Vector3(0.92, 0.10, 0.38)), _material(Color(0.38, 0.42, 0.39)), Vector3(0.0, 0.12, 0.77))
+		"helicopter":
+			_add_mesh(root, _cached_box_mesh(Vector3(0.72, 0.48, 1.38)), _material(Color(0.31, 0.37, 0.27)), Vector3(0.0, 0.0, 0.0))
+			_add_mesh(root, _cached_box_mesh(Vector3(0.12, 0.12, 1.25)), _material(Color(0.27, 0.31, 0.24)), Vector3(0.0, -0.04, -1.02))
+			_add_mesh(root, _cached_box_mesh(Vector3(2.35, 0.06, 0.12)), _material(Color(0.20, 0.23, 0.19)), Vector3(0.0, 0.38, 0.0))
+			_add_mesh(root, _cached_box_mesh(Vector3(0.42, 0.06, 0.08)), _material(Color(0.20, 0.23, 0.19)), Vector3(0.0, 0.38, -1.56))
+		_:
+			_add_mesh(root, _cached_box_mesh(Vector3(0.42, 0.78, 0.32)), _material(uniform_color), Vector3(0.0, 0.60, 0.0))
+			var helmet := SphereMesh.new()
+			helmet.radius = 0.23
+			helmet.height = 0.38
+			_add_mesh(root, helmet, _material(Color(0.26, 0.28, 0.27)), Vector3(0.0, 1.14, 0.0))
+	return root
 
 func _spawn_defenders(defending_city_id: int, aggressor_city_id: int) -> void:
 	if defending_city_id < 0 or aggressor_city_id < 0 or defending_city_id >= cities.size() or aggressor_city_id >= cities.size():
@@ -5274,18 +5383,14 @@ func _spawn_defenders(defending_city_id: int, aggressor_city_id: int) -> void:
 	var count: int = clampi(1 + int(_city_population(defending_city_id) / 10), 1, 4)
 	for index in range(count):
 		var p: Vector3 = cities[defending_city_id]["pos"]
-		var soldier := Node3D.new()
-		_add_mesh(soldier, _cached_box_mesh(Vector3(0.42, 0.78, 0.32)), _material(cities[defending_city_id]["color"].darkened(0.12)), Vector3(0.0, 0.60, 0.0))
-		var helmet := SphereMesh.new()
-		helmet.radius = 0.23
-		helmet.height = 0.38
-		_add_mesh(soldier, helmet, _material(Color(0.26, 0.28, 0.27)), Vector3(0.0, 1.14, 0.0))
+		var soldier: Node3D = _create_military_unit_node("infantry", cities[defending_city_id]["color"])
 		add_child(soldier)
 		var spawn := _surface_position(p.x + randf_range(-2.5, 2.5), p.z + randf_range(-2.5, 2.5))
 		soldier.position = spawn
 		armies.append({
 			"node": soldier, "pos": spawn, "source": defending_city_id, "target": aggressor_city_id,
 			"attack_timer": 0.0, "idle_timer": 0.0, "home_city": defending_city_id,
+			"unit_type": "infantry", "hp": 1.0, "attack_power": 1.0, "attack_range": 1.5,
 			"is_defender": true, "alive": true
 		})
 	_log("%s has mobilised %d defenders." % [cities[defending_city_id]["name"], count])
@@ -5316,20 +5421,58 @@ func _update_armies(delta: float) -> void:
 			continue
 		var position: Vector3 = army["pos"]
 		var destination: Vector3 = cities[target_id]["pos"]
+		var unit_type: String = str(army.get("unit_type", "infantry"))
 		var distance: float = Vector2(position.x - destination.x, position.z - destination.z).length()
-		if distance > 3.0:
+		var attack_range: float = float(army.get("attack_range", _military_unit_range(unit_type)))
+		var move_speed: float = 2.8
+		match unit_type:
+			"tank":
+				move_speed = 3.5
+			"apc":
+				move_speed = 4.0
+			"aircraft":
+				move_speed = 9.0
+			"helicopter":
+				move_speed = 5.5
+		var in_range: bool = distance <= attack_range
+		if not in_range:
 			var direction := Vector3(destination.x - position.x, 0.0, destination.z - position.z).normalized()
-			position.x += direction.x * delta * 2.8
-			position.z += direction.z * delta * 2.8
-			position.y = _height_at(position.x, position.z)
+			position.x += direction.x * delta * move_speed
+			position.z += direction.z * delta * move_speed
+			if unit_type == "aircraft":
+				position.y = _height_at(position.x, position.z) + 8.0
+			elif unit_type == "helicopter":
+				position.y = _height_at(position.x, position.z) + 4.5
+			else:
+				position.y = _height_at(position.x, position.z)
+			army["attack_timer"] = float(army["attack_timer"]) + delta
 		else:
 			army["attack_timer"] = float(army["attack_timer"]) + delta
-			if float(army["attack_timer"]) >= 3.2:
+			var attack_interval: float = 3.2
+			if unit_type == "tank" or unit_type == "aircraft":
+				attack_interval = 2.0
+			elif unit_type == "helicopter":
+				attack_interval = 1.7
+			elif unit_type == "apc":
+				attack_interval = 2.5
+			if float(army["attack_timer"]) >= attack_interval:
 				army["attack_timer"] = 0.0
-				_damage_city(target_id, 1, "army")
+				var damage: float = float(army.get("attack_power", 1.0))
+				_damage_city(target_id, maxi(1, int(ceil(damage))), unit_type)
 				if _city_population(target_id) <= 0:
 					_capture_city(target_id, source_id)
-				if randf() < 0.10:
+				# Combat losses are less frequent for armoured units; aircraft can
+				# still be lost over a defended target.
+				var loss_chance: float = 0.10
+				if unit_type == "tank":
+					loss_chance = 0.035
+				elif unit_type == "apc":
+					loss_chance = 0.055
+				elif unit_type == "aircraft":
+					loss_chance = 0.12
+				elif unit_type == "helicopter":
+					loss_chance = 0.09
+				if randf() < loss_chance:
 					if is_instance_valid(army.get("node")):
 						army["node"].queue_free()
 					armies.remove_at(i)
