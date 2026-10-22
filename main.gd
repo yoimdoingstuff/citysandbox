@@ -764,7 +764,12 @@ func _process(delta: float) -> void:
 	building_visual_mutation_consumed_this_frame = false
 	building_start_budget_remaining = MAX_BUILDING_STARTS_PER_FRAME if Time.get_ticks_usec() >= next_building_visual_mutation_usec else 0
 	detail_refresh_cooldown = maxf(0.0, detail_refresh_cooldown - delta)
+	var occlusion_was_cooling: bool = building_occlusion_refresh_cooldown > 0.0
 	building_occlusion_refresh_cooldown = maxf(0.0, building_occlusion_refresh_cooldown - delta)
+	if occlusion_was_cooling and building_occlusion_refresh_cooldown <= 0.0:
+		# Force the next detail tick to recompute cached occlusion, even if the
+		# camera and entity-count signature has otherwise stopped changing.
+		last_detail_signature = ""
 	people_lod_refresh_cooldown = maxf(0.0, people_lod_refresh_cooldown - delta)
 	_process_one_pending_city_road_rebuild()
 	_update_traffic_lights(delta)
