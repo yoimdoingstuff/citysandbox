@@ -6628,6 +6628,10 @@ func _update_plague(delta: float) -> void:
 
 	var infection_radius_squared: float = infection_radius * infection_radius
 	for spreader_index in spreader_indices:
+		# A resident whose infection timer expired this update must not transmit
+		# during the same tick merely because their spread timer also elapsed.
+		if expired_lookup.has(spreader_index):
+			continue
 		var infected_position: Vector3 = people[spreader_index]["pos"]
 		var source_cell := Vector2i(floori(infected_position.x / cell_size), floori(infected_position.z / cell_size))
 		for cell_x_offset in range(-1, 2):
