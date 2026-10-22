@@ -130,6 +130,15 @@ jobs:
           Get-Content "dist/export-linux.log"
           if ($linuxExitCode -ne 0) { throw "Linux export failed with exit code $linuxExitCode." }
 
+      - name: Generate SHA-256 checksums for desktop builds
+        shell: pwsh
+        run: |
+          $lines = foreach ($path in @("dist/Civiterra.exe", "dist/Civiterra.x86_64")) {
+            $hash = (Get-FileHash -LiteralPath $path -Algorithm SHA256).Hash.ToLowerInvariant()
+            "$hash  $(Split-Path $path -Leaf)"
+          }
+          Set-Content -LiteralPath "dist/SHA256SUMS.txt" -Value $lines -Encoding ascii
+
       - name: Upload Godot diagnostics on failure
         if: failure()
         uses: actions/upload-artifact@v4
@@ -153,3 +162,37 @@ jobs:
             dist/Civiterra.x86_64
           if-no-files-found: error
           retention-days: 30
+
+      # Action artifacts are downloaded as ZIPs by GitHub. Publish the actual
+      # executable files as individual release assets so users don't need that
+      # archive wrapper, and attach checksums for independent verification.
+      - name: Update rolling direct-download tag
+        shell: pwsh
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git tag -f civiterra-latest "$env:GITHUB_SHA"
+          git push origin --force refs/tags/civiterra-latest:refs/tags/civiterra-latest
+          if ($LASTEXITCODE -ne 0) { throw "Could not update the rolling release tag." }
+
+      - name: Publish direct desktop downloads
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: civiterra-latest
+          name: Civiterra Latest Build
+          body: |
+            Latest automated desktop builds from the Civiterra main branch.
+
+            Download Civiterra.exe or Civiterra.x86_64 directly without the GitHub Actions ZIP wrapper. SHA256SUMS.txt contains hashes for verification.
+
+            These are currently unsigned development builds. A browser or Windows SmartScreen may still warn about a new executable; a workflow cannot establish publisher reputation or substitute for a code-signing certificate.
+          prerelease: true
+          make_latest: false
+          overwrite_files: true
+          fail_on_unmatched_files: true
+          files: |
+            dist/Civiterra.exe
+            dist/Civiterra.x86_64
+            dist/SHA256SUMS.txt
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
