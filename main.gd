@@ -17,6 +17,7 @@ const SAVE_PATH: String = "user://civiterra_world.json"
 const SAVE_VERSION: int = 3
 const MISSILE_UNLOCK_YEAR: int = 1945
 const ERA_SKIP_YEARS: Array[int] = [1200, 1450, 1780, 1880, 1950, 2000, 2026]
+const TRADE_GOODS: Array[String] = ["food", "wood", "stone", "iron", "copper", "coal", "gold"]
 const URBAN_FACADE_PALETTE := [
 	Color(0.68, 0.57, 0.45), Color(0.50, 0.53, 0.53), Color(0.70, 0.48, 0.35),
 	Color(0.43, 0.50, 0.43), Color(0.71, 0.67, 0.56), Color(0.40, 0.43, 0.44),
@@ -72,6 +73,9 @@ var fire_zones: Array = []
 var falling_meteors: Array = []
 var tornadoes: Array = []
 var wars: Array = []
+var city_relations: Dictionary = {}
+var trade_timer: float = 0.0
+var trade_events_total: int = 0
 var city_event_scenes: Array = []
 var rubble_records: Array = []
 var rubble_nodes: Array = []
@@ -1166,12 +1170,20 @@ func _scatter_world_resources() -> void:
 
 			var kind: String
 			var resource_roll: float = randf()
-			if patch_roll < 0.50:
-				kind = "tree" if resource_roll < 0.84 else "food"
-			elif patch_roll < 0.76:
-				kind = "food" if resource_roll < 0.62 else "tree"
+			if patch_roll < 0.38:
+				kind = "tree" if resource_roll < 0.76 else "food"
+			elif patch_roll < 0.56:
+				kind = "food" if resource_roll < 0.60 else "tree"
+			elif patch_roll < 0.73:
+				kind = "stone" if resource_roll < 0.72 else "tree"
+			elif patch_roll < 0.84:
+				kind = "iron_ore"
+			elif patch_roll < 0.92:
+				kind = "copper_ore"
+			elif patch_roll < 0.975:
+				kind = "coal"
 			else:
-				kind = "stone" if resource_roll < 0.70 else "tree"
+				kind = "gold_ore"
 			_spawn_resource(p, kind, randi_range(5, 10))
 
 	_log("Scattered %d extra resources in natural patches across the land." % (resources.size() - resources_before))
@@ -1200,6 +1212,7 @@ func _seed_civilizations() -> void:
 		cities[city_id]["food"] = 14.0
 		cities[city_id]["wood"] = 10.0
 		cities[city_id]["stone"] = 5.0
+		cities[city_id]["treasury"] = 120.0
 		_refresh_city_development(city_id)
 	_log("Five city-states are competing to grow across the continents and islands.")
 
@@ -1326,6 +1339,16 @@ func _create_city(position: Vector3, city_name: String, color: Color) -> int:
 		"food": 8.0,
 		"wood": 5.0,
 		"stone": 3.0,
+		"iron": 0.0,
+		"copper": 0.0,
+		"coal": 0.0,
+		"gold": 0.0,
+		"treasury": 85.0,
+		"electricity": 0.0,
+		"internet": 0.0,
+		"trade_volume": 0.0,
+		"power_plant": null,
+		"internet_hub": null,
 		"stability": 72.0,
 		"security": 44.0,
 		"wealth": 12.0,
@@ -1611,7 +1634,7 @@ func _apply_building_era_appearance(city_id: int, year: int, only_house_index: i
 			height = float(floors) * (0.72 + float(variation % 4) * 0.055 if year < 1950 else 0.79 + float(variation % 5) * 0.035)
 			wall = URBAN_FACADE_PALETTE[variation].lerp(wall, 0.42)
 			roof_color = [Color(0.29, 0.27, 0.24), Color(0.24, 0.27, 0.29), Color(0.31, 0.25, 0.21)][variation % 3]
-			if (kind in [1, 3, 5, 6] or house_index % 9 == 0) and year >= 1880:
+			if (kind in [1, 3, 5, 6] or (house_index % 9 == 0 and kind != 7)) and year >= 1880:
 				if year >= 2000 and stage >= 3 and population >= 45 and wealth >= 20.0:
 					floors = clampi(12 + int((population - 45) / 30) + (variation % 7) - 3, 10, 34)
 					skyscraper = true
@@ -2154,8 +2177,39 @@ func _sync_city_buildings(city_id: int) -> bool:
 			plot_index += 1
 		if not found_building_site:
 			break
+		var building_year: int = _world_year()
+		var pending_building_type: int = house_index_to_building_type(houses.size(), stage)
+		var large_plot: bool = candidate_large_plot
+		if large_plot and building_year >= 1880 and stage >= 2:
+			if building_year >= 1950:
+				pending_building_type = 6 if chosen_plot_index % 3 == 0 else 3
+			else:
+				pending_building_type = 3
+		var money_cost: float = 3.6 + float(stage) * 0.65 + (5.0 if large_plot else 0.0)
+		if building_year >= 1780:
+			money_cost += 1.2
+		if building_year >= 1950:
+			money_cost += 1.5
+		if pending_building_type == 7:
+			money_cost += 1.0
+		var wood_cost: float = 0.32 + (0.42 if large_plot else 0.0)
+		var stone_cost: float = 0.24 + (0.40 if large_plot else 0.0)
+		var iron_cost: float = 0.0
+		if building_year >= 1780 and pending_building_type in [5, 6]:
+			iron_cost = 0.22 + (0.22 if large_plot else 0.0)
+		var copper_cost: float = 0.0
+		if building_year >= 1950 and pending_building_type in [5, 6]:
+			copper_cost = 0.08
+		if float(city.get("treasury", 0.0)) < money_cost or float(city["wood"]) < wood_cost or float(city["stone"]) < stone_cost or float(city.get("iron", 0.0)) < iron_cost or float(city.get("copper", 0.0)) < copper_cost:
+			plot_index = chosen_plot_index
+			break
+		city["treasury"] = maxf(0.0, float(city.get("treasury", 0.0)) - money_cost)
+		city["wood"] = maxf(0.0, float(city["wood"]) - wood_cost)
+		city["stone"] = maxf(0.0, float(city["stone"]) - stone_cost)
+		city["iron"] = maxf(0.0, float(city.get("iron", 0.0)) - iron_cost)
+		city["copper"] = maxf(0.0, float(city.get("copper", 0.0)) - copper_cost)
 		plot_index = chosen_plot_index + 1
-		var plot_radius: float = 3.45 if candidate_large_plot else 2.25
+		var plot_radius: float = 3.45 if large_plot else 2.25
 		var plot_grade: Dictionary = _grade_building_plot(city["pos"].x + offset_x, city["pos"].z + offset_z, plot_radius)
 		terrain_changed = terrain_changed or bool(plot_grade.get("changed", false))
 		var base_world_height: float = float(plot_grade.get("base_height", _height_at(city["pos"].x + offset_x, city["pos"].z + offset_z)))
@@ -2166,13 +2220,7 @@ func _sync_city_buildings(city_id: int) -> bool:
 		house.position = Vector3(offset_x, base_world_height - float(city["pos"].y), offset_z)
 		city["node"].add_child(house)
 
-		var building_type: int = house_index_to_building_type(houses.size(), stage)
-		var large_plot: bool = _is_large_city_plot(city_id, chosen_plot_index, _world_year())
-		if large_plot and _world_year() >= 1880 and stage >= 2:
-			if _world_year() >= 1950:
-				building_type = 6 if chosen_plot_index % 3 == 0 else 3
-			else:
-				building_type = 3
+		var building_type: int = pending_building_type
 		house.set_meta("building_type", building_type)
 		house.set_meta("base_building_type", building_type)
 		house.set_meta("plot_index", chosen_plot_index)
@@ -2197,6 +2245,8 @@ func _sync_city_buildings(city_id: int) -> bool:
 func house_index_to_building_type(index: int, stage: int) -> int:
 	var year: int = _world_year()
 	var kind: int = index % 5
+	if year >= 1780 and stage >= 2 and index % 13 == 6:
+		return 7 # Industrial mine / metalworks.
 	if year >= 1850 and stage >= 2 and kind == 4:
 		kind = 3
 	if year >= 1880 and stage >= 2 and kind != 4 and index % 5 == 1:
@@ -2618,12 +2668,20 @@ func _seed_resources_around(center: Vector3) -> void:
 		if not found_land:
 			continue
 		var roll: float = randf()
-		if roll < 0.48:
+		if roll < 0.40:
 			_spawn_resource(resource_position, "tree", 8)
-		elif roll < 0.73:
+		elif roll < 0.65:
 			_spawn_resource(resource_position, "food", 8)
-		else:
+		elif roll < 0.80:
 			_spawn_resource(resource_position, "stone", 8)
+		elif roll < 0.875:
+			_spawn_resource(resource_position, "iron_ore", 8)
+		elif roll < 0.93:
+			_spawn_resource(resource_position, "copper_ore", 8)
+		elif roll < 0.975:
+			_spawn_resource(resource_position, "coal", 8)
+		else:
+			_spawn_resource(resource_position, "gold_ore", 8)
 
 
 func _create_roblox_character(parent: Node, garment: Color, skin: Color) -> Dictionary:
@@ -2768,7 +2826,7 @@ func _spawn_resource(position: Vector3, kind: String, amount: int = 8) -> void:
 		rock2.radius = 0.42
 		rock2.height = 0.7
 		_add_mesh(node, rock2, _material(Color(0.58, 0.60, 0.61)), Vector3(0.55, 0.42, 0.22))
-	else:
+	elif kind == "food":
 		var patch := CylinderMesh.new()
 		patch.top_radius = 0.66
 		patch.bottom_radius = 0.82
@@ -2780,6 +2838,26 @@ func _spawn_resource(position: Vector3, kind: String, amount: int = 8) -> void:
 			berry.height = 0.26
 			var angle: float = float(berry_index) * TAU / 5.0
 			_add_mesh(node, berry, _material(Color(0.86, 0.20, 0.18)), Vector3(cos(angle) * 0.42, 0.38, sin(angle) * 0.42))
+	else:
+		var ore_color: Color = Color(0.48, 0.34, 0.25)
+		if kind == "copper_ore":
+			ore_color = Color(0.72, 0.35, 0.20)
+		elif kind == "coal":
+			ore_color = Color(0.16, 0.18, 0.20)
+		elif kind == "gold_ore":
+			ore_color = Color(0.91, 0.69, 0.20)
+		var ore_rock := SphereMesh.new()
+		ore_rock.radius = 0.75
+		ore_rock.height = 0.88
+		ore_rock.radial_segments = 7
+		ore_rock.rings = 4
+		_add_mesh(node, ore_rock, _material(ore_color), Vector3(0.0, 0.45, 0.0), Vector3(1.25, 0.78, 1.0))
+		var ore_rock_small := SphereMesh.new()
+		ore_rock_small.radius = 0.40
+		ore_rock_small.height = 0.60
+		ore_rock_small.radial_segments = 6
+		ore_rock_small.rings = 3
+		_add_mesh(node, ore_rock_small, _material(ore_color.lightened(0.16)), Vector3(0.53, 0.34, 0.23), Vector3(1.0, 0.78, 0.9))
 	add_child(node)
 	resources.append({"node": node, "pos": p, "type": kind, "amount": amount, "alive": true})
 
