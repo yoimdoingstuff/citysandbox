@@ -172,29 +172,59 @@ jobs:
         if: always()
         shell: pwsh
         run: |
+          New-Item -ItemType Directory -Force -Path "logs" | Out-Null
           if (-not (Test-Path -LiteralPath "logs/runtime-latest.log")) {
-            New-Item -ItemType Directory -Force -Path "logs" | Out-Null
             "No runtime log was produced. Check the setup/run step in the Actions job." |
               Set-Content -LiteralPath "logs/runtime-latest.log"
           }
+
+          # Keep this run's samples separate from the checked-out branch. The
+          # rolling logs may be changed by another workflow while this test runs.
+          $snapshot = Join-Path $env:RUNNER_TEMP "civiterra-log-snapshot"
+          if (Test-Path -LiteralPath $snapshot) {
+            Remove-Item -LiteralPath $snapshot -Recurse -Force
+          }
+          New-Item -ItemType Directory -Force -Path $snapshot | Out-Null
+          Get-ChildItem -LiteralPath "logs" -Filter "runtime-latest*" -File |
+            Copy-Item -Destination $snapshot -Force
+
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          git add logs/runtime-latest*
-          git diff --cached --quiet
-          if ($LASTEXITCODE -eq 0) {
-            Write-Output "The latest diagnostic logs are unchanged; nothing to commit."
-            exit 0
+
+          # A reset avoids rebase conflicts when two runs update the same rolling
+          # logs. Reapply the saved snapshot to the newest source branch each try.
+          $pushed = $false
+          for ($attempt = 1; $attempt -le 4; $attempt++) {
+            git fetch origin "$env:GITHUB_REF_NAME"
+            if ($LASTEXITCODE -ne 0) {
+              Start-Sleep -Seconds $attempt
+              continue
+            }
+            git reset --hard "origin/$env:GITHUB_REF_NAME"
+            if ($LASTEXITCODE -ne 0) { throw "Could not reset to the latest branch head." }
+
+            New-Item -ItemType Directory -Force -Path "logs" | Out-Null
+            Get-ChildItem -LiteralPath $snapshot -File |
+              Copy-Item -Destination "logs" -Force
+            git add logs/runtime-latest*
+            git diff --cached --quiet
+            if ($LASTEXITCODE -eq 0) {
+              Write-Output "The latest diagnostic logs already match the repository."
+              $pushed = $true
+              break
+            }
+
+            git commit -m "Update Civiterra runtime diagnostic logs [skip ci]"
+            if ($LASTEXITCODE -ne 0) { throw "Could not commit runtime diagnostic logs." }
+            git push origin "HEAD:$env:GITHUB_REF_NAME"
+            if ($LASTEXITCODE -eq 0) {
+              $pushed = $true
+              break
+            }
+            Write-Warning "Log push attempt $attempt raced a newer commit; retrying on the newest branch."
+            Start-Sleep -Seconds $attempt
           }
-          git commit -m "Update Civiterra runtime diagnostic logs [skip ci]"
-          if ($LASTEXITCODE -ne 0) { throw "Could not commit runtime diagnostic logs." }
-          # The game can be updated while the two-minute capture is running.
-          # Replay this log-only commit onto the latest branch head before pushing.
-          git fetch origin "$env:GITHUB_REF_NAME"
-          if ($LASTEXITCODE -ne 0) { throw "Could not fetch the latest branch before saving logs." }
-          git rebase "origin/$env:GITHUB_REF_NAME"
-          if ($LASTEXITCODE -ne 0) {
-            git rebase --abort
-            throw "Could not rebase diagnostic logs onto the latest branch head."
+
+          if (-not $pushed) {
+            throw "Could not publish runtime logs after four attempts. The artifact was uploaded separately."
           }
-          git push origin "HEAD:$env:GITHUB_REF_NAME"
-          if ($LASTEXITCODE -ne 0) { throw "Could not push runtime diagnostic logs to $env:GITHUB_REF_NAME." }
