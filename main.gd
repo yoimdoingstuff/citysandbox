@@ -1960,6 +1960,46 @@ func _update_people(delta: float) -> void:
 			people[i] = person
 			continue
 
+		if activity == "cleanup_walk" or activity == "cleaning":
+			var cleanup_id: int = int(person.get("cleanup_rubble_id", -1))
+			var cleanup_node: Node3D = _get_rubble_node(cleanup_id)
+			if not is_instance_valid(cleanup_node):
+				_reserve_cleanup_rubble(cleanup_id, false)
+				person["activity"] = "wandering"
+				person["cleanup_rubble_id"] = -1
+				person["activity_timer"] = 0.0
+				person["walk_timer"] = 0.0
+				last_detail_signature = ""
+				people[i] = person
+				continue
+			var cleanup_position: Vector3 = cleanup_node.global_position
+			var cleanup_distance: float = Vector2(position.x - cleanup_position.x, position.z - cleanup_position.z).length()
+			if activity == "cleanup_walk":
+				if cleanup_distance <= 1.5:
+					person["activity"] = "cleaning"
+					person["activity_timer"] = 0.0
+					if is_instance_valid(node):
+						node.rotation.y = randf() * TAU
+				else:
+					position = position.move_toward(Vector3(cleanup_position.x, position.y, cleanup_position.z), delta * 2.0)
+					position.y = _height_at(position.x, position.z)
+					person["pos"] = position
+					if is_instance_valid(node):
+						node.position = position
+						node.visible = true
+			else:
+				person["activity_timer"] = float(person.get("activity_timer", 0.0)) + delta
+				if float(person["activity_timer"]) >= 5.0:
+					_clear_rubble_by_id(cleanup_id)
+					person["activity"] = "wandering"
+					person["cleanup_rubble_id"] = -1
+					person["activity_timer"] = 0.0
+					person["walk_timer"] = 0.0
+					last_detail_signature = ""
+				elif is_instance_valid(node):
+					node.visible = true
+			people[i] = person
+			continue
 		person["walk_timer"] = float(person.get("walk_timer", 1.0)) - delta
 		var target: Vector3 = person["target"]
 		var distance_to_target: float = Vector2(position.x - target.x, position.z - target.z).length()
@@ -1992,7 +2032,18 @@ func _update_people(delta: float) -> void:
 			var next_target: Vector3 = _choose_citizen_street_target(city_id, destination_center, local_wander_radius)
 			var selected_house: Node3D = null
 			var selected_vehicle: Node3D = null
-			if city_id >= 0 and city_id < cities.size() and randf() < 0.16:
+			var selected_rubble_id: int = -1
+			if city_id >= 0 and city_id < cities.size() and not rubble_nodes.is_empty() and randf() < 0.24:
+				selected_rubble_id = _find_nearby_cleanup_rubble(position, 22.0)
+				if selected_rubble_id >= 0:
+					var rubble_target: Node3D = _get_rubble_node(selected_rubble_id)
+					if is_instance_valid(rubble_target):
+						next_target = rubble_target.global_position
+					else:
+						selected_rubble_id = -1
+			if selected_rubble_id >= 0:
+				pass
+			elif city_id >= 0 and city_id < cities.size() and randf() < 0.16:
 				var candidates: Array[Node3D] = []
 				for house in cities[city_id]["houses"]:
 					if is_instance_valid(house) and int(house.get_meta("base_building_type", house.get_meta("building_type", 0))) in [0, 1, 2, 3]:
@@ -2016,7 +2067,12 @@ func _update_people(delta: float) -> void:
 					next_target = selected_vehicle.global_position
 			person["target"] = next_target
 			person["walk_timer"] = randf_range(2.0, 5.0)
-			if is_instance_valid(selected_house):
+			if selected_rubble_id >= 0:
+				person["activity"] = "cleanup_walk"
+				person["cleanup_rubble_id"] = selected_rubble_id
+				person["walk_timer"] = 30.0
+				_reserve_cleanup_rubble(selected_rubble_id, true)
+			elif is_instance_valid(selected_house):
 				person["activity"] = "entering"
 				person["indoor_house"] = selected_house
 			elif is_instance_valid(selected_vehicle):
