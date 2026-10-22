@@ -8,6 +8,12 @@ on:
 permissions:
   contents: write
 
+# Only publish the newest main-branch build. Rapid commits should not race
+# while updating the shared civiterra-latest release tag.
+concurrency:
+  group: civiterra-build-${{ github.ref }}
+  cancel-in-progress: true
+
 jobs:
   build:
     name: Validate and export desktop builds
