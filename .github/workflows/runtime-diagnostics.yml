@@ -1,0 +1,179 @@
+name: Runtime freeze diagnostics
+
+on:
+  push:
+    branches: [main]
+    paths-ignore:
+      - "logs/**"
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+concurrency:
+  group: civiterra-runtime-diagnostics-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  run-and-capture:
+    name: Run Civiterra for two minutes and capture logs
+    runs-on: windows-latest
+    timeout-minutes: 8
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Set up Godot 4.3
+        uses: chickensoft-games/setup-godot@v2
+        with:
+          version: 4.3.0
+          use-dotnet: false
+          include-templates: false
+          cache: false
+
+      - name: Run the game for up to 120 seconds and monitor it
+        id: diagnostic
+        shell: pwsh
+        continue-on-error: true
+        run: |
+          New-Item -ItemType Directory -Force -Path "logs" | Out-Null
+          $stdoutPath = Join-Path $PWD "logs/runtime-latest.stdout.log"
+          $stderrPath = Join-Path $PWD "logs/runtime-latest.stderr.log"
+          $monitorPath = Join-Path $PWD "logs/runtime-latest.monitor.log"
+          $summaryPath = Join-Path $PWD "logs/runtime-latest-summary.txt"
+          $combinedPath = Join-Path $PWD "logs/runtime-latest.log"
+          $godotConsole = Join-Path "$env:USERPROFILE\godot" "Godot_v4.3-stable_win64_console.exe"
+          $startedAt = Get-Date
+          $timedOut = $false
+          $exitCode = "not-started"
+          $runSeconds = 0.0
+
+          "Civiterra runtime diagnostic monitor" | Set-Content -LiteralPath $monitorPath
+          "Run ID: $env:GITHUB_RUN_ID / attempt $env:GITHUB_RUN_ATTEMPT" | Add-Content -LiteralPath $monitorPath
+          "Commit: $env:GITHUB_SHA" | Add-Content -LiteralPath $monitorPath
+          "Sample time (s) | CPU time (s) | Working set (MB) | Private memory (MB)" | Add-Content -LiteralPath $monitorPath
+
+          try {
+            if (-not (Test-Path -LiteralPath $godotConsole)) {
+              throw "Godot console executable was not found at $godotConsole"
+            }
+
+            $godotVersion = (& $godotConsole --version 2>&1 | Out-String).Trim()
+            $osDescription = (Get-CimInstance Win32_OperatingSystem).Caption
+            $cpuDescription = (Get-CimInstance Win32_Processor | Select-Object -First 1 -ExpandProperty Name)
+            $memoryGb = [math]::Round((Get-CimInstance Win32_ComputerSystem).TotalPhysicalMemory / 1GB, 1)
+
+            $process = Start-Process -FilePath $godotConsole -ArgumentList @("--headless", "--verbose", "--path", ".") -WorkingDirectory $PWD -RedirectStandardOutput $stdoutPath -RedirectStandardError $stderrPath -PassThru
+
+            $timer = [System.Diagnostics.Stopwatch]::StartNew()
+            $nextSample = 0
+            while ($timer.Elapsed.TotalSeconds -lt 120) {
+              $process.Refresh()
+              if ($process.HasExited) {
+                break
+              }
+
+              if ($timer.Elapsed.TotalSeconds -ge $nextSample) {
+                $cpu = [math]::Round($process.TotalProcessorTime.TotalSeconds, 2)
+                $workingSet = [math]::Round($process.WorkingSet64 / 1MB, 1)
+                $privateMemory = [math]::Round($process.PrivateMemorySize64 / 1MB, 1)
+                "{0,6:N1} | {1,8:N2} | {2,14:N1} | {3,16:N1}" -f $timer.Elapsed.TotalSeconds, $cpu, $workingSet, $privateMemory |
+                  Add-Content -LiteralPath $monitorPath
+                $nextSample += 5
+              }
+              Start-Sleep -Seconds 1
+            }
+
+            $runSeconds = [math]::Round($timer.Elapsed.TotalSeconds, 2)
+            $process.Refresh()
+            if (-not $process.HasExited) {
+              $timedOut = $true
+              Stop-Process -Id $process.Id -Force
+              Start-Sleep -Milliseconds 500
+              $exitCode = "terminated-after-120-second-observation"
+            } else {
+              $exitCode = $process.ExitCode
+            }
+
+            @(
+              "Civiterra runtime diagnostic",
+              "UTC start: $($startedAt.ToUniversalTime().ToString('o'))",
+              "UTC finish: $((Get-Date).ToUniversalTime().ToString('o'))",
+              "Run ID: $env:GITHUB_RUN_ID",
+              "Attempt: $env:GITHUB_RUN_ATTEMPT",
+              "Commit: $env:GITHUB_SHA",
+              "Branch/ref: $env:GITHUB_REF",
+              "Godot version: $godotVersion",
+              "OS: $osDescription",
+              "CPU: $cpuDescription",
+              "Installed RAM: $memoryGb GB",
+              "Observed runtime: $runSeconds seconds",
+              "Still running at 120-second limit: $timedOut",
+              "Process result: $exitCode",
+              "Interpretation: a process still alive at the time limit was force-stopped after its log output and resource samples were collected. This bounded diagnostic run does not by itself prove a freeze."
+            ) | Set-Content -LiteralPath $summaryPath
+          }
+          catch {
+            $runSeconds = [math]::Round(((Get-Date) - $startedAt).TotalSeconds, 2)
+            @(
+              "Civiterra runtime diagnostic FAILED",
+              "UTC start: $($startedAt.ToUniversalTime().ToString('o'))",
+              "UTC finish: $((Get-Date).ToUniversalTime().ToString('o'))",
+              "Run ID: $env:GITHUB_RUN_ID",
+              "Commit: $env:GITHUB_SHA",
+              "Observed runtime: $runSeconds seconds",
+              "Error: $($_.Exception.Message)"
+            ) | Set-Content -LiteralPath $summaryPath
+            $_ | Out-String | Add-Content -LiteralPath $stderrPath
+            Write-Error $_
+          }
+          finally {
+            $combined = @(
+              "===== SUMMARY =====",
+              (Get-Content -LiteralPath $summaryPath -Raw -ErrorAction SilentlyContinue),
+              "",
+              "===== GODOT STDOUT =====",
+              (Get-Content -LiteralPath $stdoutPath -Raw -ErrorAction SilentlyContinue),
+              "",
+              "===== GODOT STDERR =====",
+              (Get-Content -LiteralPath $stderrPath -Raw -ErrorAction SilentlyContinue),
+              "",
+              "===== PROCESS MONITOR =====",
+              (Get-Content -LiteralPath $monitorPath -Raw -ErrorAction SilentlyContinue)
+            )
+            $combined | Set-Content -LiteralPath $combinedPath
+            Write-Output (Get-Content -LiteralPath $summaryPath -Raw -ErrorAction SilentlyContinue)
+          }
+
+      - name: Upload diagnostic logs as an Actions artifact
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: Civiterra-runtime-logs-${{ github.run_id }}-${{ github.run_attempt }}
+          path: logs/runtime-latest*
+          if-no-files-found: warn
+          retention-days: 14
+
+      - name: Commit latest logs into the repository logs folder
+        if: always()
+        shell: pwsh
+        run: |
+          if (-not (Test-Path -LiteralPath "logs/runtime-latest.log")) {
+            New-Item -ItemType Directory -Force -Path "logs" | Out-Null
+            "No runtime log was produced. Check the setup/run step in the Actions job." |
+              Set-Content -LiteralPath "logs/runtime-latest.log"
+          }
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add logs/runtime-latest*
+          git diff --cached --quiet
+          if ($LASTEXITCODE -eq 0) {
+            Write-Output "The latest diagnostic logs are unchanged; nothing to commit."
+            exit 0
+          }
+          git commit -m "Update Civiterra runtime diagnostic logs [skip ci]"
+          if ($LASTEXITCODE -ne 0) { throw "Could not commit runtime diagnostic logs." }
+          git push origin "HEAD:$env:GITHUB_REF_NAME"
+          if ($LASTEXITCODE -ne 0) { throw "Could not push runtime diagnostic logs to $env:GITHUB_REF_NAME." }
