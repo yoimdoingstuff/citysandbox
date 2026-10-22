@@ -3486,8 +3486,10 @@ func _collapse_specific_building(city_id: int, house: Node3D, allow_chain: bool 
 	var tall_building: bool = building_height >= 5.0 or bool(house.get_meta("is_skyscraper", false))
 	var fall_angle: float = randf() * TAU
 	var fall_direction := Vector2(cos(fall_angle), sin(fall_angle))
-	_kill_people_near_falling_building(impact_position, clampf(building_height * 0.23 + 1.6, 2.2, 7.0))
-	_destroy_cars_in_radius(impact_position, clampf(building_height * 0.18 + 2.0, 2.8, 6.5))
+	var fall_reach: float = clampf(building_height * 0.42, 1.8, 12.0)
+	var fall_half_width: float = clampf(building_height * 0.11 + 1.3, 1.7, 4.5)
+	_kill_people_in_fall_corridor(impact_position, fall_direction, fall_reach, fall_half_width, house)
+	_destroy_cars_in_fall_corridor(impact_position, fall_direction, fall_reach, fall_half_width + 0.8)
 	_animate_building_fall(house, tall_building, city["color"], fall_direction)
 	houses.remove_at(house_index)
 	city["houses"] = houses
@@ -3519,24 +3521,25 @@ func _collapse_specific_building(city_id: int, house: Node3D, allow_chain: bool 
 	return true
 
 
-func _kill_people_near_falling_building(center: Vector3, radius: float) -> int:
+func _kill_people_in_fall_corridor(center: Vector3, direction: Vector2, reach: float, half_width: float, collapsing_house: Node3D) -> int:
 	var deaths: int = 0
-	var radius_squared: float = radius * radius
+	var forward: Vector2 = direction.normalized()
 	for person_index in range(people.size() - 1, -1, -1):
 		var person: Dictionary = people[person_index]
 		if not bool(person.get("alive", true)):
 			continue
 		var activity: String = str(person.get("activity", "wandering"))
-		var position: Vector3 = person["pos"]
 		if activity == "riding":
 			continue
 		if activity == "indoors":
 			var indoor_house: Variant = person.get("indoor_house", null)
-			if not (indoor_house is Node3D and is_instance_valid(indoor_house)) or indoor_house.global_position.distance_to(center) > 1.8:
+			if not (indoor_house is Node3D and is_instance_valid(indoor_house)) or indoor_house != collapsing_house:
 				continue
-		var dx: float = position.x - center.x
-		var dz: float = position.z - center.z
-		if dx * dx + dz * dz > radius_squared:
+		var position: Vector3 = person["pos"]
+		var offset := Vector2(position.x - center.x, position.z - center.z)
+		var along: float = offset.dot(forward)
+		var lateral: float = absf(offset.x * forward.y - offset.y * forward.x)
+		if along < -half_width or along > reach + half_width or lateral > half_width:
 			continue
 		if is_instance_valid(person.get("node")):
 			person["node"].queue_free()
@@ -3545,6 +3548,27 @@ func _kill_people_near_falling_building(center: Vector3, radius: float) -> int:
 	if deaths > 0:
 		last_detail_signature = ""
 	return deaths
+
+
+func _destroy_cars_in_fall_corridor(center: Vector3, direction: Vector2, reach: float, half_width: float) -> int:
+	var forward: Vector2 = direction.normalized()
+	var targets: Array[Node3D] = []
+	for car in cars:
+		var position: Vector3 = car["pos"]
+		var offset := Vector2(position.x - center.x, position.z - center.z)
+		var along: float = offset.dot(forward)
+		var lateral: float = absf(offset.x * forward.y - offset.y * forward.x)
+		if along < -half_width or along > reach + half_width or lateral > half_width:
+			continue
+		var node: Node3D = car.get("node") as Node3D
+		if is_instance_valid(node):
+			targets.append(node)
+	var destroyed: int = 0
+	for node in targets:
+		if _destroy_car_node(node, "falling building"):
+			destroyed += 1
+	return destroyed
+
 
 
 func _destroy_car_node(car_node: Node3D, cause: String = "impact") -> bool:
@@ -3608,13 +3632,16 @@ func _animate_building_fall(house: Node3D, tall_building: bool, building_color: 
 	tween.tween_property(house, "rotation:z", house.rotation.z + z_fall, duration).set_trans(Tween.TRANS_CUBIC).set_ease(Tween.EASE_IN)
 	tween.tween_property(house, "rotation:x", house.rotation.x + x_fall, duration).set_trans(Tween.TRANS_CUBIC).set_ease(Tween.EASE_IN)
 	tween.tween_property(house, "scale:y", house.scale.y * 0.93, duration)
-	tween.chain().tween_callback(_finish_building_collapse.bind(house, tall_building, building_color))
+	tween.chain().tween_callback(_finish_building_collapse.bind(house, tall_building, building_color, fall_direction))
 
 
-func _finish_building_collapse(house: Node3D, tall_building: bool, building_color: Color) -> void:
+func _finish_building_collapse(house: Node3D, tall_building: bool, building_color: Color, fall_direction: Vector2 = Vector2.ZERO) -> void:
 	if not is_instance_valid(house):
 		return
-	_spawn_persistent_rubble(house.global_position, tall_building, building_color)
+	var building_height: float = float(house.get_meta("building_height", 2.0 * house.scale.y))
+	var rubble_reach: float = clampf(building_height * 0.42, 1.8, 12.0)
+	var rubble_position: Vector3 = house.global_position + Vector3(fall_direction.x * rubble_reach, 0.0, fall_direction.y * rubble_reach)
+	_spawn_persistent_rubble(rubble_position, tall_building, building_color)
 	house.queue_free()
 
 
@@ -4822,6 +4849,7 @@ func _save_world() -> void:
 			"stability": float(city.get("stability", 72.0)),
 			"security": float(city.get("security", 44.0)),
 			"wealth": float(city.get("wealth", 12.0)),
+			"stage": int(city.get("stage", 0)),
 			"abandoned": bool(city.get("abandoned", false)),
 			"abandoned_age": float(city.get("abandoned_age", 0.0)),
 			"abandoned_decay_timer": float(city.get("abandoned_decay_timer", 8.0)),
@@ -4995,6 +5023,7 @@ func _load_world() -> void:
 		city["stability"] = float(city_data.get("stability", 72.0))
 		city["security"] = float(city_data.get("security", 44.0))
 		city["wealth"] = float(city_data.get("wealth", 12.0))
+		city["stage"] = clampi(int(city_data.get("stage", 0)), 0, 4)
 		city["abandoned"] = bool(city_data.get("abandoned", false))
 		city["abandoned_age"] = maxf(0.0, float(city_data.get("abandoned_age", 0.0)))
 		city["abandoned_decay_timer"] = maxf(0.0, float(city_data.get("abandoned_decay_timer", 8.0)))
@@ -5058,7 +5087,11 @@ func _load_world() -> void:
 	# Rebuild homes and territory after all people and cities exist, so borders
 	# are calculated against the final city population and neighbouring zones.
 	for city_id in range(cities.size()):
-		cities[city_id]["stage"] = _city_stage_for_population(_city_population(city_id))
+		var loaded_population: int = _city_population(city_id)
+		if loaded_population > 0:
+			cities[city_id]["stage"] = _city_stage_for_population(loaded_population)
+		else:
+			cities[city_id]["stage"] = clampi(int(cities[city_id].get("stage", 0)), 0, 4)
 		_apply_city_stage_appearance(city_id)
 	for city_id in range(cities.size()):
 		_refresh_city_development(city_id)
