@@ -3467,7 +3467,8 @@ func _update_simulation_timers(delta: float) -> void:
 func _update_city_economies() -> void:
 	for city_id in range(cities.size()):
 		var city: Dictionary = cities[city_id]
-		if _city_population(city_id) <= 0 or bool(city.get("ruined", false)):
+		var population: int = _city_population(city_id)
+		if population <= 0 or bool(city.get("ruined", false)):
 			city["wealth"] = maxf(0.0, float(city.get("wealth", 0.0)) - 0.04)
 			cities[city_id] = city
 			continue
@@ -3475,6 +3476,7 @@ func _update_city_economies() -> void:
 		var workshops: int = 0
 		var commercial: int = 0
 		var apartments: int = 0
+		var mines: int = 0
 		for house in city["houses"]:
 			if not is_instance_valid(house):
 				continue
@@ -3487,23 +3489,177 @@ func _update_city_economies() -> void:
 					commercial += 1
 				4:
 					farms += 1
+				7:
+					mines += 1
 
-		# Farms provide a slow but reliable food supply. Workshops and shops add
-		# wealth, while civic/commercial buildings help improve local security.
-		city["food"] = minf(42.0, float(city["food"]) + float(farms) * 0.28)
-		var workshop_output: float = float(workshops) * 0.16
+		# Farms sustain the population. Workshops turn timber into value;
+		# commerce, taxes and rent feed the treasury that actually pays builders.
+		city["food"] = minf(60.0, float(city["food"]) + float(farms) * 0.28)
 		if workshops > 0 and float(city["wood"]) > 0.0:
 			city["wood"] = maxf(0.0, float(city["wood"]) - minf(float(city["wood"]), float(workshops) * 0.035))
-			city["wealth"] = minf(100.0, float(city["wealth"]) + workshop_output)
+			city["wealth"] = minf(100.0, float(city["wealth"]) + float(workshops) * 0.16)
 		city["wealth"] = minf(100.0, float(city["wealth"]) + float(commercial) * 0.14 + float(apartments) * 0.025)
+		city["treasury"] = clampf(float(city.get("treasury", 85.0)) + float(population) * 0.035 + float(workshops) * 0.22 + float(commercial) * 0.28 + float(apartments) * 0.06 + float(mines) * 0.08 - float(city["houses"].size()) * 0.012, 0.0, 5000.0)
+		if mines > 0 and _world_year() >= 1780 and float(city["treasury"]) >= float(mines) * 0.04:
+			city["iron"] = minf(100.0, float(city.get("iron", 0.0)) + float(mines) * 0.20)
+			city["coal"] = minf(100.0, float(city.get("coal", 0.0)) + float(mines) * 0.14)
+			city["treasury"] = maxf(0.0, float(city["treasury"]) - float(mines) * 0.04)
 		if commercial > 0:
 			city["security"] = minf(100.0, float(city["security"]) + float(commercial) * 0.025)
 		if farms > 0 and float(city["food"]) >= 7.0:
 			city["stability"] = minf(100.0, float(city["stability"]) + 0.035 * float(farms))
-		cities[city_id] = city
-		if _city_population(city_id) > 0 and not bool(city.get("ruined", false)):
-			_apply_building_era_appearance(city_id, _world_year())
 
+		var plant: Node3D = city.get("power_plant") as Node3D
+		if _world_year() >= 1880 and is_instance_valid(plant) and float(city.get("coal", 0.0)) >= 0.10 and float(city["treasury"]) >= 0.05:
+			city["coal"] = maxf(0.0, float(city["coal"]) - 0.10)
+			city["treasury"] = maxf(0.0, float(city["treasury"]) - 0.05)
+			city["electricity"] = minf(100.0, float(city.get("electricity", 0.0)) + 0.8 + float(workshops) * 0.08 + float(commercial) * 0.05)
+		elif _world_year() < 1880:
+			city["electricity"] = 0.0
+		else:
+			city["electricity"] = maxf(0.0, float(city.get("electricity", 0.0)) - 0.18)
+
+		var hub: Node3D = city.get("internet_hub") as Node3D
+		if _world_year() >= 2000 and is_instance_valid(hub) and float(city.get("electricity", 0.0)) >= 12.0 and float(city.get("copper", 0.0)) >= 0.02 and float(city["treasury"]) >= 0.03:
+			city["copper"] = maxf(0.0, float(city["copper"]) - 0.02)
+			city["treasury"] = maxf(0.0, float(city["treasury"]) - 0.03)
+			city["internet"] = minf(100.0, float(city.get("internet", 0.0)) + 0.9 + float(commercial) * 0.12)
+		elif _world_year() < 2000:
+			city["internet"] = 0.0
+		else:
+			city["internet"] = maxf(0.0, float(city.get("internet", 0.0)) - 0.12)
+		city["wealth"] = minf(100.0, float(city["wealth"]) + float(city.get("electricity", 0.0)) * 0.0007 + float(city.get("internet", 0.0)) * 0.001)
+		cities[city_id] = city
+		_apply_building_era_appearance(city_id, _world_year())
+
+
+func _city_relation_key(a: int, b: int) -> String:
+	return "%d:%d" % [mini(a, b), maxi(a, b)]
+
+
+func _city_relation(a: int, b: int) -> float:
+	if a == b:
+		return 100.0
+	if _same_faction(a, b):
+		return maxf(25.0, float(city_relations.get(_city_relation_key(a, b), 0.0)))
+	return float(city_relations.get(_city_relation_key(a, b), 0.0))
+
+
+func _adjust_city_relation(a: int, b: int, amount: float) -> void:
+	if a < 0 or b < 0 or a >= cities.size() or b >= cities.size() or a == b:
+		return
+	var key: String = _city_relation_key(a, b)
+	city_relations[key] = clampf(float(city_relations.get(key, 0.0)) + amount, -100.0, 100.0)
+
+
+func _city_relationship_summary(city_id: int) -> String:
+	if city_id < 0 or city_id >= cities.size():
+		return "RELATIONS: unknown"
+	var wars_with: Array[String] = []
+	var trade_partners: int = 0
+	var friendly: int = 0
+	for other_id in range(cities.size()):
+		if other_id == city_id:
+			continue
+		if _are_at_war(city_id, other_id):
+			wars_with.append(str(cities[other_id]["name"]))
+		else:
+			if _city_relation(city_id, other_id) >= 20.0:
+				friendly += 1
+			if _city_relation(city_id, other_id) > -35.0:
+				trade_partners += 1
+	if not wars_with.is_empty():
+		return "WAR WITH: %s" % ", ".join(wars_with.slice(0, 2))
+	return "FRIENDS %d · TRADE ACCESS %d" % [friendly, trade_partners]
+
+
+func _update_city_trade() -> void:
+	if cities.size() < 2:
+		return
+	for source_id in range(cities.size()):
+		var source: Dictionary = cities[source_id]
+		if _city_population(source_id) <= 0 or bool(source.get("ruined", false)):
+			continue
+		for target_id in range(source_id + 1, cities.size()):
+			if _are_at_war(source_id, target_id):
+				continue # War immediately blocks all trade between these city-states.
+			if _city_relation(source_id, target_id) < -35.0:
+				continue
+			var target: Dictionary = cities[target_id]
+			if _city_population(target_id) <= 0 or bool(target.get("ruined", false)):
+				continue
+			var distance: float = Vector2(source["pos"].x - target["pos"].x, source["pos"].z - target["pos"].z).length()
+			var traded: bool = false
+			for good in TRADE_GOODS:
+				if _trade_city_good(source_id, target_id, good, distance) or _trade_city_good(target_id, source_id, good, distance):
+					traded = true
+					break
+			if traded:
+				_adjust_city_relation(source_id, target_id, 0.35)
+				trade_events_total += 1
+				if trade_events_total == 1 or trade_events_total % 5 == 0:
+					_log("TRADE: %s and %s exchanged supplies. Peaceful relations are improving." % [cities[source_id]["name"], cities[target_id]["name"]])
+
+
+func _trade_city_good(seller_id: int, buyer_id: int, good: String, distance: float) -> bool:
+	if seller_id < 0 or buyer_id < 0 or seller_id >= cities.size() or buyer_id >= cities.size():
+		return false
+	if _are_at_war(seller_id, buyer_id) or _city_relation(seller_id, buyer_id) < -35.0:
+		return false
+	var seller: Dictionary = cities[seller_id]
+	var buyer: Dictionary = cities[buyer_id]
+	var reserve: float = 1.0
+	var target_stock: float = 6.0
+	var price: float = 1.0
+	match good:
+		"food":
+			reserve = 5.0
+			target_stock = 15.0
+			price = 0.7
+		"wood":
+			reserve = 3.0
+			target_stock = 9.0
+			price = 0.9
+		"stone":
+			reserve = 2.0
+			target_stock = 7.0
+			price = 1.1
+		"iron":
+			reserve = 1.5
+			target_stock = 7.0
+			price = 1.8
+		"copper":
+			reserve = 1.0
+			target_stock = 5.0
+			price = 2.0
+		"coal":
+			reserve = 1.5
+			target_stock = 6.0
+			price = 1.2
+		"gold":
+			reserve = 0.2
+			target_stock = 2.0
+			price = 3.0
+	var available: float = float(seller.get(good, 0.0)) - reserve
+	var wanted: float = target_stock - float(buyer.get(good, 0.0))
+	if available <= 0.15 or wanted <= 0.15:
+		return false
+	var amount: float = minf(2.4, minf(available, wanted))
+	if distance > 100.0:
+		amount *= 0.75
+	if amount * price > float(buyer.get("treasury", 0.0)):
+		amount = minf(amount, float(buyer.get("treasury", 0.0)) / price)
+	if amount < 0.20:
+		return false
+	seller[good] = maxf(0.0, float(seller.get(good, 0.0)) - amount)
+	buyer[good] = float(buyer.get(good, 0.0)) + amount
+	buyer["treasury"] = maxf(0.0, float(buyer.get("treasury", 0.0)) - amount * price)
+	seller["treasury"] = minf(5000.0, float(seller.get("treasury", 0.0)) + amount * price)
+	seller["trade_volume"] = float(seller.get("trade_volume", 0.0)) + amount
+	buyer["trade_volume"] = float(buyer.get("trade_volume", 0.0)) + amount
+	cities[seller_id] = seller
+	cities[buyer_id] = buyer
+	return true
 
 func _population_counts_by_city() -> Array[int]:
 	var counts: Array[int] = []
@@ -3530,29 +3686,58 @@ func _collect_resources() -> void:
 	for city_id in range(cities.size()):
 		var city: Dictionary = cities[city_id]
 		for resource in resources:
-			if int(resource["amount"]) <= 0:
+			if int(resource.get("amount", 0)) <= 0 or not bool(resource.get("alive", true)):
 				continue
 			var resource_pos: Vector3 = resource["pos"]
 			var city_pos: Vector3 = city["pos"]
 			var distance: float = Vector2(resource_pos.x - city_pos.x, resource_pos.z - city_pos.z).length()
 			if distance > 15.0:
 				continue
-			var kind: String = resource["type"]
-			if kind == "food" and float(city["food"]) < 32.0:
-				city["food"] = float(city["food"]) + 2.5
-				resource["amount"] = int(resource["amount"]) - 1
-			elif kind == "tree" and float(city["wood"]) < 28.0:
-				city["wood"] = float(city["wood"]) + 1.6
-				resource["amount"] = int(resource["amount"]) - 1
-			elif kind == "stone" and float(city["stone"]) < 22.0:
-				city["stone"] = float(city["stone"]) + 1.3
-				resource["amount"] = int(resource["amount"]) - 1
+			var kind: String = str(resource.get("type", ""))
+			var inventory_key: String = ""
+			var gathered: float = 1.0
+			var capacity: float = 30.0
+			match kind:
+				"food":
+					inventory_key = "food"
+					gathered = 2.0
+					capacity = 60.0
+				"tree":
+					inventory_key = "wood"
+					gathered = 1.6
+					capacity = 45.0
+				"stone":
+					inventory_key = "stone"
+					gathered = 1.3
+					capacity = 35.0
+				"iron_ore":
+					inventory_key = "iron"
+					gathered = 1.1
+					capacity = 30.0
+				"copper_ore":
+					inventory_key = "copper"
+					gathered = 0.9
+					capacity = 25.0
+				"coal":
+					inventory_key = "coal"
+					gathered = 1.1
+					capacity = 35.0
+				"gold_ore":
+					inventory_key = "gold"
+					gathered = 0.45
+					capacity = 15.0
+			if inventory_key.is_empty():
+				continue
+			var stock: float = float(city.get(inventory_key, 0.0))
+			if stock >= capacity:
+				continue
+			city[inventory_key] = minf(capacity, stock + gathered)
+			resource["amount"] = int(resource["amount"]) - 1
 			if int(resource["amount"]) <= 0:
 				resource["alive"] = false
-				if is_instance_valid(resource["node"]):
-					resource["node"].visible = false
+				if is_instance_valid(resource.get("node")):
+					(resource["node"] as Node3D).visible = false
 			cities[city_id] = city
-
 
 func _grow_cities() -> void:
 	var population_counts: Array[int] = _population_counts_by_city()
