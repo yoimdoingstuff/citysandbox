@@ -153,6 +153,7 @@ var stress_scenario_frame_ms: Array[float] = []
 var stress_scenario_process_ms: Array[float] = []
 var stress_scenario_max_action_ms: float = 0.0
 var stress_camera_lod_step: int = 0
+var stress_last_frame_end_usec: int = 0
 
 var camera: Camera3D
 var camera_target: Vector3 = Vector3.ZERO
@@ -269,7 +270,7 @@ func _start_runtime_stress_tests() -> void:
 	stress_frames_total = 0
 	stress_csv = FileAccess.open("user://civiterra-stresstests.csv", FileAccess.WRITE)
 	if stress_csv != null:
-		stress_csv.store_line("record_type,scenario,elapsed_seconds,frame_samples,engine_fps,mean_loop_fps,avg_frame_interval_ms,p95_frame_interval_ms,p99_frame_interval_ms,max_frame_interval_ms,max_process_ms,max_action_ms,cities,buildings,citizens,cars,resources,rubble,fire_zones,meteors,tornadoes,effects,construction_sites,armies,missiles")
+		stress_csv.store_line("record_type,scenario,elapsed_seconds,frame_samples,engine_fps,mean_wall_fps,avg_frame_interval_ms,p95_frame_interval_ms,p99_frame_interval_ms,max_frame_interval_ms,max_process_ms,max_action_ms,cities,buildings,citizens,cars,resources,rubble,fire_zones,meteors,tornadoes,effects,construction_sites,armies,missiles")
 		stress_csv.flush()
 	paused = false
 	game_clock = float(2026 - STARTING_YEAR) * SECONDS_PER_YEAR
@@ -327,6 +328,7 @@ func _begin_next_runtime_stress_scenario() -> void:
 	])
 	stress_scenario_started_usec = Time.get_ticks_usec()
 	stress_last_sample_usec = stress_scenario_started_usec
+	stress_last_frame_end_usec = stress_scenario_started_usec
 	stress_repeat_started_usec = stress_scenario_started_usec
 
 
@@ -357,14 +359,20 @@ func _tick_runtime_stress_tests() -> void:
 
 
 func _record_runtime_stress_frame(delta: float, process_usec: int) -> void:
+	var now_usec: int = Time.get_ticks_usec()
+	# Use the wall-clock time between actual frame samples, not just Godot's
+	# delta. Some engines clamp delta after a long stall; doing so here would
+	# conceal exactly the multi-second hitch this suite is intended to measure.
 	var interval_ms: float = maxf(0.01, delta * 1000.0)
+	if stress_last_frame_end_usec > 0:
+		interval_ms = maxf(0.01, float(now_usec - stress_last_frame_end_usec) / 1000.0)
+	stress_last_frame_end_usec = now_usec
 	var process_ms: float = float(process_usec) / 1000.0
 	stress_window_frame_ms.append(interval_ms)
 	stress_window_process_ms.append(process_ms)
 	stress_scenario_frame_ms.append(interval_ms)
 	stress_scenario_process_ms.append(process_ms)
 	stress_frames_total += 1
-	var now_usec: int = Time.get_ticks_usec()
 	if now_usec - stress_last_sample_usec >= 1000000:
 		_write_runtime_stress_metrics("SAMPLE", false)
 		stress_last_sample_usec = now_usec
@@ -396,7 +404,7 @@ func _write_runtime_stress_metrics(record_type: String, whole_scenario: bool) ->
 	if stress_scenario_started_usec > 0:
 		scenario_elapsed = float(Time.get_ticks_usec() - stress_scenario_started_usec) / 1000000.0
 	var counts: Dictionary = _runtime_stress_counts()
-	var metric_line: String = "STRESS_%s|scenario=%s|elapsed_s=%.2f|samples=%d|engine_fps=%d|mean_loop_fps=%.2f|avg_frame_ms=%.2f|p95_frame_ms=%.2f|p99_frame_ms=%.2f|max_frame_ms=%.2f|max_process_ms=%.2f|max_action_ms=%.2f|cities=%d|buildings=%d|citizens=%d|cars=%d|resources=%d|rubble=%d|fire_zones=%d|meteors=%d|tornadoes=%d|effects=%d|construction_sites=%d|armies=%d|missiles=%d" % [
+	var metric_line: String = "STRESS_%s|scenario=%s|elapsed_s=%.2f|samples=%d|engine_fps=%d|mean_wall_fps=%.2f|avg_frame_ms=%.2f|p95_frame_ms=%.2f|p99_frame_ms=%.2f|max_frame_ms=%.2f|max_process_ms=%.2f|max_action_ms=%.2f|cities=%d|buildings=%d|citizens=%d|cars=%d|resources=%d|rubble=%d|fire_zones=%d|meteors=%d|tornadoes=%d|effects=%d|construction_sites=%d|armies=%d|missiles=%d" % [
 		record_type, scenario_name, scenario_elapsed, frame_count, Engine.get_frames_per_second(), mean_fps, average_interval_ms, p95_frame_ms, p99_frame_ms, max_frame_ms, process_max_ms, stress_scenario_max_action_ms,
 		int(counts["cities"]), int(counts["buildings"]), int(counts["citizens"]), int(counts["cars"]), int(counts["resources"]), int(counts["rubble"]), int(counts["fires"]), int(counts["meteors"]), int(counts["tornadoes"]), int(counts["effects"]), int(counts["construction_sites"]), int(counts["armies"]), int(counts["missiles"])
 	]
