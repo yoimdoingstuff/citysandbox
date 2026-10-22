@@ -19,6 +19,9 @@ const SAVE_VERSION: int = 4
 const MISSILE_UNLOCK_YEAR: int = 1945
 const ERA_SKIP_YEARS: Array[int] = [1200, 1450, 1780, 1880, 1950, 2000, 2026]
 const TRADE_GOODS: Array[String] = ["food", "wood", "stone", "iron", "copper", "coal", "gold"]
+const PERFORMANCE_LOG_PATH: String = "user://civiterra-performance.log"
+const SLOW_OPERATION_THRESHOLD_USEC: int = 40000
+const FRAME_HITCH_THRESHOLD_USEC: int = 100000
 const URBAN_FACADE_PALETTE := [
 	Color(0.68, 0.57, 0.45), Color(0.50, 0.53, 0.53), Color(0.70, 0.48, 0.35),
 	Color(0.43, 0.50, 0.43), Color(0.71, 0.67, 0.56), Color(0.40, 0.43, 0.44),
@@ -110,6 +113,8 @@ var resource_timer: float = 0.0
 var founding_timer: float = 0.0
 var auto_war_timer: float = 24.0
 var ui_timer: float = 0.0
+var performance_log: FileAccess
+var performance_frame_count: int = 0
 
 var camera: Camera3D
 var camera_target: Vector3 = Vector3.ZERO
@@ -155,6 +160,10 @@ var tool_buttons: Dictionary = {}
 
 
 func _ready() -> void:
+	performance_log = FileAccess.open(PERFORMANCE_LOG_PATH, FileAccess.WRITE)
+	if performance_log != null:
+		performance_log.store_line("Civiterra performance trace started. Slow-op threshold: %d ms; hitch threshold: %d ms." % [SLOW_OPERATION_THRESHOLD_USEC / 1000, FRAME_HITCH_THRESHOLD_USEC / 1000])
+		performance_log.flush()
 	randomize()
 	world_seed = randi() & 0x7FFFFFFF
 	seed(world_seed)
@@ -169,8 +178,68 @@ func _ready() -> void:
 	_log("Tip: spawn humans in a cluster and they can found a new settlement on their own.")
 	_update_historical_era(true)
 	_refresh_ui()
+	if OS.get_cmdline_user_args().has("--civiterra-freeze-stress-test"):
+		_run_freeze_stress_test()
 	if OS.get_cmdline_user_args().has("--civiterra-save-load-smoke-test"):
 		call_deferred("_run_save_load_smoke_test")
+
+
+
+func _trace_slow_operation(operation_name: String, started_usec: int) -> void:
+	var elapsed_usec: int = Time.get_ticks_usec() - started_usec
+	if elapsed_usec >= SLOW_OPERATION_THRESHOLD_USEC:
+		_write_performance_sample(operation_name, elapsed_usec)
+
+
+func _write_performance_sample(operation_name: String, elapsed_usec: int) -> void:
+	var building_count: int = 0
+	for city in cities:
+		building_count += (city.get("houses", []) as Array).size()
+	var sample: String = "PERF %s %dms | frame=%d | year=%d | speed=%dx | cities=%d | buildings=%d | people=%d | cars=%d | construction_sites=%d | resources=%d | distance=%.1f" % [
+		operation_name, int(elapsed_usec / 1000), performance_frame_count, _world_year(), int(sim_speed),
+		cities.size(), building_count, people.size(), cars.size(), construction_sites.size(), resources.size(), camera_distance
+	]
+	print(sample)
+	if performance_log != null:
+		performance_log.store_line(sample)
+		performance_log.flush()
+
+
+func _run_freeze_stress_test() -> void:
+	# The diagnostic runner starts in a modern era with enough citizens per city
+	# to exercise building creation, citizen entry/exit, town services, and LOD
+	# without requiring a person to click controls in an unattended CI runner.
+	game_clock = float(2026 - STARTING_YEAR) * SECONDS_PER_YEAR
+	sim_speed = 16.0
+	camera_distance = 68.0
+	if not cities.is_empty():
+		camera_target = cities[0]["pos"]
+	for city_id in range(cities.size()):
+		var city_position: Vector3 = cities[city_id]["pos"]
+		var local_index: int = 0
+		while _city_population(city_id) < 18 and people.size() < MAX_PEOPLE:
+			var angle: float = float(local_index) * 2.39996
+			var radius: float = 1.8 + float(local_index % 5) * 0.55
+			var spawn_position: Vector3 = _surface_position(city_position.x + cos(angle) * radius, city_position.z + sin(angle) * radius)
+			_spawn_human(spawn_position, city_id)
+			local_index += 1
+		_refresh_city_development(city_id)
+	last_architecture_era = -1
+	_update_historical_era(true)
+	_update_camera()
+	_refresh_ui()
+	var line: String = "CIVITERRA_FREEZE_STRESS_TEST_STARTED | year=%d | speed=%dx | cities=%d | buildings=%d | people=%d" % [_world_year(), int(sim_speed), cities.size(), _total_building_count(), people.size()]
+	print(line)
+	if performance_log != null:
+		performance_log.store_line(line)
+		performance_log.flush()
+
+
+func _total_building_count() -> int:
+	var total: int = 0
+	for city in cities:
+		total += (city.get("houses", []) as Array).size()
+	return total
 
 
 func _recover_stuck_citizens() -> void:
@@ -234,6 +303,8 @@ func _update_rubble_aging(delta: float) -> void:
 
 
 func _process(delta: float) -> void:
+	var frame_started_usec: int = Time.get_ticks_usec()
+	performance_frame_count += 1
 	detail_refresh_cooldown = maxf(0.0, detail_refresh_cooldown - delta)
 	people_lod_refresh_cooldown = maxf(0.0, people_lod_refresh_cooldown - delta)
 	_update_traffic_lights(delta)
@@ -265,6 +336,7 @@ func _process(delta: float) -> void:
 			people_update_interval = 0.08
 		elif people.size() > 120:
 			people_update_interval = 0.04
+		var people_started_usec: int = Time.get_ticks_usec()
 		if people_update_interval <= 0.0:
 			people_update_accumulator = 0.0
 			_update_people(sim_delta)
@@ -274,6 +346,7 @@ func _process(delta: float) -> void:
 				var people_delta: float = people_update_accumulator
 				people_update_accumulator = fmod(people_update_accumulator, people_update_interval)
 				_update_people(people_delta)
+		_trace_slow_operation("citizen-update", people_started_usec)
 
 		if not cars.is_empty():
 			var car_update_interval: float = 0.09 if camera_distance <= 85.0 else (0.18 if camera_distance <= 165.0 else 0.42)
@@ -291,17 +364,30 @@ func _process(delta: float) -> void:
 		_update_falling_meteors(sim_delta)
 		_update_tornadoes(sim_delta)
 		_update_plague(sim_delta)
+		var simulation_timers_started_usec: int = Time.get_ticks_usec()
 		_update_simulation_timers(sim_delta)
+		_trace_slow_operation("economy-growth-trade-events", simulation_timers_started_usec)
 		_update_rubble_aging(sim_delta)
+		var construction_started_usec: int = Time.get_ticks_usec()
 		_update_construction_sites(sim_delta)
+		_trace_slow_operation("construction-site-update", construction_started_usec)
 		_update_city_event_markers(sim_delta)
 		_update_city_event_scenes(sim_delta)
+		var era_started_usec: int = Time.get_ticks_usec()
 		_update_historical_era()
+		_trace_slow_operation("era-refurbishment", era_started_usec)
 	ui_timer += delta
 	if ui_timer >= 0.35:
 		ui_timer = 0.0
+		var detail_started_usec: int = Time.get_ticks_usec()
 		_update_world_detail_levels()
+		_trace_slow_operation("world-detail-and-occlusion", detail_started_usec)
+		var ui_started_usec: int = Time.get_ticks_usec()
 		_refresh_ui()
+		_trace_slow_operation("ui-refresh", ui_started_usec)
+	var frame_elapsed_usec: int = Time.get_ticks_usec() - frame_started_usec
+	if frame_elapsed_usec >= FRAME_HITCH_THRESHOLD_USEC:
+		_write_performance_sample("FRAME-HITCH", frame_elapsed_usec)
 
 
 func _build_world() -> void:
