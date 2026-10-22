@@ -588,6 +588,22 @@ func _on_world_click(screen_position: Vector2) -> void:
 		return
 	last_paint_position = world_position
 	last_paint_valid = true
+	if pending_action == "missile":
+		if _world_year() < MISSILE_UNLOCK_YEAR:
+			_log("Missiles are not available before 1945. Use the era skipper to test modern warfare.")
+			pending_action = ""
+			_refresh_ui()
+			return
+		if controlled_city < 0 or controlled_city >= cities.size():
+			_log("Take control of a city before launching missiles.")
+			pending_action = ""
+			_refresh_ui()
+			return
+		var nearby_city_id: int = _find_city_at(world_position, 8.0)
+		_launch_missile_at(controlled_city, world_position, nearby_city_id)
+		pending_action = ""
+		_refresh_ui()
+		return
 	if pending_action != "":
 		var target_id: int = _find_city_at(world_position, 5.5)
 		if target_id < 0:
@@ -597,20 +613,18 @@ func _on_world_click(screen_position: Vector2) -> void:
 			_log("Take control of a city before issuing orders.")
 			pending_action = ""
 			return
-		if target_id == controlled_city and pending_action != "missile":
-			_log("That city cannot invade itself.")
+		if target_id == controlled_city:
+			_log("That city cannot attack itself.")
 			pending_action = ""
 			return
 		match pending_action:
-			"missile":
-				_launch_missile(controlled_city, target_id)
 			"army":
 				_launch_army(controlled_city, target_id, false)
 			"peace":
 				_make_peace(controlled_city, target_id)
 		pending_action = ""
+		_refresh_ui()
 		return
-
 	_apply_world_tool(world_position)
 
 
@@ -970,6 +984,7 @@ func _create_city(position: Vector3, city_name: String, color: Color) -> int:
 		"stability": 72.0,
 		"security": 44.0,
 		"wealth": 12.0,
+		"defence_cooldown": 0.0,
 		"destroyed_building_debt": 0
 	})
 	return index
@@ -2761,52 +2776,61 @@ func _launch_army(source_id: int, target_id: int, automatic: bool) -> void:
 			"attack_timer": randf_range(0.0, 2.0),
 			"alive": true
 		})
-	if not automatic and _city_population(target_id) >= 7 and randf() < 0.70:
-		_log("%s is raising a defence force!" % cities[target_id]["name"])
-		_spawn_defenders(target_id, source_id)
+	if not automatic:
+		_log("%s will respond if the attacking force reaches its outskirts." % cities[target_id]["name"])
 
 
-func _spawn_defenders(source_id: int, target_id: int) -> void:
-	var count: int = clamp(1 + int(_city_population(source_id) / 8), 1, 3)
+func _spawn_defenders(defending_city_id: int, aggressor_city_id: int) -> void:
+	if defending_city_id < 0 or aggressor_city_id < 0 or defending_city_id >= cities.size() or aggressor_city_id >= cities.size():
+		return
+	var count: int = clampi(1 + int(_city_population(defending_city_id) / 10), 1, 4)
 	for index in range(count):
-		var p: Vector3 = cities[source_id]["pos"]
+		var p: Vector3 = cities[defending_city_id]["pos"]
 		var soldier := Node3D.new()
-		var uniform := BoxMesh.new()
-		uniform.size = Vector3(0.42, 0.78, 0.32)
-		_add_mesh(soldier, uniform, _material(cities[source_id]["color"].darkened(0.12)), Vector3(0.0, 0.60, 0.0))
+		_add_mesh(soldier, _cached_box_mesh(Vector3(0.42, 0.78, 0.32)), _material(cities[defending_city_id]["color"].darkened(0.12)), Vector3(0.0, 0.60, 0.0))
 		var helmet := SphereMesh.new()
 		helmet.radius = 0.23
 		helmet.height = 0.38
 		_add_mesh(soldier, helmet, _material(Color(0.26, 0.28, 0.27)), Vector3(0.0, 1.14, 0.0))
 		add_child(soldier)
-		var spawn := _surface_position(p.x + randf_range(-2.0, 2.0), p.z + randf_range(-2.0, 2.0))
+		var spawn := _surface_position(p.x + randf_range(-2.5, 2.5), p.z + randf_range(-2.5, 2.5))
 		soldier.position = spawn
-		armies.append({"node": soldier, "pos": spawn, "source": source_id, "target": target_id, "attack_timer": 1.0, "alive": true})
-	_declare_war(source_id, target_id)
+		armies.append({
+			"node": soldier, "pos": spawn, "source": defending_city_id, "target": aggressor_city_id,
+			"attack_timer": 0.0, "idle_timer": 0.0, "home_city": defending_city_id,
+			"is_defender": true, "alive": true
+		})
+	_log("%s has mobilised %d defenders." % [cities[defending_city_id]["name"], count])
 
 
 func _update_armies(delta: float) -> void:
 	for i in range(armies.size() - 1, -1, -1):
 		var army: Dictionary = armies[i]
+		if not bool(army.get("alive", true)):
+			if is_instance_valid(army.get("node")):
+				army["node"].queue_free()
+			armies.remove_at(i)
+			continue
 		var source_id: int = int(army["source"])
 		var target_id: int = int(army["target"])
 		if source_id >= cities.size() or target_id >= cities.size():
-			if is_instance_valid(army["node"]):
+			if is_instance_valid(army.get("node")):
 				army["node"].queue_free()
 			armies.remove_at(i)
 			continue
 		if _same_faction(source_id, target_id):
-			if is_instance_valid(army["node"]):
+			if is_instance_valid(army.get("node")):
 				army["node"].queue_free()
 			armies.remove_at(i)
+			continue
+		if bool(army.get("is_defender", false)):
+			_update_defender_army(i, delta)
 			continue
 		var position: Vector3 = army["pos"]
 		var destination: Vector3 = cities[target_id]["pos"]
 		var distance: float = Vector2(position.x - destination.x, position.z - destination.z).length()
 		if distance > 3.0:
-			var dx: float = destination.x - position.x
-			var dz: float = destination.z - position.z
-			var direction := Vector3(dx, 0.0, dz).normalized()
+			var direction := Vector3(destination.x - position.x, 0.0, destination.z - position.z).normalized()
 			position.x += direction.x * delta * 2.8
 			position.z += direction.z * delta * 2.8
 			position.y = _height_at(position.x, position.z)
@@ -2817,21 +2841,143 @@ func _update_armies(delta: float) -> void:
 				_damage_city(target_id, 1, "army")
 				if _city_population(target_id) <= 0:
 					_capture_city(target_id, source_id)
-				if randf() < 0.10 and is_instance_valid(army["node"]):
-					army["node"].queue_free()
+				if randf() < 0.10:
+					if is_instance_valid(army.get("node")):
+						army["node"].queue_free()
 					armies.remove_at(i)
 					continue
 		army["pos"] = position
-		if is_instance_valid(army["node"]):
+		if is_instance_valid(army.get("node")):
 			army["node"].position = position
 		armies[i] = army
+
+
+func _update_defender_army(defender_index: int, delta: float) -> void:
+	if defender_index < 0 or defender_index >= armies.size():
+		return
+	var defender: Dictionary = armies[defender_index]
+	var home_city: int = int(defender.get("home_city", defender.get("source", -1)))
+	var enemy_city: int = int(defender.get("target", -1))
+	if home_city < 0 or home_city >= cities.size() or enemy_city < 0 or enemy_city >= cities.size():
+		defender["alive"] = false
+		armies[defender_index] = defender
+		return
+	var position: Vector3 = defender["pos"]
+	var threat_index: int = -1
+	var threat_distance_squared: float = 34.0 * 34.0
+	for index in range(armies.size()):
+		if index == defender_index:
+			continue
+		var threat: Dictionary = armies[index]
+		if not bool(threat.get("alive", true)) or bool(threat.get("is_defender", false)):
+			continue
+		if int(threat.get("source", -1)) != enemy_city or int(threat.get("target", -1)) != home_city:
+			continue
+		var threat_position: Vector3 = threat["pos"]
+		var dx: float = threat_position.x - position.x
+		var dz: float = threat_position.z - position.z
+		var distance_squared: float = dx * dx + dz * dz
+		if distance_squared < threat_distance_squared:
+			threat_distance_squared = distance_squared
+			threat_index = index
+	if threat_index < 0:
+		defender["idle_timer"] = float(defender.get("idle_timer", 0.0)) + delta
+		var home_position: Vector3 = cities[home_city]["pos"]
+		var home_distance: float = Vector2(position.x - home_position.x, position.z - home_position.z).length()
+		if home_distance > 2.0:
+			var toward_home := Vector3(home_position.x - position.x, 0.0, home_position.z - position.z).normalized()
+			position.x += toward_home.x * delta * 2.5
+			position.z += toward_home.z * delta * 2.5
+			position.y = _height_at(position.x, position.z)
+		elif float(defender["idle_timer"]) > 10.0:
+			defender["alive"] = false
+			if is_instance_valid(defender.get("node")):
+				defender["node"].queue_free()
+			armies[defender_index] = defender
+			return
+	else:
+		defender["idle_timer"] = 0.0
+		var threat_position: Vector3 = armies[threat_index]["pos"]
+		var distance: float = Vector2(position.x - threat_position.x, position.z - threat_position.z).length()
+		if distance > 1.3:
+			var direction := Vector3(threat_position.x - position.x, 0.0, threat_position.z - position.z).normalized()
+			position.x += direction.x * delta * 3.6
+			position.z += direction.z * delta * 3.6
+			position.y = _height_at(position.x, position.z)
+			defender["attack_timer"] = 0.0
+		else:
+			defender["attack_timer"] = float(defender.get("attack_timer", 0.0)) + delta
+			if float(defender["attack_timer"]) >= 1.25:
+				defender["attack_timer"] = 0.0
+				var threat: Dictionary = armies[threat_index]
+				threat["alive"] = false
+				if is_instance_valid(threat.get("node")):
+					threat["node"].queue_free()
+				armies[threat_index] = threat
+				if randf() < 0.18:
+					defender["alive"] = false
+					if is_instance_valid(defender.get("node")):
+						defender["node"].queue_free()
+		defender["target"] = enemy_city
+	defender["pos"] = position
+	if is_instance_valid(defender.get("node")):
+		defender["node"].position = position
+	armies[defender_index] = defender
+
+
+func _update_city_defences() -> void:
+	for city_id in range(cities.size()):
+		var city: Dictionary = cities[city_id]
+		city["defence_cooldown"] = maxf(0.0, float(city.get("defence_cooldown", 0.0)) - 1.0)
+		if float(city["defence_cooldown"]) > 0.0 or _city_population(city_id) < 8 or float(city.get("security", 44.0)) < 8.0:
+			cities[city_id] = city
+			continue
+		var incoming_city: int = -1
+		for army in armies:
+			if not bool(army.get("alive", true)) or bool(army.get("is_defender", false)):
+				continue
+			if int(army.get("target", -1)) != city_id:
+				continue
+			var source_id: int = int(army.get("source", -1))
+			if source_id < 0 or source_id >= cities.size() or _same_faction(source_id, city_id):
+				continue
+			var unit_position: Vector3 = army["pos"]
+			var city_position: Vector3 = city["pos"]
+			var dx: float = unit_position.x - city_position.x
+			var dz: float = unit_position.z - city_position.z
+			if dx * dx + dz * dz <= 38.0 * 38.0:
+				incoming_city = source_id
+				break
+		if incoming_city >= 0:
+			var defenders_present: bool = false
+			for army in armies:
+				if bool(army.get("is_defender", false)) and bool(army.get("alive", true)) and int(army.get("home_city", -1)) == city_id:
+					defenders_present = true
+					break
+			if not defenders_present:
+				_spawn_defenders(city_id, incoming_city)
+				city["defence_cooldown"] = 18.0
+		cities[city_id] = city
 
 
 func _launch_missile(source_id: int, target_id: int) -> void:
 	if source_id < 0 or target_id < 0 or source_id >= cities.size() or target_id >= cities.size():
 		return
+	_launch_missile_at(source_id, cities[target_id]["pos"], target_id)
+
+
+func _launch_missile_at(source_id: int, ground_target: Vector3, target_id: int = -1) -> void:
+	if source_id < 0 or source_id >= cities.size():
+		return
+	if _world_year() < MISSILE_UNLOCK_YEAR:
+		_log("MISSILE LAUNCH BLOCKED: Ballistic missiles unlock in 1945.")
+		return
+	if absf(ground_target.x) > TERRAIN_SIZE * 0.5 or absf(ground_target.z) > TERRAIN_SIZE * 0.5:
+		_log("Missile target is outside the playable world.")
+		return
 	var start: Vector3 = cities[source_id]["pos"] + Vector3(0.0, 4.4, 0.0)
-	var finish: Vector3 = cities[target_id]["pos"] + Vector3(0.0, 1.8, 0.0)
+	var finish: Vector3 = ground_target
+	finish.y = _height_at(finish.x, finish.z) + 1.8
 	var missile := Node3D.new()
 	var shell := SphereMesh.new()
 	shell.radius = 0.38
@@ -2849,7 +2995,10 @@ func _launch_missile(source_id: int, target_id: int) -> void:
 	add_child(missile)
 	missile.position = start
 	missiles.append({"node": missile, "start": start, "finish": finish, "t": 0.0, "duration": 2.25, "target": target_id})
-	_log("MISSILE AWAY: %s has launched at %s." % [cities[source_id]["name"], cities[target_id]["name"]])
+	var target_name: String = "open ground"
+	if target_id >= 0 and target_id < cities.size():
+		target_name = cities[target_id]["name"]
+	_log("MISSILE AWAY: %s has fired at %s." % [cities[source_id]["name"], target_name])
 
 
 func _update_missiles(delta: float) -> void:
@@ -2895,17 +3044,69 @@ func _spawn_explosion(position: Vector3, target_id: int) -> void:
 	light.omni_range = 14.0
 	blast.add_child(light)
 	explosions.append({"node": blast, "material": blast_material, "light": light, "t": 0.0, "duration": 0.85})
-	if target_id >= 0 and target_id < cities.size():
-		_damage_city(target_id, max(2, int(_city_population(target_id) * 0.38)), "missile")
-		_destroy_city_houses(target_id, 2)
-		_log("IMPACT: %s has been hit. Buildings and citizens are lost." % cities[target_id]["name"])
+
+	# Damage is centred on the clicked impact coordinate rather than teleporting
+	# the effect to the city's town hall.
+	var blast_radius_squared: float = 7.0 * 7.0
+	var damaged_city_names: Array[String] = []
+	for city_id in range(cities.size()):
+		var city: Dictionary = cities[city_id]
+		var city_position: Vector3 = city["pos"]
+		var city_dx: float = city_position.x - position.x
+		var city_dz: float = city_position.z - position.z
+		var city_distance_squared: float = city_dx * city_dx + city_dz * city_dz
+		var houses: Array = city["houses"]
+		var buildings_to_collapse: Array[Node3D] = []
+		for house in houses:
+			if not is_instance_valid(house):
+				continue
+			var house_position: Vector3 = house.global_position
+			var dx: float = house_position.x - position.x
+			var dz: float = house_position.z - position.z
+			if dx * dx + dz * dz <= blast_radius_squared:
+				buildings_to_collapse.append(house)
+		var city_changed: bool = false
+		for house in buildings_to_collapse:
+			if _collapse_specific_building(city_id, house, true, false):
+				city_changed = true
+		if city_changed:
+			_rebuild_city_roads(city_id)
+		var population_losses: int = 0
+		for person_index in range(people.size() - 1, -1, -1):
+			var person: Dictionary = people[person_index]
+			var person_position: Vector3 = person["pos"]
+			var pdx: float = person_position.x - position.x
+			var pdz: float = person_position.z - position.z
+			if pdx * pdx + pdz * pdz > blast_radius_squared:
+				continue
+			if is_instance_valid(person.get("node")):
+				person["node"].queue_free()
+			people.remove_at(person_index)
+			population_losses += 1
+		if population_losses > 0 or city_changed:
+			city["stability"] = maxf(0.0, float(city.get("stability", 72.0)) - 12.0)
+			city["security"] = maxf(0.0, float(city.get("security", 44.0)) - 18.0)
+			city["wealth"] = maxf(0.0, float(city.get("wealth", 12.0)) - 8.0)
+			cities[city_id] = city
+			_refresh_city_development(city_id)
+			damaged_city_names.append(str(city["name"]))
+		elif city_distance_squared <= 12.0 * 12.0 and target_id == city_id:
+			city["stability"] = maxf(0.0, float(city.get("stability", 72.0)) - 6.0)
+			cities[city_id] = city
+			damaged_city_names.append(str(city["name"]))
 	for resource in resources:
 		var resource_pos: Vector3 = resource["pos"]
-		if Vector2(resource_pos.x - position.x, resource_pos.z - position.z).length() < 4.5:
+		var rdx: float = resource_pos.x - position.x
+		var rdz: float = resource_pos.z - position.z
+		if rdx * rdx + rdz * rdz <= 7.0 * 7.0:
 			resource["amount"] = 0
 			resource["alive"] = false
 			if is_instance_valid(resource["node"]):
 				resource["node"].visible = false
+	if damaged_city_names.is_empty():
+		_log("IMPACT: A missile detonated on open ground.")
+	else:
+		_log("IMPACT: Missile damage across %s." % ", ".join(damaged_city_names))
 
 
 func _update_explosions(delta: float) -> void:
