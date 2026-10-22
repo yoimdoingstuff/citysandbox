@@ -6816,23 +6816,34 @@ func _is_point_in_camera_view(world_position: Vector3, margin: float = 36.0) -> 
 	return projected.x >= viewport_rect.position.x - margin and projected.x <= viewport_rect.end.x + margin and projected.y >= viewport_rect.position.y - margin and projected.y <= viewport_rect.end.y + margin
 
 
-func _is_point_in_camera_view_fast(world_position: Vector3, margin: float, view_inverse: Transform3D, viewport_rect: Rect2, focal_pixels: float) -> bool:
-	# Camera3D.unproject_position() is convenient, but hundreds of calls during a
-	# visibility refresh dominate CPU time on large worlds. Project from one cached
-	# inverse camera transform instead; the perspective math is equivalent here.
+func _project_world_position_fast(world_position: Vector3, view_inverse: Transform3D, viewport_rect: Rect2, focal_pixels: float) -> Vector3:
+	# Returns screen x/y plus camera-space depth in one cached-transform operation.
 	var view_position: Vector3 = view_inverse * world_position
 	var depth: float = -view_position.z
 	if depth <= 0.1:
-		return false
+		return Vector3(-INF, -INF, depth)
 	var viewport_center: Vector2 = viewport_rect.position + viewport_rect.size * 0.5
-	var screen_x: float = viewport_center.x + view_position.x * focal_pixels / depth
-	var screen_y: float = viewport_center.y - view_position.y * focal_pixels / depth
-	return screen_x >= viewport_rect.position.x - margin and screen_x <= viewport_rect.end.x + margin and screen_y >= viewport_rect.position.y - margin and screen_y <= viewport_rect.end.y + margin
+	return Vector3(
+		viewport_center.x + view_position.x * focal_pixels / depth,
+		viewport_center.y - view_position.y * focal_pixels / depth,
+		depth
+	)
+
+
+func _is_point_in_camera_view_fast(world_position: Vector3, margin: float, view_inverse: Transform3D, viewport_rect: Rect2, focal_pixels: float) -> bool:
+	# Camera3D.unproject_position() is convenient, but hundreds of calls during a
+	# visibility refresh dominate CPU time on large worlds. Use the single cached
+	# camera transform instead; these checks use the same perspective projection.
+	var projected: Vector3 = _project_world_position_fast(world_position, view_inverse, viewport_rect, focal_pixels)
+	return projected.z > 0.1 and projected.x >= viewport_rect.position.x - margin and projected.x <= viewport_rect.end.x + margin and projected.y >= viewport_rect.position.y - margin and projected.y <= viewport_rect.end.y + margin
 
 
 func _refresh_people_lod_proxy(show_proxy: bool) -> void:
-	if not is_instance_valid(people_lod_proxy) or people_lod_proxy.multimesh == null:
+	if not is_instance_valid(people_lod_proxy) or people_lod_proxy.multimesh == null or not is_instance_valid(camera):
 		return
+	var viewport_rect: Rect2 = get_viewport().get_visible_rect()
+	var view_inverse: Transform3D = camera.global_transform.affine_inverse()
+	var focal_pixels: float = viewport_rect.size.y * 0.5 / maxf(0.1, tan(deg_to_rad(camera.fov * 0.5)))
 	var multimesh: MultiMesh = people_lod_proxy.multimesh
 	var instance_index: int = 0
 	var proxy_range: float = clampf(camera_distance * 0.92, 85.0, TERRAIN_SIZE * 0.78)
@@ -6846,7 +6857,7 @@ func _refresh_people_lod_proxy(show_proxy: bool) -> void:
 		var position: Vector3 = person["pos"]
 		var dx: float = position.x - camera_target.x
 		var dz: float = position.z - camera_target.z
-		if dx * dx + dz * dz > range_squared or not _is_point_in_camera_view(position + Vector3(0.0, 0.65, 0.0), 28.0):
+		if dx * dx + dz * dz > range_squared or not _is_point_in_camera_view_fast(position + Vector3(0.0, 0.65, 0.0), 28.0, view_inverse, viewport_rect, focal_pixels):
 			continue
 		if instance_index >= MAX_PEOPLE:
 			break
@@ -7319,8 +7330,9 @@ func _refresh_ui() -> void:
 func _cull_buildings_behind_nearby_structures() -> void:
 	if not is_instance_valid(camera):
 		return
-	var viewport_size: Vector2 = get_viewport().get_visible_rect().size
-	var focal_pixels: float = viewport_size.y * 0.5 / maxf(0.1, tan(deg_to_rad(camera.fov * 0.5)))
+	var viewport_rect: Rect2 = get_viewport().get_visible_rect()
+	var focal_pixels: float = viewport_rect.size.y * 0.5 / maxf(0.1, tan(deg_to_rad(camera.fov * 0.5)))
+	var view_inverse: Transform3D = camera.global_transform.affine_inverse()
 	const CELL_SIZE: float = 64.0
 	var candidates: Array[Dictionary] = []
 	for city in cities:
@@ -7333,12 +7345,17 @@ func _cull_buildings_behind_nearby_structures() -> void:
 			var width: float = float(house.get_meta("building_width", 2.8))
 			var house_position: Vector3 = house.global_position
 			var center_world: Vector3 = house_position + Vector3(0.0, height * 0.5, 0.0)
-			var depth: float = camera.global_position.distance_to(center_world)
-			if depth < 0.1 or camera.is_position_behind(center_world):
+			var center_projection: Vector3 = _project_world_position_fast(center_world, view_inverse, viewport_rect, focal_pixels)
+			if center_projection.z <= 0.1:
 				continue
-			var top_screen: Vector2 = camera.unproject_position(house_position + Vector3(0.0, height, 0.0))
-			var bottom_screen: Vector2 = camera.unproject_position(house_position)
-			var center_screen: Vector2 = camera.unproject_position(center_world)
+			var depth: float = camera.global_position.distance_to(center_world)
+			var top_projection: Vector3 = _project_world_position_fast(house_position + Vector3(0.0, height, 0.0), view_inverse, viewport_rect, focal_pixels)
+			var bottom_projection: Vector3 = _project_world_position_fast(house_position, view_inverse, viewport_rect, focal_pixels)
+			if top_projection.z <= 0.1 or bottom_projection.z <= 0.1:
+				continue
+			var top_screen := Vector2(top_projection.x, top_projection.y)
+			var bottom_screen := Vector2(bottom_projection.x, bottom_projection.y)
+			var center_screen := Vector2(center_projection.x, center_projection.y)
 			var projected_width: float = clampf(focal_pixels * width / depth, 4.0, 320.0)
 			var projected_height: float = clampf(absf(bottom_screen.y - top_screen.y), 8.0, 640.0)
 			var bounds := Rect2(Vector2(center_screen.x - projected_width * 0.5, minf(top_screen.y, bottom_screen.y)), Vector2(projected_width, projected_height))
