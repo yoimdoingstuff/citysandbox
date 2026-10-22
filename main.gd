@@ -18,7 +18,7 @@ const STARTING_YEAR: int = 1200
 const SECONDS_PER_YEAR: float = 3.0
 const TERRITORY_CELL_SIZE: float = 4.0
 const SAVE_PATH: String = "user://civiterra_world.json"
-const SAVE_VERSION: int = 4
+const SAVE_VERSION: int = 5
 const MISSILE_UNLOCK_YEAR: int = 1945
 const ERA_SKIP_YEARS: Array[int] = [1200, 1450, 1780, 1880, 1950, 2000, 2026]
 const TRADE_GOODS: Array[String] = ["food", "wood", "stone", "iron", "copper", "coal", "gold"]
@@ -6712,6 +6712,22 @@ func _run_save_load_smoke_test() -> void:
 			expected_resource_count += 1
 	var expected_height: float = float(terrain_heights[7][11])
 	var expected_food: float = float(cities[0]["food"])
+	cities[0]["treasury"] = 321.5
+	cities[0]["iron"] = 6.5
+	cities[0]["copper"] = 3.25
+	cities[0]["coal"] = 4.5
+	cities[0]["gold"] = 1.25
+	cities[0]["electricity"] = 42.0
+	cities[0]["internet"] = 19.0
+	city_relations[_city_relation_key(0, 1)] = 0.0
+	_declare_war(0, 1)
+	var expected_treasury: float = float(cities[0]["treasury"])
+	var expected_iron: float = float(cities[0]["iron"])
+	var expected_copper: float = float(cities[0]["copper"])
+	var expected_coal: float = float(cities[0]["coal"])
+	var expected_gold: float = float(cities[0]["gold"])
+	var expected_electricity: float = float(cities[0]["electricity"])
+	var expected_internet: float = float(cities[0]["internet"])
 	cities[0]["destroyed_building_debt"] = int(cities[0].get("destroyed_building_debt", 0)) + 1
 	cities[0]["next_plot_index"] = maxi(int(cities[0].get("next_plot_index", 0)), 9)
 	var expected_destroyed_debt: int = int(cities[0]["destroyed_building_debt"])
@@ -6756,6 +6772,23 @@ func _run_save_load_smoke_test() -> void:
 		return
 	if absf(float(cities[0]["food"]) - expected_food) > 0.001:
 		push_error("SAVE_LOAD_TEST_FAILED: City stock was not restored.")
+		get_tree().quit(1)
+		return
+	for stock_check in [
+		{"key": "treasury", "expected": expected_treasury},
+		{"key": "iron", "expected": expected_iron},
+		{"key": "copper", "expected": expected_copper},
+		{"key": "coal", "expected": expected_coal},
+		{"key": "gold", "expected": expected_gold},
+		{"key": "electricity", "expected": expected_electricity},
+		{"key": "internet", "expected": expected_internet}
+	]:
+		if absf(float(cities[0].get(str(stock_check["key"]), 0.0)) - float(stock_check["expected"])) > 0.001:
+			push_error("SAVE_LOAD_TEST_FAILED: %s was not restored." % str(stock_check["key"]))
+			get_tree().quit(1)
+			return
+	if not _are_at_war(0, 1) or absf(_city_relation(0, 1) + 100.0) > 0.001:
+		push_error("SAVE_LOAD_TEST_FAILED: War state or trade embargo relation was not restored.")
 		get_tree().quit(1)
 		return
 	if int(cities[0].get("destroyed_building_debt", 0)) != expected_destroyed_debt:
@@ -6878,6 +6911,7 @@ func _save_world() -> void:
 	var save_data: Dictionary = {
 		"version": SAVE_VERSION,
 		"city_relations": city_relations,
+		"wars": wars,
 		"trade_timer": trade_timer,
 		"trade_events_total": trade_events_total,
 		"terrain_size": TERRAIN_SIZE,
@@ -6988,6 +7022,7 @@ func _load_world() -> void:
 	city_events_total = int(save_data.get("city_events_total", 0))
 	var saved_relations: Variant = save_data.get("city_relations", {})
 	city_relations = saved_relations if typeof(saved_relations) == TYPE_DICTIONARY else {}
+	var saved_wars: Variant = save_data.get("wars", [])
 	trade_timer = maxf(0.0, float(save_data.get("trade_timer", 0.0)))
 	trade_events_total = maxi(0, int(save_data.get("trade_events_total", 0)))
 	wars.clear()
@@ -7059,6 +7094,18 @@ func _load_world() -> void:
 				house.set_meta("is_refurbishment_site", bool(building_data.get("refurbishment", false)))
 				city["houses"].append(house)
 		cities[city_id] = city
+
+	# Restore diplomatic wars only after the city index table has been rebuilt.
+	if typeof(saved_wars) == TYPE_ARRAY:
+		for saved_war in saved_wars:
+			if typeof(saved_war) != TYPE_DICTIONARY:
+				continue
+			var war_a: int = int(saved_war.get("a", -1))
+			var war_b: int = int(saved_war.get("b", -1))
+			if war_a < 0 or war_b < 0 or war_a >= cities.size() or war_b >= cities.size() or war_a == war_b:
+				continue
+			if not _are_at_war(war_a, war_b):
+				wars.append({"a": war_a, "b": war_b})
 
 	for saved_person in saved_people:
 		if typeof(saved_person) != TYPE_DICTIONARY or people.size() >= MAX_PEOPLE:
