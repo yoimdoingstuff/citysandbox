@@ -3917,30 +3917,32 @@ func _update_missiles(delta: float) -> void:
 func _spawn_explosion(position: Vector3, target_id: int) -> void:
 	var blast := MeshInstance3D.new()
 	var blast_mesh := SphereMesh.new()
-	blast_mesh.radius = 1.0
-	blast_mesh.height = 2.0
+	blast_mesh.radius = 1.7
+	blast_mesh.height = 3.4
+	blast_mesh.radial_segments = 16
 	blast.mesh = blast_mesh
 	var blast_material := StandardMaterial3D.new()
-	blast_material.albedo_color = Color(1.0, 0.28, 0.035, 0.62)
+	blast_material.albedo_color = Color(1.0, 0.30, 0.025, 0.82)
 	blast_material.transparency = BaseMaterial3D.TRANSPARENCY_ALPHA
 	blast_material.shading_mode = BaseMaterial3D.SHADING_MODE_UNSHADED
 	blast_material.emission_enabled = true
-	blast_material.emission = Color(1.0, 0.13, 0.015)
-	blast_material.emission_energy_multiplier = 1.8
+	blast_material.emission = Color(1.0, 0.12, 0.005)
+	blast_material.emission_energy_multiplier = 3.4
 	blast.material_override = blast_material
-	blast.position = position
+	blast.position = position + Vector3(0.0, 1.0, 0.0)
 	add_child(blast)
 	var light := OmniLight3D.new()
 	light.light_color = Color(1.0, 0.31, 0.08)
-	light.light_energy = 4.0
-	light.omni_range = 14.0
+	light.light_energy = 9.0
+	light.omni_range = 34.0
 	blast.add_child(light)
-	explosions.append({"node": blast, "material": blast_material, "light": light, "t": 0.0, "duration": 0.85})
+	explosions.append({"node": blast, "material": blast_material, "light": light, "t": 0.0, "duration": 1.5, "max_scale": 7.6, "light_energy": 9.0})
+	_spawn_ground_shockwave(position)
+	_spawn_missile_mushroom_cloud(position)
 
-	# Damage is centred on the clicked impact coordinate rather than teleporting
-	# the effect to the city's town hall.
-	_destroy_cars_in_radius(position, 7.0)
-	var blast_radius_squared: float = 7.0 * 7.0
+	var blast_radius: float = 14.0
+	_destroy_cars_in_radius(position, blast_radius)
+	var blast_radius_squared: float = blast_radius * blast_radius
 	var damaged_city_names: Array[String] = []
 	for city_id in range(cities.size()):
 		var city: Dictionary = cities[city_id]
@@ -3949,57 +3951,162 @@ func _spawn_explosion(position: Vector3, target_id: int) -> void:
 		var city_dz: float = city_position.z - position.z
 		var city_distance_squared: float = city_dx * city_dx + city_dz * city_dz
 		var houses: Array = city["houses"]
-		var buildings_to_collapse: Array[Node3D] = []
+		var targets: Array[Node3D] = []
 		for house in houses:
 			if not is_instance_valid(house):
 				continue
-			var house_position: Vector3 = house.global_position
-			var dx: float = house_position.x - position.x
-			var dz: float = house_position.z - position.z
-			if dx * dx + dz * dz <= blast_radius_squared:
-				buildings_to_collapse.append(house)
+			var offset := Vector2(house.global_position.x - position.x, house.global_position.z - position.z)
+			if offset.length_squared() <= blast_radius_squared:
+				targets.append(house)
 		var city_changed: bool = false
-		for house in buildings_to_collapse:
-			if _collapse_specific_building(city_id, house, true, false):
+		for house in targets:
+			var distance: float = Vector2(house.global_position.x - position.x, house.global_position.z - position.z).length()
+			var impact_strength: float = clampf(0.42 - distance / blast_radius * 0.18, 0.22, 0.42)
+			if _collapse_specific_building(city_id, house, true, false, 0, impact_strength):
 				city_changed = true
 		if city_changed:
 			_rebuild_city_roads(city_id)
+			_schedule_city_territory_refresh()
 		var population_losses: int = 0
 		for person_index in range(people.size() - 1, -1, -1):
 			var person: Dictionary = people[person_index]
-			var person_position: Vector3 = person["pos"]
-			var pdx: float = person_position.x - position.x
-			var pdz: float = person_position.z - position.z
-			if pdx * pdx + pdz * pdz > blast_radius_squared:
+			var activity: String = str(person.get("activity", ""))
+			if activity == "riding":
 				continue
+			var person_position: Vector3 = person["pos"]
+			var dx: float = person_position.x - position.x
+			var dz: float = person_position.z - position.z
+			if dx * dx + dz * dz > blast_radius_squared:
+				continue
+			if activity == "indoors":
+				var indoor_house: Variant = person.get("indoor_house", null)
+				if indoor_house is Node3D and is_instance_valid(indoor_house) and indoor_house.global_position.distance_to(position) > 2.0:
+					continue
 			if is_instance_valid(person.get("node")):
 				person["node"].queue_free()
 			people.remove_at(person_index)
 			population_losses += 1
 		if population_losses > 0 or city_changed:
-			city["stability"] = maxf(0.0, float(city.get("stability", 72.0)) - 12.0)
-			city["security"] = maxf(0.0, float(city.get("security", 44.0)) - 18.0)
-			city["wealth"] = maxf(0.0, float(city.get("wealth", 12.0)) - 8.0)
+			city["stability"] = maxf(0.0, float(city.get("stability", 72.0)) - 22.0)
+			city["security"] = maxf(0.0, float(city.get("security", 44.0)) - 28.0)
+			city["wealth"] = maxf(0.0, float(city.get("wealth", 12.0)) - 16.0)
 			cities[city_id] = city
 			_refresh_city_development(city_id)
 			damaged_city_names.append(str(city["name"]))
-		elif city_distance_squared <= 12.0 * 12.0 and target_id == city_id:
-			city["stability"] = maxf(0.0, float(city.get("stability", 72.0)) - 6.0)
+		elif city_distance_squared <= blast_radius_squared and target_id == city_id:
+			city["stability"] = maxf(0.0, float(city.get("stability", 72.0)) - 12.0)
 			cities[city_id] = city
 			damaged_city_names.append(str(city["name"]))
 	for resource in resources:
 		var resource_pos: Vector3 = resource["pos"]
-		var rdx: float = resource_pos.x - position.x
-		var rdz: float = resource_pos.z - position.z
-		if rdx * rdx + rdz * rdz <= 7.0 * 7.0:
+		var dx: float = resource_pos.x - position.x
+		var dz: float = resource_pos.z - position.z
+		if dx * dx + dz * dz <= blast_radius_squared:
 			resource["amount"] = 0
 			resource["alive"] = false
 			if is_instance_valid(resource["node"]):
 				resource["node"].visible = false
 	if damaged_city_names.is_empty():
-		_log("IMPACT: A missile detonated on open ground.")
+		_log("MISSILE DETONATION: Massive blast on open ground.")
 	else:
-		_log("IMPACT: Missile damage across %s." % ", ".join(damaged_city_names))
+		_log("MISSILE DETONATION: Strategic strike devastates %s." % ", ".join(damaged_city_names))
+
+
+func _spawn_ground_shockwave(position: Vector3) -> void:
+	var wave := MeshInstance3D.new()
+	var disk := CylinderMesh.new()
+	disk.top_radius = 1.0
+	disk.bottom_radius = 1.0
+	disk.height = 0.10
+	disk.radial_segments = 32
+	wave.mesh = disk
+	var wave_material := StandardMaterial3D.new()
+	wave_material.albedo_color = Color(1.0, 0.58, 0.20, 0.66)
+	wave_material.transparency = BaseMaterial3D.TRANSPARENCY_ALPHA
+	wave_material.shading_mode = BaseMaterial3D.SHADING_MODE_UNSHADED
+	wave.material_override = wave_material
+	wave.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
+	wave.position = _surface_position(position.x, position.z) + Vector3(0.0, 0.18, 0.0)
+	wave.scale = Vector3(0.2, 1.0, 0.2)
+	add_child(wave)
+	var wave_tween := create_tween()
+	wave_tween.set_parallel(true)
+	wave_tween.tween_property(wave, "scale", Vector3(16.0, 1.0, 16.0), 2.0).set_trans(Tween.TRANS_QUAD).set_ease(Tween.EASE_OUT)
+	wave_tween.tween_property(wave_material, "albedo_color:a", 0.0, 2.0)
+	wave_tween.chain().tween_callback(wave.queue_free)
+
+
+func _spawn_missile_mushroom_cloud(position: Vector3) -> void:
+	var cloud := Node3D.new()
+	cloud.name = "MissileMushroomCloud"
+	cloud.position = _surface_position(position.x, position.z)
+	add_child(cloud)
+	var stem_mesh := CylinderMesh.new()
+	stem_mesh.top_radius = 0.8
+	stem_mesh.bottom_radius = 1.65
+	stem_mesh.height = 13.0
+	stem_mesh.radial_segments = 14
+	var stem_material := StandardMaterial3D.new()
+	stem_material.albedo_color = Color(0.27, 0.27, 0.26, 0.76)
+	stem_material.transparency = BaseMaterial3D.TRANSPARENCY_ALPHA
+	stem_material.shading_mode = BaseMaterial3D.SHADING_MODE_UNSHADED
+	stem_material.depth_draw_mode = BaseMaterial3D.DEPTH_DRAW_DISABLED
+	var stem := MeshInstance3D.new()
+	stem.mesh = stem_mesh
+	stem.material_override = stem_material
+	stem.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
+	stem.position = Vector3(0.0, 6.5, 0.0)
+	stem.scale = Vector3(0.35, 0.6, 0.35)
+	cloud.add_child(stem)
+	var cap_mesh := SphereMesh.new()
+	cap_mesh.radius = 2.1
+	cap_mesh.height = 4.2
+	cap_mesh.radial_segments = 14
+	cap_mesh.rings = 8
+	var cap_material := StandardMaterial3D.new()
+	cap_material.albedo_color = Color(0.36, 0.35, 0.33, 0.78)
+	cap_material.transparency = BaseMaterial3D.TRANSPARENCY_ALPHA
+	cap_material.shading_mode = BaseMaterial3D.SHADING_MODE_UNSHADED
+	cap_material.depth_draw_mode = BaseMaterial3D.DEPTH_DRAW_DISABLED
+	var cap := MeshInstance3D.new()
+	cap.mesh = cap_mesh
+	cap.material_override = cap_material
+	cap.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
+	cap.position = Vector3(0.0, 12.0, 0.0)
+	cap.scale = Vector3(0.3, 0.24, 0.3)
+	cloud.add_child(cap)
+	for puff_index in range(12):
+		var angle: float = TAU * float(puff_index) / 12.0
+		var puff := MeshInstance3D.new()
+		var puff_mesh := SphereMesh.new()
+		puff_mesh.radius = 1.3
+		puff_mesh.height = 2.6
+		puff_mesh.radial_segments = 8
+		puff.mesh = puff_mesh
+		var puff_material := StandardMaterial3D.new()
+		puff_material.albedo_color = Color(0.34, 0.34, 0.32, 0.60)
+		puff_material.transparency = BaseMaterial3D.TRANSPARENCY_ALPHA
+		puff_material.shading_mode = BaseMaterial3D.SHADING_MODE_UNSHADED
+		puff_material.depth_draw_mode = BaseMaterial3D.DEPTH_DRAW_DISABLED
+		puff.material_override = puff_material
+		puff.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
+		puff.position = Vector3(cos(angle) * 1.4, 11.5 + sin(angle * 2.0) * 0.35, sin(angle) * 1.4)
+		puff.scale = Vector3(0.28, 0.24, 0.28)
+		cloud.add_child(puff)
+		var puff_tween := create_tween()
+		puff_tween.set_parallel(true)
+		puff_tween.tween_property(puff, "scale", Vector3.ONE * randf_range(1.05, 1.8), 4.6).set_trans(Tween.TRANS_CUBIC).set_ease(Tween.EASE_OUT)
+		puff_tween.tween_property(puff_material, "albedo_color:a", 0.0, 7.2)
+	var cloud_tween := create_tween()
+	cloud_tween.set_parallel(true)
+	cloud_tween.tween_property(cloud, "position", cloud.position + Vector3(0.0, 14.0, 0.0), 7.8).set_trans(Tween.TRANS_CUBIC).set_ease(Tween.EASE_OUT)
+	cloud_tween.tween_property(stem, "scale", Vector3(1.2, 1.2, 1.2), 4.2).set_trans(Tween.TRANS_CUBIC).set_ease(Tween.EASE_OUT)
+	cloud_tween.tween_property(cap, "scale", Vector3(4.9, 2.3, 4.9), 4.8).set_trans(Tween.TRANS_CUBIC).set_ease(Tween.EASE_OUT)
+	cloud_tween.tween_property(stem_material, "albedo_color:a", 0.0, 7.8)
+	cloud_tween.tween_property(cap_material, "albedo_color:a", 0.0, 7.8)
+	var cleanup_tween := create_tween()
+	cleanup_tween.tween_interval(8.0)
+	cleanup_tween.tween_callback(cloud.queue_free)
 
 
 func _update_explosions(delta: float) -> void:
@@ -4008,13 +4115,13 @@ func _update_explosions(delta: float) -> void:
 		explosion["t"] = float(explosion["t"]) + delta
 		var t: float = clamp(float(explosion["t"]) / float(explosion["duration"]), 0.0, 1.0)
 		if is_instance_valid(explosion["node"]):
-			explosion["node"].scale = Vector3.ONE * lerpf(0.2, 5.0, t)
+			explosion["node"].scale = Vector3.ONE * lerpf(0.18, float(explosion.get("max_scale", 7.6)), t)
 		var mat: StandardMaterial3D = explosion["material"]
 		var c: Color = mat.albedo_color
-		c.a = 0.62 * (1.0 - t)
+		c.a = 0.82 * (1.0 - t)
 		mat.albedo_color = c
 		if is_instance_valid(explosion["light"]):
-			explosion["light"].light_energy = 4.0 * (1.0 - t)
+			explosion["light"].light_energy = float(explosion.get("light_energy", 9.0)) * (1.0 - t)
 		if t >= 1.0:
 			if is_instance_valid(explosion["node"]):
 				explosion["node"].queue_free()
