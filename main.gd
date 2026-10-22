@@ -1394,10 +1394,12 @@ func _refresh_city_development(city_id: int) -> void:
 	var stage_changed: bool = next_stage != previous_stage
 	if stage_changed:
 		_apply_city_stage_appearance(city_id)
-		_apply_building_era_appearance(city_id, _world_year())
 		if next_stage > previous_stage:
 			_log("%s developed into a %s." % [city["name"], _city_stage_name(next_stage).to_lower()])
 	var houses_changed: bool = _sync_city_buildings(city_id) if population > 0 and not bool(city.get("ruined", false)) else false
+	if population > 0 and not bool(city.get("ruined", false)):
+		# Cached era/population/wealth bands make this check cheap unless a building needs to change.
+		_apply_building_era_appearance(city_id, _world_year())
 	if houses_changed or stage_changed:
 		_schedule_city_territory_refresh()
 	city = cities[city_id]
@@ -2438,6 +2440,8 @@ func _update_city_economies() -> void:
 		if farms > 0 and float(city["food"]) >= 7.0:
 			city["stability"] = minf(100.0, float(city["stability"]) + 0.035 * float(farms))
 		cities[city_id] = city
+		if _city_population(city_id) > 0 and not bool(city.get("ruined", false)):
+			_apply_building_era_appearance(city_id, _world_year())
 
 
 func _population_counts_by_city() -> Array[int]:
@@ -3531,7 +3535,7 @@ func _kill_people_in_fall_corridor(center: Vector3, direction: Vector2, reach: f
 		var activity: String = str(person.get("activity", "wandering"))
 		if activity == "riding":
 			continue
-		if activity == "indoors":
+		if activity == "indoors" or activity == "entering":
 			var indoor_house: Variant = person.get("indoor_house", null)
 			if not (indoor_house is Node3D and is_instance_valid(indoor_house)) or indoor_house != collapsing_house:
 				continue
@@ -4704,7 +4708,7 @@ func _update_world_detail_levels() -> void:
 			sidewalks.visible = show_neighbourhoods and not ruined
 		for house in city["houses"]:
 			if is_instance_valid(house):
-				house.visible = show_neighbourhoods
+				house.visible = show_neighbourhoods and not ruined
 	var person_range: float = clampf(camera_distance * 0.54, 22.0, 68.0)
 	var person_range_squared: float = person_range * person_range
 	for person in people:
