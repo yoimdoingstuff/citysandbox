@@ -113,6 +113,7 @@ var chronicle_expanded: bool = false
 var traffic_light_records: Array = []
 var traffic_light_timer: float = 0.0
 var traffic_light_phase: int = 0
+var stuck_recovery_timer: float = 0.0
 var pause_button: Button
 var speed_button: Button
 var control_button: Button
@@ -142,8 +143,48 @@ func _ready() -> void:
 		call_deferred("_run_save_load_smoke_test")
 
 
+func _recover_stuck_citizens() -> void:
+	for person_index in range(people.size()):
+		var person: Dictionary = people[person_index]
+		if not bool(person.get("alive", true)):
+			continue
+		var activity: String = str(person.get("activity", "wandering"))
+		if activity in ["indoors", "riding", "cleaning"]:
+			continue
+		var position: Vector3 = person["pos"]
+		var target: Vector3 = person.get("target", position)
+		var distance_to_target: float = Vector2(position.x - target.x, position.z - target.z).length()
+		var stuck_timer: float = float(person.get("stuck_timer", 0.0))
+		if distance_to_target > 1.1:
+			stuck_timer += 1.0
+		else:
+			stuck_timer = 0.0
+		person["stuck_timer"] = stuck_timer
+		if stuck_timer >= 6.0:
+			var cleanup_id: int = int(person.get("cleanup_rubble_id", -1))
+			if cleanup_id >= 0:
+				_reserve_cleanup_rubble(cleanup_id, false)
+			person["activity"] = "wandering"
+			person["activity_timer"] = 0.0
+			person["indoor_house"] = null
+			person["vehicle_node"] = null
+			person["cleanup_rubble_id"] = -1
+			person["target"] = _choose_citizen_street_target(int(person.get("city_id", -1)), position, 10.0)
+			person["walk_timer"] = 0.0
+			person["stuck_timer"] = 0.0
+			var node: Node3D = person.get("node") as Node3D
+			if is_instance_valid(node):
+				node.position = position
+				node.visible = true
+		people[person_index] = person
+
+
 func _process(delta: float) -> void:
 	_update_traffic_lights(delta)
+	stuck_recovery_timer += delta
+	if stuck_recovery_timer >= 1.0:
+		stuck_recovery_timer = fmod(stuck_recovery_timer, 1.0)
+		_recover_stuck_citizens()
 	_update_camera_input(delta)
 	_update_auto_city_camera(delta)
 	preview_timer += delta
@@ -3596,13 +3637,13 @@ func _damage_city(city_id: int, amount: int, cause: String) -> void:
 		cities[city_id]["label"].text = "%s\nPOP %d" % [cities[city_id]["name"], int(cities[city_id]["population"])]
 
 
-func _collapse_specific_building(city_id: int, house: Node3D, allow_chain: bool = true, rebuild_roads: bool = true, chain_depth: int = 0) -> bool:
+func _collapse_specific_building(city_id: int, house: Node3D, allow_chain: bool = true, rebuild_roads: bool = true, chain_depth: int = 0, impact_strength: float = 0.22) -> bool:
 	if city_id < 0 or city_id >= cities.size() or not is_instance_valid(house):
 		return false
 	var city: Dictionary = cities[city_id]
 	var houses: Array = city["houses"]
 	var house_index: int = houses.find(house)
-	if house_index < 0:
+	if house_index < 0 or bool(house.get_meta("is_collapsing", false)):
 		return false
 	var impact_position: Vector3 = house.global_position
 	var local_position: Vector3 = house.position
@@ -3612,21 +3653,26 @@ func _collapse_specific_building(city_id: int, house: Node3D, allow_chain: bool 
 	var fall_direction := Vector2(cos(fall_angle), sin(fall_angle))
 	var fall_reach: float = clampf(building_height * 0.42, 1.8, 12.0)
 	var fall_half_width: float = clampf(building_height * 0.11 + 1.3, 1.7, 4.5)
+	house.set_meta("is_collapsing", true)
 	_kill_people_in_fall_corridor(impact_position, fall_direction, fall_reach, fall_half_width, house)
 	_destroy_cars_in_fall_corridor(impact_position, fall_direction, fall_reach, fall_half_width + 0.8)
-	_animate_building_fall(house, tall_building, city["color"], fall_direction)
+	_recover_citizens_from_collapsing_house(house)
+	_spawn_building_collapse_smoke(impact_position + Vector3(0.0, minf(building_height * 0.3, 7.0), 0.0), building_height, tall_building)
+	_animate_building_fall(house, tall_building, city["color"], fall_direction, impact_strength)
 	houses.remove_at(house_index)
 	city["houses"] = houses
 	city["destroyed_building_debt"] = int(city.get("destroyed_building_debt", 0)) + 1
 	cities[city_id] = city
-	# A tall building can knock into a neighbour. Limit cascades to four structures,
-	# so a metropolitan disaster cannot turn into an unbounded chain.
+	last_detail_signature = ""
+
+	# A neighbour is not flagged to collapse immediately. A visible debris chunk
+	# flies into it first, and only that timed impact can start its own fall.
 	if allow_chain and chain_depth < 3 and (tall_building or randf() < 0.12):
 		var chain_radius: float = minf(21.0, maxf(7.8, building_height * 0.62 + 2.0))
 		var target_house: Node3D = null
 		var target_score: float = INF
 		for other in houses:
-			if not is_instance_valid(other):
+			if not is_instance_valid(other) or bool(other.get_meta("is_collapsing", false)):
 				continue
 			var offset := Vector2(other.position.x - local_position.x, other.position.z - local_position.z)
 			var distance_squared: float = offset.length_squared()
@@ -3639,10 +3685,78 @@ func _collapse_specific_building(city_id: int, house: Node3D, allow_chain: bool 
 				target_score = score
 				target_house = other
 		if is_instance_valid(target_house) and randf() < (0.68 if tall_building else 0.20):
-			_collapse_specific_building(city_id, target_house, true, false, chain_depth + 1)
+			var distance_to_target: float = Vector2(target_house.position.x - local_position.x, target_house.position.z - local_position.z).length()
+			var transferred_energy: float = clampf(0.88 - distance_to_target / maxf(1.0, chain_radius) * 0.46, 0.30, 0.86)
+			_throw_debris_at_building(city_id, impact_position, target_house, city["color"], chain_depth + 1, transferred_energy, building_height)
+
 	if rebuild_roads and city_id < cities.size():
 		_rebuild_city_roads(city_id)
+		_schedule_city_territory_refresh()
 	return true
+
+
+func _recover_citizens_from_collapsing_house(house: Node3D) -> void:
+	if not is_instance_valid(house):
+		return
+	var house_position: Vector3 = house.global_position
+	for person_index in range(people.size()):
+		var person: Dictionary = people[person_index]
+		if not bool(person.get("alive", true)):
+			continue
+		var activity: String = str(person.get("activity", "wandering"))
+		var indoor_house: Variant = person.get("indoor_house", null)
+		var is_indoor_resident: bool = indoor_house == house and (activity == "indoors" or activity == "entering")
+		var target: Vector3 = person.get("target", person.get("pos", Vector3.ZERO))
+		var near_door: bool = activity == "entering" and Vector2(target.x - house_position.x, target.z - house_position.z).length() <= 2.8
+		if not is_indoor_resident and not near_door:
+			continue
+		var position: Vector3 = _surface_position(float(person["pos"].x), float(person["pos"].z))
+		var city_id: int = int(person.get("city_id", -1))
+		person["pos"] = position
+		person["target"] = _choose_citizen_street_target(city_id, position, 10.0)
+		person["activity"] = "wandering"
+		person["activity_timer"] = 0.0
+		person["walk_timer"] = 0.0
+		person["indoor_house"] = null
+		person["stuck_timer"] = 0.0
+		people[person_index] = person
+		var person_node: Node3D = person.get("node") as Node3D
+		if is_instance_valid(person_node):
+			person_node.position = position
+			person_node.visible = true
+
+
+func _throw_debris_at_building(city_id: int, source_position: Vector3, target_house: Node3D, building_color: Color, chain_depth: int, impact_strength: float, source_height: float) -> void:
+	if not is_instance_valid(target_house):
+		return
+	var direction := Vector2(target_house.global_position.x - source_position.x, target_house.global_position.z - source_position.z).normalized()
+	var debris := MeshInstance3D.new()
+	debris.name = "ChainCollapseDebris"
+	debris.mesh = _cached_box_mesh(Vector3(0.72, 0.58, 0.78))
+	debris.material_override = _material(building_color.darkened(0.40))
+	debris.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
+	add_child(debris)
+	var start_position: Vector3 = source_position + Vector3(direction.x * 1.2, maxf(1.8, source_height * 0.62), direction.y * 1.2)
+	var target_height: float = float(target_house.get_meta("building_height", 2.0 * target_house.scale.y))
+	var finish_position: Vector3 = target_house.global_position + Vector3(0.0, maxf(0.7, target_height * 0.45), 0.0)
+	debris.global_position = start_position
+	var distance: float = start_position.distance_to(finish_position)
+	var flight_time: float = clampf(distance / lerpf(19.0, 10.0, 1.0 - impact_strength), 0.42, 1.65)
+	var travel_tween := create_tween()
+	travel_tween.tween_interval(0.24)
+	travel_tween.tween_property(debris, "global_position", finish_position, flight_time).set_trans(Tween.TRANS_QUAD).set_ease(Tween.EASE_IN)
+	travel_tween.tween_callback(_on_building_debris_impact.bind(city_id, target_house, building_color, chain_depth, impact_strength))
+	travel_tween.tween_callback(debris.queue_free)
+
+
+func _on_building_debris_impact(city_id: int, target_house: Node3D, building_color: Color, chain_depth: int, impact_strength: float) -> void:
+	if not is_instance_valid(target_house) or city_id < 0 or city_id >= cities.size():
+		return
+	var city: Dictionary = cities[city_id]
+	if not (city["houses"] as Array).has(target_house):
+		return
+	_spawn_building_collapse_smoke(target_house.global_position + Vector3(0.0, 1.0, 0.0), float(target_house.get_meta("building_height", 2.0)), false, true)
+	_collapse_specific_building(city_id, target_house, true, true, chain_depth, impact_strength)
 
 
 func _kill_people_in_fall_corridor(center: Vector3, direction: Vector2, reach: float, half_width: float, collapsing_house: Node3D) -> int:
@@ -3740,14 +3854,17 @@ func _destroy_cars_in_radius(center: Vector3, radius: float) -> int:
 	return destroyed
 
 
-func _animate_building_fall(house: Node3D, tall_building: bool, building_color: Color, fall_direction: Vector2 = Vector2.ZERO) -> void:
+func _animate_building_fall(house: Node3D, tall_building: bool, building_color: Color, fall_direction: Vector2 = Vector2.ZERO, impact_strength: float = 0.22) -> void:
 	if not is_instance_valid(house):
 		return
 	if fall_direction.length_squared() < 0.01:
-		var angle: float = randf() * TAU
-		fall_direction = Vector2(cos(angle), sin(angle))
+		var random_angle: float = randf() * TAU
+		fall_direction = Vector2(cos(random_angle), sin(random_angle))
 	fall_direction = fall_direction.normalized()
-	var duration: float = 0.78 if tall_building else 0.52
+	var strength: float = clampf(impact_strength, 0.08, 1.0)
+	# The first unsupported structure slowly loses stability. A stronger debris
+	# impact transfers more energy, so the struck structure falls faster.
+	var duration: float = lerpf(4.2, 1.55, strength) if tall_building else lerpf(3.1, 1.15, strength)
 	var fall_angle: float = deg_to_rad(randf_range(72.0, 88.0) if tall_building else randf_range(58.0, 78.0))
 	var z_fall: float = -fall_direction.x * fall_angle
 	var x_fall: float = fall_direction.y * fall_angle
@@ -3755,7 +3872,7 @@ func _animate_building_fall(house: Node3D, tall_building: bool, building_color: 
 	tween.set_parallel(true)
 	tween.tween_property(house, "rotation:z", house.rotation.z + z_fall, duration).set_trans(Tween.TRANS_CUBIC).set_ease(Tween.EASE_IN)
 	tween.tween_property(house, "rotation:x", house.rotation.x + x_fall, duration).set_trans(Tween.TRANS_CUBIC).set_ease(Tween.EASE_IN)
-	tween.tween_property(house, "scale:y", house.scale.y * 0.93, duration)
+	tween.tween_property(house, "scale:y", house.scale.y * 0.93, duration).set_trans(Tween.TRANS_QUAD).set_ease(Tween.EASE_IN)
 	tween.chain().tween_callback(_finish_building_collapse.bind(house, tall_building, building_color, fall_direction))
 
 
@@ -3766,7 +3883,45 @@ func _finish_building_collapse(house: Node3D, tall_building: bool, building_colo
 	var rubble_reach: float = clampf(building_height * 0.42, 1.8, 12.0)
 	var rubble_position: Vector3 = house.global_position + Vector3(fall_direction.x * rubble_reach, 0.0, fall_direction.y * rubble_reach)
 	_spawn_persistent_rubble(rubble_position, tall_building, building_color)
+	_spawn_building_collapse_smoke(rubble_position + Vector3(0.0, 0.6, 0.0), building_height, tall_building, true)
 	house.queue_free()
+
+
+func _spawn_building_collapse_smoke(center: Vector3, building_height: float, tall_building: bool, impact_burst: bool = false) -> void:
+	var puff_count: int = 14 if tall_building else 8
+	if impact_burst:
+		puff_count = 6 if tall_building else 4
+	for puff_index in range(puff_count):
+		var puff := MeshInstance3D.new()
+		var puff_mesh := SphereMesh.new()
+		puff_mesh.radius = randf_range(0.62, 1.05)
+		puff_mesh.height = puff_mesh.radius * 2.0
+		puff_mesh.radial_segments = 8
+		puff_mesh.rings = 4
+		puff.mesh = puff_mesh
+		var smoke_material := StandardMaterial3D.new()
+		smoke_material.albedo_color = Color(randf_range(0.17, 0.29), randf_range(0.18, 0.30), randf_range(0.19, 0.31), randf_range(0.48, 0.70))
+		smoke_material.transparency = BaseMaterial3D.TRANSPARENCY_ALPHA
+		smoke_material.shading_mode = BaseMaterial3D.SHADING_MODE_UNSHADED
+		smoke_material.depth_draw_mode = BaseMaterial3D.DEPTH_DRAW_DISABLED
+		smoke_material.shading_mode = BaseMaterial3D.SHADING_MODE_PER_PIXEL
+		smoke_material.roughness = 1.0
+		puff.material_override = smoke_material
+		puff.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
+		var drift := Vector3(randf_range(-2.2, 2.2), randf_range(0.4, maxf(2.0, building_height * 0.36)), randf_range(-2.2, 2.2))
+		puff.global_position = center + Vector3(randf_range(-1.8, 1.8), randf_range(0.0, 1.3), randf_range(-1.8, 1.8))
+		var scale_start: float = randf_range(0.4, 0.9)
+		puff.scale = Vector3.ONE * scale_start
+		add_child(puff)
+		var lifetime: float = randf_range(2.5, 4.2) if tall_building else randf_range(1.8, 3.0)
+		if impact_burst:
+			lifetime *= 0.75
+		var smoke_tween := create_tween()
+		smoke_tween.set_parallel(true)
+		smoke_tween.tween_property(puff, "global_position", puff.global_position + drift, lifetime).set_trans(Tween.TRANS_CUBIC).set_ease(Tween.EASE_OUT)
+		smoke_tween.tween_property(puff, "scale", Vector3.ONE * randf_range(2.1, 3.8), lifetime).set_trans(Tween.TRANS_QUAD).set_ease(Tween.EASE_OUT)
+		smoke_tween.tween_property(smoke_material, "albedo_color:a", 0.0, lifetime)
+		smoke_tween.chain().tween_callback(puff.queue_free)
 
 
 func _spawn_persistent_rubble(position: Vector3, tall_building: bool, building_color: Color, record: bool = true, rubble_kind: String = "building", saved_id: int = -1) -> void:
