@@ -3252,6 +3252,7 @@ func _spawn_explosion(position: Vector3, target_id: int) -> void:
 
 	# Damage is centred on the clicked impact coordinate rather than teleporting
 	# the effect to the city's town hall.
+	_destroy_cars_in_radius(position, 7.0)
 	var blast_radius_squared: float = 7.0 * 7.0
 	var damaged_city_names: Array[String] = []
 	for city_id in range(cities.size()):
@@ -3355,7 +3356,7 @@ func _damage_city(city_id: int, amount: int, cause: String) -> void:
 		cities[city_id]["label"].text = "%s\nPOP %d" % [cities[city_id]["name"], int(cities[city_id]["population"])]
 
 
-func _collapse_specific_building(city_id: int, house: Node3D, allow_chain: bool = true, rebuild_roads: bool = true) -> bool:
+func _collapse_specific_building(city_id: int, house: Node3D, allow_chain: bool = true, rebuild_roads: bool = true, chain_depth: int = 0) -> bool:
 	if city_id < 0 or city_id >= cities.size() or not is_instance_valid(house):
 		return false
 	var city: Dictionary = cities[city_id]
@@ -3363,29 +3364,112 @@ func _collapse_specific_building(city_id: int, house: Node3D, allow_chain: bool 
 	var house_index: int = houses.find(house)
 	if house_index < 0:
 		return false
+	var impact_position: Vector3 = house.global_position
 	var local_position: Vector3 = house.position
-	var tall_building: bool = house.has_node("EraUpgrade") or float(house.scale.y) > 1.35
+	var building_height: float = float(house.get_meta("building_height", 2.0 * house.scale.y))
+	var tall_building: bool = building_height >= 5.0 or bool(house.get_meta("is_skyscraper", false))
+	_kill_people_near_falling_building(impact_position, clampf(building_height * 0.23 + 1.6, 2.2, 7.0))
+	_destroy_cars_in_radius(impact_position, clampf(building_height * 0.18 + 2.0, 2.8, 6.5))
 	_animate_building_fall(house, tall_building, city["color"])
 	houses.remove_at(house_index)
+	city["houses"] = houses
 	city["destroyed_building_debt"] = int(city.get("destroyed_building_debt", 0)) + 1
-	if allow_chain and tall_building:
-		for other_index in range(houses.size() - 1, -1, -1):
-			var other: Node3D = houses[other_index]
+	cities[city_id] = city
+	# A tall building can knock into a neighbour. Limit cascades to four structures,
+	# so a metropolitan disaster cannot turn into an unbounded chain.
+	if allow_chain and chain_depth < 3 and (tall_building or randf() < 0.12):
+		var angle: float = randf() * TAU
+		var fall_direction := Vector2(cos(angle), sin(angle))
+		var chain_radius: float = minf(21.0, maxf(7.8, building_height * 0.62 + 2.0))
+		var target_house: Node3D = null
+		var target_score: float = INF
+		for other in houses:
 			if not is_instance_valid(other):
 				continue
-			var dx: float = other.position.x - local_position.x
-			var dz: float = other.position.z - local_position.z
-			if dx * dx + dz * dz > 23.04 or randf() >= 0.55:
+			var offset := Vector2(other.position.x - local_position.x, other.position.z - local_position.z)
+			var distance_squared: float = offset.length_squared()
+			if distance_squared < 0.1 or distance_squared > chain_radius * chain_radius:
 				continue
-			_animate_building_fall(other, other.has_node("EraUpgrade") or float(other.scale.y) > 1.35, city["color"])
-			houses.remove_at(other_index)
-			city["destroyed_building_debt"] = int(city.get("destroyed_building_debt", 0)) + 1
-			break
-	city["houses"] = houses
-	cities[city_id] = city
-	if rebuild_roads:
+			if offset.normalized().dot(fall_direction) < 0.15:
+				continue
+			var score: float = sqrt(distance_squared) + randf_range(0.0, 1.2)
+			if score < target_score:
+				target_score = score
+				target_house = other
+		if is_instance_valid(target_house) and randf() < (0.68 if tall_building else 0.20):
+			_collapse_specific_building(city_id, target_house, true, false, chain_depth + 1)
+	if rebuild_roads and city_id < cities.size():
 		_rebuild_city_roads(city_id)
 	return true
+
+
+func _kill_people_near_falling_building(center: Vector3, radius: float) -> int:
+	var deaths: int = 0
+	var radius_squared: float = radius * radius
+	for person_index in range(people.size() - 1, -1, -1):
+		var person: Dictionary = people[person_index]
+		if not bool(person.get("alive", true)):
+			continue
+		var activity: String = str(person.get("activity", "wandering"))
+		if activity == "indoors" or activity == "riding":
+			continue
+		var position: Vector3 = person["pos"]
+		var dx: float = position.x - center.x
+		var dz: float = position.z - center.z
+		if dx * dx + dz * dz > radius_squared:
+			continue
+		if is_instance_valid(person.get("node")):
+			person["node"].queue_free()
+		people.remove_at(person_index)
+		deaths += 1
+	if deaths > 0:
+		last_detail_signature = ""
+	return deaths
+
+
+func _destroy_car_node(car_node: Node3D, cause: String = "impact") -> bool:
+	if not is_instance_valid(car_node):
+		return false
+	var found_index: int = -1
+	var car_data: Dictionary = {}
+	for car_index in range(cars.size()):
+		if cars[car_index].get("node") == car_node:
+			found_index = car_index
+			car_data = cars[car_index]
+			break
+	if found_index < 0:
+		return false
+	var crash_position: Vector3 = car_data.get("pos", car_node.global_position)
+	for person_index in range(people.size() - 1, -1, -1):
+		var person: Dictionary = people[person_index]
+		if person.get("vehicle_node") != car_node or str(person.get("activity", "")) != "riding":
+			continue
+		if is_instance_valid(person.get("node")):
+			person["node"].queue_free()
+		people.remove_at(person_index)
+	car_node.queue_free()
+	cars.remove_at(found_index)
+	_spawn_persistent_rubble(crash_position, false, Color(0.35, 0.38, 0.40), true, "vehicle")
+	last_detail_signature = ""
+	return true
+
+
+func _destroy_cars_in_radius(center: Vector3, radius: float) -> int:
+	var targets: Array[Node3D] = []
+	var radius_squared: float = radius * radius
+	for car in cars:
+		var position: Vector3 = car["pos"]
+		var dx: float = position.x - center.x
+		var dz: float = position.z - center.z
+		if dx * dx + dz * dz <= radius_squared:
+			var node: Node3D = car.get("node") as Node3D
+			if is_instance_valid(node):
+				targets.append(node)
+	var destroyed: int = 0
+	for node in targets:
+		if _destroy_car_node(node, "disaster"):
+			destroyed += 1
+	return destroyed
 
 
 func _animate_building_fall(house: Node3D, tall_building: bool, building_color: Color) -> void:
@@ -3631,6 +3715,7 @@ func _power_damage(center: Vector3, radius: float, people_limit: int, resource_c
 				resource["alive"] = false
 				if is_instance_valid(resource["node"]):
 					resource["node"].visible = false
+	_destroy_cars_in_radius(center, radius)
 	var radius_squared: float = radius * radius
 	for city_id in range(cities.size()):
 		var city_position: Vector3 = cities[city_id]["pos"]
