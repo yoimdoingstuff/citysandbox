@@ -5641,16 +5641,6 @@ func _serialize_city_buildings(city: Dictionary) -> Array:
 			"construction_progress": float(house.get_meta("construction_progress", 0.0))
 		})
 	return saved_buildings
-	var saved_buildings: Array = []
-	for house in city.get("houses", []):
-		if not is_instance_valid(house):
-			continue
-		saved_buildings.append({
-			"pos": _vector3_to_array(house.position),
-			"base_type": int(house.get_meta("base_building_type", house.get_meta("building_type", 0))),
-			"plot_index": int(house.get_meta("plot_index", 0))
-		})
-	return saved_buildings
 
 
 func _save_world() -> void:
