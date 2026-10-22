@@ -1165,82 +1165,154 @@ func _apply_building_era_appearance(city_id: int, year: int) -> void:
 		return
 	var city: Dictionary = cities[city_id]
 	var stage: int = int(city.get("stage", 0))
+	var era: int = _historical_era_index(year)
+	var population: int = int(city.get("population", _city_population(city_id)))
+	var wealth: float = float(city.get("wealth", 12.0))
+	var pop_band: int = int(population / 15)
+	var wealth_band: int = 3 if wealth >= 50.0 else (2 if wealth >= 25.0 else (1 if wealth >= 18.0 else 0))
 	for house_index in range((city["houses"] as Array).size()):
 		var house: Node3D = city["houses"][house_index]
 		if not is_instance_valid(house):
 			continue
-		var old_upgrade := house.get_node_or_null("EraUpgrade")
-		if old_upgrade != null:
-			old_upgrade.free()
-		var building_type: int = int(house.get_meta("building_type", house_index % 5))
-		var qualifies_for_tower: bool = building_type == 1 or building_type == 3 or building_type == 5 or building_type == 6 or house_index % 7 == 0
-		if year < 1880 or stage < 2 or not qualifies_for_tower or building_type == 4:
+		if int(house.get_meta("visual_era", -1)) == era and int(house.get_meta("visual_stage", -1)) == stage and int(house.get_meta("visual_pop_band", -1)) == pop_band and int(house.get_meta("visual_wealth_band", -1)) == wealth_band:
 			continue
+		var original_type: int = int(house.get_meta("base_building_type", house.get_meta("building_type", house_index % 5)))
+		var kind: int = original_type
+		# Farms give way to urban blocks after industrialisation.
+		if year >= 1850 and stage >= 2 and kind == 4:
+			kind = 3
+		elif year < 1880 and kind >= 5:
+			kind = 1 if kind == 5 else 3
+		for child in house.get_children():
+			child.free()
 
-		# Architecture follows the simulation date: early cities keep low skylines,
-		# industrial cities gain modest towers, and contemporary cities can build
-		# noticeably taller glass buildings.
-		var floors: int = 3
-		if year >= 2000:
-			floors = clampi(14 + int((year - 2000) / 15), 14, 24)
-		elif year >= 1950:
-			floors = clampi(8 + int((year - 1950) / 10), 8, 15)
+		var urban: bool = year >= 1780 and stage >= 2
+		var skyscraper: bool = false
+		var floors: int = 1
+		var width: float = 1.7
+		var depth: float = 1.55
+		var height: float = 1.35
+		var wall: Color = Color(0.72, 0.66, 0.55).lerp(city["color"], 0.20)
+		var roof_color: Color = city["color"].darkened(0.16)
+		if urban:
+			width = 2.65 + float(stage) * 0.12
+			depth = 2.45 + float(stage) * 0.10
+			if year < 1880:
+				floors = 2 + int(house_index % 2)
+				wall = Color(0.53, 0.39, 0.30).lerp(city["color"], 0.12)
+				roof_color = Color(0.29, 0.28, 0.27)
+			elif year < 1950:
+				floors = 3 + int(house_index % 2)
+				wall = Color(0.54, 0.58, 0.58).lerp(city["color"], 0.10)
+				roof_color = Color(0.25, 0.31, 0.34)
+			else:
+				floors = 3 + int(house_index % 3)
+				wall = Color(0.57, 0.65, 0.68).lerp(city["color"], 0.08)
+				roof_color = Color(0.22, 0.32, 0.38)
+			height = float(floors) * (0.78 if year < 1950 else 0.86)
+			if (kind in [1, 3, 5, 6] or house_index % 9 == 0) and year >= 1880:
+				if year >= 2000 and stage >= 4 and population >= 100 and wealth >= 50.0:
+					floors = clampi(17 + int((population - 100) / 55), 17, 30)
+					skyscraper = true
+				elif year >= 1950 and stage >= 3 and population >= 50 and wealth >= 25.0:
+					floors = clampi(8 + int((population - 50) / 18), 8, 17)
+					skyscraper = true
+				elif stage >= 2 and population >= 30 and wealth >= 18.0:
+					floors = clampi(4 + int((population - 30) / 14), 4, 9)
+					skyscraper = true
+			if skyscraper:
+				width = 2.55 if floors < 9 else 3.15
+				depth = 2.45 if floors < 9 else 3.0
+				height = float(floors) * 0.90
+				wall = Color(0.30, 0.43, 0.49) if year < 1950 else Color(0.31, 0.48, 0.56)
 		else:
-			floors = clampi(3 + int((year - 1880) / 20), 3, 6)
-		var current_population: int = _city_population(city_id)
-		var city_wealth: float = float(city.get("wealth", 0.0))
-		# A modern calendar unlocks the technology; it does not instantly create
-		# a Manhattan skyline in a poor village.
-		if stage < 3 or current_population < 35 or city_wealth < 18.0:
-			floors = mini(floors, 4)
-		elif stage < 4 or current_population < 75 or city_wealth < 38.0:
-			floors = mini(floors, 8)
+			match kind:
+				1:
+					height = 2.1
+					width = 1.6
+					depth = 1.55
+				2:
+					height = 1.22
+					width = 1.8
+					wall = wall.darkened(0.12)
+				3:
+					height = 1.72
+					width = 1.75
+					depth = 1.65
+				4:
+					height = 0.62
+					width = 1.9
+					depth = 1.85
+					wall = Color(0.51, 0.42, 0.29)
+
+		var body := BoxMesh.new()
+		body.size = Vector3(width, height, depth)
+		_add_mesh(house, body, _material(wall), Vector3(0.0, height * 0.5, 0.0))
+		if urban:
+			# A single combined window surface keeps high-rise models cheap.
+			var panes := SurfaceTool.new()
+			panes.begin(Mesh.PRIMITIVE_TRIANGLES)
+			var pane_w: float = width * 0.16
+			var pane_h: float = minf(0.42, height / float(maxi(1, floors)) * 0.46)
+			for floor_index in range(maxi(1, floors)):
+				var pane_y: float = (float(floor_index) + 0.52) * height / float(maxi(1, floors))
+				if pane_y > height - 0.08:
+					continue
+				for column in range(3):
+					var pane_x: float = (float(column) - 1.0) * width * 0.27
+					var z_face: float = depth * 0.5 + 0.012
+					_add_surface_quad(panes, Vector3(pane_x-pane_w*0.5,pane_y-pane_h*0.5,z_face), Vector3(pane_x+pane_w*0.5,pane_y-pane_h*0.5,z_face), Vector3(pane_x+pane_w*0.5,pane_y+pane_h*0.5,z_face), Vector3(pane_x-pane_w*0.5,pane_y+pane_h*0.5,z_face))
+			panes.generate_normals(true)
+			var windows := MeshInstance3D.new()
+			windows.mesh = panes.commit()
+			windows.material_override = _material(Color(0.32, 0.62, 0.73) if year < 1950 else Color(0.48, 0.76, 0.85), 0.42)
+			house.add_child(windows)
+			var flat_roof := BoxMesh.new()
+			flat_roof.size = Vector3(width + 0.16, 0.18, depth + 0.16)
+			_add_mesh(house, flat_roof, _material(roof_color), Vector3(0.0, height + 0.09, 0.0))
+			if skyscraper:
+				var crown := BoxMesh.new()
+				crown.size = Vector3(width * 0.48, 0.55, depth * 0.48)
+				_add_mesh(house, crown, _material(Color(0.22, 0.34, 0.40)), Vector3(0.0, height + 0.42, 0.0))
+		elif kind in [0, 1]:
+			var roof := CylinderMesh.new()
+			roof.top_radius = 0.0
+			roof.bottom_radius = width * 0.62
+			roof.height = 0.76
+			roof.radial_segments = 4
+			_add_mesh(house, roof, _material(roof_color), Vector3(0.0, height + 0.38, 0.0))
 		else:
-			floors = mini(floors, 24)
-		var base_height: float = 1.2
-		match building_type:
-			1:
-				base_height = 2.15 + float(stage) * 0.18
-			2:
-				base_height = 1.15 + float(stage) * 0.12
-			3:
-				base_height = 1.75 + float(stage) * 0.16
-			4:
-				base_height = 0.72 + float(stage) * 0.08
-			5:
-				base_height = 5.0
-			6:
-				base_height = 10.0
-		var tower_height: float = float(floors) * 0.72
-		var upgrade := Node3D.new()
-		upgrade.name = "EraUpgrade"
-		upgrade.position.y = base_height
-		house.add_child(upgrade)
-		var tower := BoxMesh.new()
-		var width: float = 1.05 if floors < 8 else 1.28
-		tower.size = Vector3(width, tower_height, width)
-		var glass := StandardMaterial3D.new()
-		glass.albedo_color = Color(0.20, 0.43, 0.55) if year < 1950 else Color(0.16, 0.34, 0.46)
-		glass.roughness = 0.25
-		glass.metallic = 0.22
-		glass.emission_enabled = true
-		glass.emission = Color(0.06, 0.12, 0.17)
-		glass.emission_energy_multiplier = 0.25
-		_add_mesh(upgrade, tower, glass, Vector3(0.0, tower_height * 0.5, 0.0))
-		# Horizontal floor bands and visible windows make the tower read as a
-		# stack of floors rather than an oversized single box.
-		for floor_index in range(floors):
-			var floor_y: float = float(floor_index) * 0.72 + 0.32
-			var band := BoxMesh.new()
-			band.size = Vector3(width + 0.055, 0.055, width + 0.055)
-			_add_mesh(upgrade, band, _material(Color(0.60, 0.72, 0.75)), Vector3(0.0, floor_y, 0.0))
-			var window := BoxMesh.new()
-			window.size = Vector3(width * 0.72, 0.28, 0.035)
-			_add_mesh(upgrade, window, _material(Color(0.54, 0.78, 0.91)), Vector3(0.0, floor_y + 0.19, width * 0.5 + 0.025))
-		if floors >= 8:
-			var crown := BoxMesh.new()
-			crown.size = Vector3(width * 0.72, 0.55, width * 0.72)
-			_add_mesh(upgrade, crown, _material(Color(0.26, 0.40, 0.49)), Vector3(0.0, tower_height + 0.22, 0.0))
+			var roof := BoxMesh.new()
+			roof.size = Vector3(width + 0.14, 0.14, depth + 0.14)
+			_add_mesh(house, roof, _material(roof_color), Vector3(0.0, height + 0.07, 0.0))
+			if kind == 2:
+				var chimney := CylinderMesh.new()
+				chimney.top_radius = 0.09
+				chimney.bottom_radius = 0.12
+				chimney.height = 0.54
+				_add_mesh(house, chimney, _material(Color(0.35, 0.28, 0.24)), Vector3(width * 0.28, height + 0.38, 0.0))
+			elif kind == 4:
+				for crop_index in range(3):
+					var crop := BoxMesh.new()
+					crop.size = Vector3(width * 0.72, 0.10, 0.13)
+					_add_mesh(house, crop, _material(Color(0.28, 0.54, 0.23)), Vector3(0.0, height + 0.18, (float(crop_index) - 1.0) * 0.42))
+		var door := BoxMesh.new()
+		door.size = Vector3(0.22, 0.42, 0.045)
+		_add_mesh(house, door, _material(Color(0.23, 0.16, 0.11)), Vector3(0.0, 0.22, depth * 0.5 + 0.03))
+		house.set_meta("building_type", kind)
+		house.set_meta("visual_era", era)
+		house.set_meta("visual_stage", stage)
+		house.set_meta("visual_pop_band", pop_band)
+		house.set_meta("visual_wealth_band", wealth_band)
+
+
+func _add_surface_quad(surface: SurfaceTool, a: Vector3, b: Vector3, c: Vector3, d: Vector3) -> void:
+	surface.add_vertex(a)
+	surface.add_vertex(b)
+	surface.add_vertex(c)
+	surface.add_vertex(a)
+	surface.add_vertex(c)
+	surface.add_vertex(d)
 
 
 func _city_stage_for_population(population: int) -> int:
@@ -1415,82 +1487,8 @@ func _sync_city_buildings(city_id: int) -> bool:
 		city["node"].add_child(house)
 
 		var building_type: int = house_index_to_building_type(houses.size(), stage)
-		var building_size: Vector3 = Vector3(1.35, 1.2, 1.35)
-		match building_type:
-			1:
-				building_size = Vector3(1.25, 2.15 + float(stage) * 0.18, 1.25)
-			2:
-				building_size = Vector3(1.8, 1.15 + float(stage) * 0.12, 1.45)
-			3:
-				building_size = Vector3(1.65, 1.75 + float(stage) * 0.16, 1.55)
-			4:
-				building_size = Vector3(1.95, 0.72 + float(stage) * 0.08, 1.90)
-			5:
-				building_size = Vector3(1.5, 5.0, 1.5)
-			6:
-				building_size = Vector3(2.1, 10.0, 2.1)
-		var building_height: float = building_size.y
-		var wall_color: Color = Color(0.70, 0.64, 0.48).lerp(city["color"], 0.24)
-		if building_type == 2:
-			wall_color = wall_color.darkened(0.09)
-		elif building_type == 4:
-			wall_color = Color(0.57, 0.47, 0.31).lerp(city["color"], 0.10)
-		elif building_type == 3:
-			wall_color = wall_color.lerp(city["color"].lightened(0.28), 0.25)
-		elif building_type >= 5:
-			wall_color = Color(0.36, 0.54, 0.61)
-		var walls := BoxMesh.new()
-		walls.size = building_size
-		_add_mesh(house, walls, _material(wall_color), Vector3(0.0, building_height * 0.5, 0.0))
-
-		if building_type == 0 or building_type == 1:
-			var roof := CylinderMesh.new()
-			roof.top_radius = 0.0
-			roof.bottom_radius = 1.02 if building_type == 0 else 0.88
-			roof.height = 0.88
-			roof.radial_segments = 4
-			_add_mesh(house, roof, _material(city["color"].darkened(0.10)), Vector3(0.0, building_height + 0.44, 0.0))
-		elif building_type < 5:
-			var flat_roof := BoxMesh.new()
-			flat_roof.size = Vector3(building_size.x + 0.12, 0.16, building_size.z + 0.12)
-			var flat_roof_color: Color = city["color"].darkened(0.18)
-			if building_type == 4:
-				flat_roof_color = Color(0.22, 0.36, 0.21)
-			_add_mesh(house, flat_roof, _material(flat_roof_color), Vector3(0.0, building_height + 0.08, 0.0))
-
-		if building_type < 5:
-			var door_mesh := BoxMesh.new()
-			door_mesh.size = Vector3(0.25, 0.44, 0.055)
-			_add_mesh(house, door_mesh, _material(Color(0.24, 0.16, 0.11)), Vector3(0.0, 0.23, building_size.z * 0.5 + 0.035))
-			var window_count: int = 3 if building_type == 1 or building_type == 3 else 2
-			for window_index in range(window_count):
-				var window_mesh := BoxMesh.new()
-				window_mesh.size = Vector3(0.20, 0.19, 0.045)
-				var window_x: float = (float(window_index) - float(window_count - 1) * 0.5) * 0.35
-				var window_y: float = minf(building_height - 0.26, 0.72 + float(stage) * 0.12)
-				_add_mesh(house, window_mesh, _material(Color(0.45, 0.78, 0.88)), Vector3(window_x, window_y, building_size.z * 0.5 + 0.04))
-				if building_type == 1 or building_type == 3:
-					var upper_window := BoxMesh.new()
-					upper_window.size = Vector3(0.18, 0.18, 0.045)
-					_add_mesh(house, upper_window, _material(Color(0.45, 0.78, 0.88)), Vector3(window_x, minf(building_height - 0.30, window_y + 0.58), building_size.z * 0.5 + 0.04))
-		if building_type == 4:
-			for crop_row in range(3):
-				var bed := BoxMesh.new()
-				bed.size = Vector3(building_size.x * 0.76, 0.07, 0.16)
-				var bed_z: float = (float(crop_row) - 1.0) * 0.43
-				_add_mesh(house, bed, _material(Color(0.33, 0.25, 0.14)), Vector3(0.0, building_height + 0.20, bed_z))
-				for crop_index in range(4):
-					var crop := BoxMesh.new()
-					crop.size = Vector3(0.10, 0.16, 0.11)
-					var crop_x: float = (float(crop_index) - 1.5) * 0.31
-					_add_mesh(house, crop, _material(Color(0.30, 0.62, 0.25)), Vector3(crop_x, building_height + 0.30, bed_z))
-		if building_type == 2:
-			var chimney := CylinderMesh.new()
-			chimney.top_radius = 0.10
-			chimney.bottom_radius = 0.13
-			chimney.height = 0.72
-			_add_mesh(house, chimney, _material(Color(0.38, 0.30, 0.26)), Vector3(building_size.x * 0.28, building_height + 0.42, -building_size.z * 0.18))
 		house.set_meta("building_type", building_type)
+		house.set_meta("base_building_type", building_type)
 		house.set_meta("plot_index", chosen_plot_index)
 		houses.append(house)
 	city["houses"] = houses
@@ -1504,15 +1502,15 @@ func _sync_city_buildings(city_id: int) -> bool:
 
 
 func house_index_to_building_type(index: int, stage: int) -> int:
-	var kind: int = index % 5
 	var year: int = _world_year()
-	if kind != 4 and year >= 1880 and stage >= 2 and index % 4 == 1:
+	var kind: int = index % 5
+	if year >= 1850 and stage >= 2 and kind == 4:
+		kind = 3
+	if year >= 1880 and stage >= 2 and kind != 4 and index % 5 == 1:
 		kind = 5
-	if kind != 4 and year >= 1950 and stage >= 3 and index % 6 == 1:
+	if year >= 1950 and stage >= 3 and kind != 4 and index % 7 == 2:
 		kind = 6
 	return kind
-
-
 
 
 func _add_road_segment(surface: SurfaceTool, city_position: Vector3, from_point: Vector2, to_point: Vector2, width: float = 0.48) -> void:
