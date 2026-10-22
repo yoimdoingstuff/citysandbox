@@ -269,7 +269,7 @@ jobs:
           if ($summary -notmatch "Game process exit code: 0") { throw "The game did not exit successfully." }
           if (-not (Test-Path -LiteralPath $stdoutPath)) { throw "The game's standard output log is missing." }
           $scenarioCount = @(Select-String -LiteralPath $stdoutPath -Pattern "STRESS_SCENARIO_COMPLETE\|" -ErrorAction SilentlyContinue).Count
-          if ($scenarioCount -lt 12) { throw "Expected at least 12 completed scenarios, but found $scenarioCount." }
+          if ($scenarioCount -lt 15) { throw "Expected at least 15 completed scenarios, but found $scenarioCount." }
           if (-not (Test-Path -LiteralPath $csvPath)) { throw "The FPS telemetry CSV was not generated." }
           $rows = @(Import-Csv -LiteralPath $csvPath)
           $sampleRows = @($rows | Where-Object { $_.record_type -eq "sample" })
