@@ -6348,6 +6348,12 @@ func _power_damage(center: Vector3, radius: float, people_limit: int, resource_c
 	_destroy_cars_in_radius(center, radius)
 	var radius_squared: float = radius * radius
 	var road_affected_city_ids: Array[int] = _damage_roads_at_position(center, maxf(2.5, radius * 0.78), false)
+	# Rebuild every road mesh touched by the impact, even if the impact is far
+	# from the city anchor. The old code gated this inside the city-centre damage
+	# radius, leaving edge streets recorded as damaged but still visible intact.
+	var road_rebuild_city_ids: Dictionary = {}
+	for road_city_id in road_affected_city_ids:
+		road_rebuild_city_ids[road_city_id] = true
 	for city_id in range(cities.size()):
 		var city_position: Vector3 = cities[city_id]["pos"]
 		var city_dx: float = city_position.x - center.x
@@ -6370,10 +6376,14 @@ func _power_damage(center: Vector3, radius: float, people_limit: int, resource_c
 			for hit_house in hit_houses:
 				if _collapse_specific_building(city_id, hit_house, true, false):
 					city_damaged = true
-			if city_damaged or road_affected_city_ids.has(city_id):
-				_rebuild_city_roads(city_id)
+			if city_damaged:
+				road_rebuild_city_ids[city_id] = true
 		if city_distance_squared <= radius * radius * 2.25:
 			cities[city_id]["food"] = max(0.0, float(cities[city_id]["food"]) - float(removed) * 0.25)
+	for road_city_id in road_rebuild_city_ids.keys():
+		var affected_city_id: int = int(road_city_id)
+		if affected_city_id >= 0 and affected_city_id < cities.size():
+			_rebuild_city_roads(affected_city_id)
 	_refresh_ui()
 
 
