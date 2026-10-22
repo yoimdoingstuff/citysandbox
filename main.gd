@@ -1879,7 +1879,7 @@ func _is_diagonal_avenue_plot(city_id: int, plot: Vector2i, year: int) -> bool:
 	if year < 1880 or city_id < 0 or city_id >= cities.size():
 		return false
 	var city: Dictionary = cities[city_id]
-	if int(city.get("stage", 0)) < 2 or (city["houses"] as Array).size() < 8:
+	if int(city.get("stage", 0)) < 2:
 		return false
 	var primary_diagonal: bool = false
 	match city_id % 4:
