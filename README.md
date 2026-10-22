@@ -38,14 +38,16 @@ The Windows build is currently unsigned. Direct downloads avoid the Actions ZIP 
 - Brush-radius preview follows the real terrain surface; terrain/resource tools can be painted by dragging.
 - Humans wander, join nearby settlements, and can spontaneously found towns when enough gather.
 - Cities progress through visible village, town, city, metropolis, and megacity stages as population grows; larger stages add more homes and expand the central landmark.
-- City neighbourhoods mix homes, apartments, workshops, civic/commercial buildings, era-specific facades, multi-sided windows, and streetscape details. Skyscrapers are rebuilt as complete structures, gated by the city's age, population, and wealth instead of growing on top of medieval houses.
+- City neighbourhoods mix homes, apartments, workshops, civic/commercial buildings, era-specific facades, multi-sided windows, and streetscape details. When eras advance, old buildings are gradually scaffolded and refurbished instead of the whole city instantly changing architectural style.
+- Modern city plans evolve from historic grids into a North American/Australian-style mix of grid streets, city-specific diagonal avenues, wider arterial roads, occasional roundabouts, and terrain-following connectors. Some cities keep a straighter grid; others get offset diagonal routes.
+- Larger multi-lot sites become more common through the industrial, modern, and contemporary eras. These can turn into larger commercial buildings, office blocks, apartment buildings, and more prominent towers, while the older building stock remains visible between redevelopments.
 - Cities have a larger 256-unit world with multiple broad landmasses, leaving more room for grids, neighbourhoods, and city expansion.
 - Grid roads now have separate sidewalk meshes; pedestrians route along sidewalk strips, enter houses and disappear indoors for a while, and sometimes board moving cars. Only nearby citizens render as detailed characters.
 - Farms provide food, workshops convert a little wood into wealth, apartments and commercial buildings contribute to prosperity, and commercial buildings gradually improve city security.
 - New buildings search for open land and avoid obvious overlaps, so coastal towns expand along the available terrain instead of placing houses in the sea.
 - Initial condition-driven city events include protests, strikes, rebellions, bank robberies, rare extremist incidents, and positive festivals, influenced by stability, security, food, and wealth.
 - City incidents display temporary floating alerts above the affected settlement as well as entries in the world chronicle.
-- City roads use a grid with occasional diagonal connectors and terrain-following surfaces. Separate sidewalks give citizens pedestrian routes and rebuild when the street layout changes.
+- City roads use a grid with era-dependent diagonal connectors, wide boulevards, traffic lights, and terrain-following surfaces. Roads and sidewalks rebuild when the city enters a new era or the terrain detail changes.
 - Each city has a coloured territory zone that expands as it builds more houses, with shared boundaries calculated when city influence zones meet.
 - Selecting a city smoothly focuses the camera and automatically zooms out when its territory expands; manual camera input overrides auto-zoom.
 - Abandoned cities stop growing new buildings, lose structures gradually to collapse, and eventually become permanent ruins. Ruin states, city buildings, and building/vehicle debris survive save/load.
