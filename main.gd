@@ -6680,7 +6680,9 @@ func _update_historical_era(force: bool = false) -> void:
 	traffic_lights_enabled = lights_available
 	for city_id in range(cities.size()):
 		_apply_building_era_appearance(city_id, year)
-		if lights_transitioned or force:
+		# The street plan evolves too: diagonal avenues and broad arterials appear
+		# as the city enters later eras, rather than waiting for its next house.
+		if lights_transitioned or force or era != previous_era:
 			_rebuild_city_roads(city_id)
 	if previous_era >= 0 and era > previous_era:
 		_log("HISTORICAL SHIFT: %s begins in year %d. Cities can now develop new architecture and social events." % [_historical_era_name(year), year])
