@@ -11,6 +11,7 @@ const MAX_BUILDINGS_PER_DEVELOPMENT_TICK: int = 1
 const MAX_BUILDING_STARTS_PER_FRAME: int = 1
 const BUILDING_VISUAL_MUTATION_INTERVAL_USEC: int = 120000
 const CITY_ROAD_REBUILD_INTERVAL_USEC: int = 450000
+const MAX_CONSTRUCTION_SITE_UPDATES_PER_FRAME: int = 16
 const MAX_CARS: int = 36
 const ROAD_GRID_SIZE: float = 7.5
 const WATER_LEVEL: float = -0.15
@@ -95,6 +96,8 @@ var rubble_nodes: Array = []
 var rubble_id_sequence: int = 1
 var construction_sites: Array = []
 var construction_id_sequence: int = 1
+var construction_site_update_cursor: int = 0
+var construction_simulation_clock: float = 0.0
 var pending_city_development: Array[int] = []
 var pending_city_development_set: Dictionary = {}
 var pending_city_road_rebuilds: Array[int] = []
@@ -346,6 +349,7 @@ func _process(delta: float) -> void:
 	if not paused:
 		sim_delta = delta * sim_speed
 		game_clock += sim_delta
+		construction_simulation_clock += sim_delta
 
 		# Throttle the full crowd update as populations grow, while preserving game-time motion.
 		var people_update_interval: float = 0.0
@@ -2182,7 +2186,8 @@ func _setup_construction_site(house: Node3D, city_id: int, building_type: int, p
 		"progress": clampf(progress, 0.0, 0.99),
 		"duration": randf_range(6.0, 10.0) if refurbishment else randf_range(10.0, 18.0),
 		"refurbishment": refurbishment, "scaffold": scaffold, "phase": randf() * TAU,
-		"worker_count": assigned_workers, "worker_entries": assigned_worker_entries, "pad_size": pad_size
+		"worker_count": assigned_workers, "worker_entries": assigned_worker_entries, "pad_size": pad_size,
+		"last_simulation_clock": construction_simulation_clock
 	})
 	_trace_slow_operation("construction-scaffold-full-setup", setup_started_usec)
 
@@ -2213,19 +2218,48 @@ func _cancel_construction_site(house: Node3D) -> void:
 		return
 
 
-func _update_construction_sites(delta: float) -> void:
-	for site_index in range(construction_sites.size() - 1, -1, -1):
+func _update_construction_sites(_delta: float) -> void:
+	var update_batch_started_usec: int = Time.get_ticks_usec()
+	if construction_sites.is_empty():
+		construction_site_update_cursor = 0
+		return
+	# Worker/scaffold updates can be surprisingly expensive when a large city has
+	# dozens of active sites. Rotate through a small batch per frame, but calculate
+	# each site's progress from the full accumulated simulation-time gap so the
+	# animation cadence does not change the actual construction duration.
+	var initial_count: int = construction_sites.size()
+	var update_count: int = mini(MAX_CONSTRUCTION_SITE_UPDATES_PER_FRAME, initial_count)
+	var start_index: int = posmod(construction_site_update_cursor, initial_count)
+	var site_ids_to_update: Array[int] = []
+	for offset in range(update_count):
+		var source_index: int = (start_index + offset) % initial_count
+		site_ids_to_update.append(int(construction_sites[source_index].get("id", -1)))
+	construction_site_update_cursor = (start_index + update_count) % maxi(1, initial_count)
+
+	for requested_site_id in site_ids_to_update:
+		var site_index: int = -1
+		for lookup_index in range(construction_sites.size()):
+			if int(construction_sites[lookup_index].get("id", -1)) == requested_site_id:
+				site_index = lookup_index
+				break
+		if site_index < 0:
+			continue
 		var site: Dictionary = construction_sites[site_index]
 		var house: Node3D = site.get("node") as Node3D
-		if not is_instance_valid(house) or int(site.get("city_id", -1)) < 0 or int(site.get("city_id", -1)) >= cities.size():
+		var city_id: int = int(site.get("city_id", -1))
+		if not is_instance_valid(house) or city_id < 0 or city_id >= cities.size():
 			construction_sites.remove_at(site_index)
 			continue
-		var progress: float = minf(1.0, float(site.get("progress", 0.0)) + delta / maxf(4.0, float(site.get("duration", 14.0))))
+
+		var previous_clock: float = float(site.get("last_simulation_clock", construction_simulation_clock))
+		var site_delta: float = maxf(0.0, construction_simulation_clock - previous_clock)
+		site["last_simulation_clock"] = construction_simulation_clock
+		var progress: float = minf(1.0, float(site.get("progress", 0.0)) + site_delta / maxf(4.0, float(site.get("duration", 14.0))))
 		if progress >= 1.0 and in_simulation_frame and building_start_budget_remaining <= 0:
 			progress = 0.999
 		site["progress"] = progress
 		house.set_meta("construction_progress", progress)
-		site["phase"] = float(site.get("phase", 0.0)) + delta * 2.8
+		site["phase"] = float(site.get("phase", 0.0)) + site_delta * 2.8
 		var scaffold: Node3D = site.get("scaffold") as Node3D
 		if is_instance_valid(scaffold):
 			scaffold.scale.y = 0.32 + progress * 0.68
@@ -2237,8 +2271,7 @@ func _update_construction_sites(delta: float) -> void:
 			var worker_node: Node3D = person.get("node") as Node3D
 			if not bool(person.get("alive", true)) or not is_instance_valid(worker_node):
 				continue
-			var activity: String = str(person.get("activity", ""))
-			if activity == "constructing":
+			if str(person.get("activity", "")) == "constructing":
 				var phase_index: int = int(worker_entry.get("phase_index", 0))
 				var phase: float = float(site["phase"]) + float(phase_index) * 0.75
 				var reach: float = float(site["pad_size"]) * 0.35
@@ -2251,42 +2284,44 @@ func _update_construction_sites(delta: float) -> void:
 				if is_instance_valid(arm):
 					arm.rotation.x = sin(phase * 3.0) * 0.75
 		construction_sites[site_index] = site
-		if progress >= 1.0:
-			if in_simulation_frame:
-				building_start_budget_remaining = maxi(0, building_start_budget_remaining - 1)
-				building_visual_mutation_consumed_this_frame = true
-			var city_id: int = int(site["city_id"])
-			var site_id: int = int(site["id"])
-			construction_sites.remove_at(site_index)
-			for child in house.get_children():
-				child.free()
-			house.set_meta("is_construction_site", false)
-			for worker_entry in worker_entries:
-				var person: Dictionary = worker_entry.get("person", {})
-				if int(person.get("construction_site_id", -1)) != site_id:
-					continue
-				person["construction_site_id"] = -1
-				person["activity"] = "wandering"
-				person["activity_timer"] = 0.0
-				person["walk_timer"] = 0.0
-				person["target"] = _choose_citizen_street_target(city_id, person.get("pos", house.global_position), 12.0)
-			house.set_meta("is_refurbishment_site", false)
-			var completed_house_index: int = -1
-			var city_houses: Array = cities[city_id]["houses"]
-			for candidate_index in range(city_houses.size()):
-				if city_houses[candidate_index] == house:
-					completed_house_index = candidate_index
-					break
-			if completed_house_index >= 0:
-				_apply_building_era_appearance(city_id, _world_year(), completed_house_index)
-			else:
-				_apply_building_era_appearance(city_id, _world_year())
-			if bool(site.get("refurbishment", false)):
-				_log("%s refurbished an older building for the %s era." % [cities[city_id]["name"], _historical_era_name(_world_year()).to_lower()])
-			else:
-				_log("%s completed a new building." % cities[city_id]["name"])
-			last_detail_signature = ""
+		if progress < 1.0:
+			continue
 
+		if in_simulation_frame:
+			building_start_budget_remaining = maxi(0, building_start_budget_remaining - 1)
+			building_visual_mutation_consumed_this_frame = true
+		var completed_city_id: int = int(site["city_id"])
+		var site_id: int = int(site["id"])
+		construction_sites.remove_at(site_index)
+		for child in house.get_children():
+			child.free()
+		house.set_meta("is_construction_site", false)
+		for worker_entry in worker_entries:
+			var person: Dictionary = worker_entry.get("person", {})
+			if int(person.get("construction_site_id", -1)) != site_id:
+				continue
+			person["construction_site_id"] = -1
+			person["activity"] = "wandering"
+			person["activity_timer"] = 0.0
+			person["walk_timer"] = 0.0
+			person["target"] = _choose_citizen_street_target(completed_city_id, person.get("pos", house.global_position), 12.0)
+		house.set_meta("is_refurbishment_site", false)
+		var completed_house_index: int = -1
+		var city_houses: Array = cities[completed_city_id]["houses"]
+		for candidate_index in range(city_houses.size()):
+			if city_houses[candidate_index] == house:
+				completed_house_index = candidate_index
+				break
+		if completed_house_index >= 0:
+			_apply_building_era_appearance(completed_city_id, _world_year(), completed_house_index)
+		else:
+			_apply_building_era_appearance(completed_city_id, _world_year())
+		if bool(site.get("refurbishment", false)):
+			_log("%s refurbished an older building for the %s era." % [cities[completed_city_id]["name"], _historical_era_name(_world_year()).to_lower()])
+		else:
+			_log("%s completed a new building." % cities[completed_city_id]["name"])
+		last_detail_signature = ""
+	_trace_slow_operation("construction-site-batch", update_batch_started_usec)
 
 func _queue_city_roads_rebuild(city_id: int) -> void:
 	if city_id < 0 or city_id >= cities.size() or bool(cities[city_id].get("ruined", false)):
@@ -7287,6 +7322,8 @@ func _clear_loaded_world() -> void:
 	rubble_id_sequence = 1
 	construction_sites.clear()
 	construction_id_sequence = 1
+	construction_site_update_cursor = 0
+	construction_simulation_clock = 0.0
 	for city in cities:
 		for key in ["node", "zone_fill", "zone_border"]:
 			if city.has(key) and city[key] is Node and is_instance_valid(city[key]):
