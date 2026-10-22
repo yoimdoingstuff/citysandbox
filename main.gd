@@ -4182,6 +4182,7 @@ func _spawn_explosion(position: Vector3, target_id: int) -> void:
 	var blast_radius: float = 14.0
 	_destroy_cars_in_radius(position, blast_radius)
 	var blast_radius_squared: float = blast_radius * blast_radius
+	var road_affected_city_ids: Array[int] = _damage_roads_at_position(position, blast_radius * 0.92, false)
 	var damaged_city_names: Array[String] = []
 	for city_id in range(cities.size()):
 		var city: Dictionary = cities[city_id]
@@ -4203,8 +4204,9 @@ func _spawn_explosion(position: Vector3, target_id: int) -> void:
 			var impact_strength: float = clampf(0.42 - distance / blast_radius * 0.18, 0.22, 0.42)
 			if _collapse_specific_building(city_id, house, true, false, 0, impact_strength):
 				city_changed = true
-		if city_changed:
+		if city_changed or road_affected_city_ids.has(city_id):
 			_rebuild_city_roads(city_id)
+		if city_changed:
 			_schedule_city_territory_refresh()
 		var population_losses: int = 0
 		for person_index in range(people.size() - 1, -1, -1):
@@ -4415,6 +4417,9 @@ func _collapse_specific_building(city_id: int, house: Node3D, allow_chain: bool 
 	damage_tween.tween_callback(_kill_people_in_fall_corridor.bind(impact_position, fall_direction, fall_reach, fall_half_width, house))
 	damage_tween.tween_callback(_destroy_cars_in_fall_corridor.bind(impact_position, fall_direction, fall_reach, fall_half_width + 0.8))
 	_spawn_building_collapse_smoke(impact_position + Vector3(0.0, minf(building_height * 0.3, 7.0), 0.0), building_height, tall_building)
+	if tall_building or randf() < 0.24:
+		var road_impact_position: Vector3 = impact_position + Vector3(fall_direction.x * fall_reach, 0.0, fall_direction.y * fall_reach)
+		_damage_city_roads(city_id, road_impact_position, clampf(fall_half_width + 1.1, 2.8, 5.6), false)
 	_animate_building_fall(house, tall_building, city["color"], fall_direction, impact_strength)
 	houses.remove_at(house_index)
 	city["houses"] = houses
@@ -4690,10 +4695,17 @@ func _spawn_persistent_rubble(position: Vector3, tall_building: bool, building_c
 	var debris_position: Vector3 = position
 	debris_position.y = _height_at(position.x, position.z)
 	var rubble := Node3D.new()
-	rubble.name = "BuildingRubble" if rubble_kind == "building" else "VehicleWreck"
+	rubble.name = "BuildingRubble" if rubble_kind == "building" else ("RoadRubble" if rubble_kind == "road" else "VehicleWreck")
 	rubble.position = debris_position
 	rubble.set_meta("rubble_id", resolved_id)
 	rubble.set_meta("rubble_kind", rubble_kind)
+	if rubble_kind == "road":
+		for road_city_id in range(cities.size()):
+			for road_damage in cities[road_city_id].get("road_damage", []):
+				if int(road_damage.get("id", -1)) == resolved_id:
+					rubble.set_meta("road_city_id", road_city_id)
+					rubble.set_meta("road_damage_id", resolved_id)
+					break
 	add_child(rubble)
 	var debris_count: int = 8 if tall_building else (5 if rubble_kind == "vehicle" else 4)
 	for debris_index in range(debris_count):
@@ -4704,7 +4716,7 @@ func _spawn_persistent_rubble(position: Vector3, tall_building: bool, building_c
 		else:
 			piece_mesh.size = Vector3(randf_range(0.35, 1.0), randf_range(0.16, 0.55), randf_range(0.35, 1.0))
 		piece.mesh = piece_mesh
-		piece.material_override = _material(Color(0.20, 0.21, 0.22) if rubble_kind == "vehicle" else Color(0.34, 0.32, 0.29).lerp(building_color, 0.18))
+		piece.material_override = _material(Color(0.20, 0.21, 0.22) if rubble_kind == "vehicle" else (Color(0.15, 0.16, 0.17) if rubble_kind == "road" else Color(0.34, 0.32, 0.29).lerp(building_color, 0.18)))
 		var landing_position := Vector3(randf_range(-2.3, 2.3), piece_mesh.size.y * 0.5, randf_range(-2.3, 2.3))
 		piece.position = Vector3(randf_range(-0.5, 0.5), randf_range(0.8, 3.0 if tall_building else 1.4), randf_range(-0.5, 0.5))
 		piece.rotation = Vector3(randf_range(-0.75, 0.75), randf() * TAU, randf_range(-0.75, 0.75))
@@ -4755,12 +4767,24 @@ func _reserve_cleanup_rubble(rubble_id: int, reserved: bool) -> void:
 
 
 func _clear_rubble_by_id(rubble_id: int) -> void:
+	var road_city_to_rebuild: int = -1
 	for index in range(rubble_nodes.size() - 1, -1, -1):
 		var entry: Dictionary = rubble_nodes[index]
 		if int(entry.get("id", -1)) != rubble_id:
 			continue
 		var node: Node3D = entry.get("node") as Node3D
 		if is_instance_valid(node):
+			if node.has_meta("road_city_id"):
+				road_city_to_rebuild = int(node.get_meta("road_city_id", -1))
+				var damage_id: int = int(node.get_meta("road_damage_id", rubble_id))
+				if road_city_to_rebuild >= 0 and road_city_to_rebuild < cities.size():
+					var city: Dictionary = cities[road_city_to_rebuild]
+					var remaining_damage: Array = []
+					for damage in city.get("road_damage", []):
+						if int(damage.get("id", -1)) != damage_id:
+							remaining_damage.append(damage)
+					city["road_damage"] = remaining_damage
+					cities[road_city_to_rebuild] = city
 			node.queue_free()
 		rubble_nodes.remove_at(index)
 		break
@@ -4768,6 +4792,8 @@ func _clear_rubble_by_id(rubble_id: int) -> void:
 		if int(rubble_records[record_index].get("id", -2)) == rubble_id:
 			rubble_records.remove_at(record_index)
 			break
+	if road_city_to_rebuild >= 0 and road_city_to_rebuild < cities.size():
+		_rebuild_city_roads(road_city_to_rebuild)
 	last_detail_signature = ""
 
 
@@ -4903,6 +4929,7 @@ func _power_damage(center: Vector3, radius: float, people_limit: int, resource_c
 					resource["node"].visible = false
 	_destroy_cars_in_radius(center, radius)
 	var radius_squared: float = radius * radius
+	var road_affected_city_ids: Array[int] = _damage_roads_at_position(center, maxf(2.5, radius * 0.78), false)
 	for city_id in range(cities.size()):
 		var city_position: Vector3 = cities[city_id]["pos"]
 		var city_dx: float = city_position.x - center.x
@@ -4925,7 +4952,7 @@ func _power_damage(center: Vector3, radius: float, people_limit: int, resource_c
 			for hit_house in hit_houses:
 				if _collapse_specific_building(city_id, hit_house, true, false):
 					city_damaged = true
-			if city_damaged:
+			if city_damaged or road_affected_city_ids.has(city_id):
 				_rebuild_city_roads(city_id)
 		if city_distance_squared <= radius * radius * 2.25:
 			cities[city_id]["food"] = max(0.0, float(cities[city_id]["food"]) - float(removed) * 0.25)
@@ -6068,7 +6095,8 @@ func _save_world() -> void:
 			"ruined": bool(city.get("ruined", false)),
 			"buildings": _serialize_city_buildings(city),
 			"destroyed_building_debt": int(city.get("destroyed_building_debt", 0)),
-			"next_plot_index": int(city.get("next_plot_index", 0))
+			"next_plot_index": int(city.get("next_plot_index", 0)),
+			"road_damage": city.get("road_damage", [])
 		})
 
 	var saved_people: Array = []
@@ -6242,6 +6270,8 @@ func _load_world() -> void:
 		city["ruined"] = bool(city_data.get("ruined", false))
 		city["destroyed_building_debt"] = maxi(0, int(city_data.get("destroyed_building_debt", 0)))
 		city["next_plot_index"] = maxi(0, int(city_data.get("next_plot_index", 0)))
+		var saved_road_damage: Variant = city_data.get("road_damage", [])
+		city["road_damage"] = saved_road_damage if typeof(saved_road_damage) == TYPE_ARRAY else []
 		var saved_buildings: Variant = city_data.get("buildings", [])
 		if typeof(saved_buildings) == TYPE_ARRAY:
 			for saved_building in saved_buildings:
