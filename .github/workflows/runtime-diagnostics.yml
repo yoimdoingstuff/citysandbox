@@ -121,7 +121,6 @@ jobs:
               "Game process exit code: $exitCode",
               "Stress suite completed: $suiteCompleted",
               "Completed scenarios: $scenarioCount",
-              "One-second FPS sample windows: $fpsSampleCount",
               "Interpretation: engine FPS, frame interval percentiles, maximum frame work, stress action duration, entity counts and process CPU/memory are measured separately."
             ) | Set-Content -LiteralPath $summaryPath
           }
