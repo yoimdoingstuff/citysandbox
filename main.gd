@@ -66,6 +66,12 @@ var cars: Array = []
 var resources: Array = []
 var _material_cache: Dictionary = {}
 var _box_mesh_cache: Dictionary = {}
+var spiral_grid_offsets: Array[Vector2i] = []
+var spiral_grid_position: Vector2i = Vector2i.ZERO
+var spiral_grid_direction: Vector2i = Vector2i(1, 0)
+var spiral_grid_segment_length: int = 1
+var spiral_grid_segment_steps: int = 0
+var spiral_grid_segments_at_length: int = 0
 var citizen_infection_marker_mesh: SphereMesh
 var citizen_infection_marker_material: StandardMaterial3D
 var last_detail_signature: String = ""
@@ -726,6 +732,35 @@ func _max_terrain_height_in_radius(center_x: float, center_z: float, radius: flo
 			if Vector2(wx - center_x, wz - center_z).length() <= radius:
 				maximum = maxf(maximum, float(terrain_heights[zi][xi]))
 	return _height_at(center_x, center_z) if is_inf(maximum) else maximum
+
+
+func _sample_building_plot_grade(center_x: float, center_z: float, radius: float) -> Dictionary:
+	var resolution: int = terrain_heights.size()
+	if resolution < 2:
+		return {"changed": false, "steep": false, "base_height": _height_at(center_x, center_z)}
+	var grid_step: float = TERRAIN_SIZE / float(resolution - 1)
+	var center_ix: int = clampi(roundi((center_x / TERRAIN_SIZE + 0.5) * float(resolution - 1)), 0, resolution - 1)
+	var center_iz: int = clampi(roundi((center_z / TERRAIN_SIZE + 0.5) * float(resolution - 1)), 0, resolution - 1)
+	var cell_radius: int = ceili((radius + 0.25) / grid_step)
+	var minimum: float = INF
+	var maximum: float = -INF
+	var samples: int = 0
+	for zi in range(maxi(0, center_iz - cell_radius), mini(resolution, center_iz + cell_radius + 1)):
+		for xi in range(maxi(0, center_ix - cell_radius), mini(resolution, center_ix + cell_radius + 1)):
+			var wx: float = (float(xi) / float(resolution - 1) - 0.5) * TERRAIN_SIZE
+			var wz: float = (float(zi) / float(resolution - 1) - 0.5) * TERRAIN_SIZE
+			if Vector2(wx - center_x, wz - center_z).length() > radius:
+				continue
+			var height: float = float(terrain_heights[zi][xi])
+			minimum = minf(minimum, height)
+			maximum = maxf(maximum, height)
+			samples += 1
+	var base_height: float = _height_at(center_x, center_z)
+	if samples == 0:
+		return {"changed": false, "steep": false, "base_height": base_height}
+	if maximum - minimum > 1.55:
+		return {"changed": false, "steep": true, "base_height": _max_terrain_height_in_radius(center_x, center_z, radius) + 0.18}
+	return {"changed": false, "steep": false, "base_height": base_height}
 
 
 func _grade_building_plot(center_x: float, center_z: float, radius: float) -> Dictionary:
@@ -1663,6 +1698,7 @@ func _add_territory_edge(surface: SurfaceTool, start_point: Vector3, end_point: 
 
 
 func _apply_building_era_appearance(city_id: int, year: int, only_house_index: int = -1, update_all: bool = false) -> void:
+	var appearance_started_usec: int = Time.get_ticks_usec()
 	if city_id < 0 or city_id >= cities.size():
 		return
 	# Modernisation is deliberately serial per city. This keeps a new era from
@@ -1893,6 +1929,7 @@ func _apply_building_era_appearance(city_id: int, year: int, only_house_index: i
 		if only_house_index < 0 and not update_all:
 			# One eligible old building is either refurbished or refreshed per call.
 			break
+	_trace_slow_operation("building-facade-render", appearance_started_usec)
 
 
 func _add_surface_quad(surface: SurfaceTool, a: Vector3, b: Vector3, c: Vector3, d: Vector3) -> void:
@@ -1946,11 +1983,17 @@ func _refresh_city_development(city_id: int) -> void:
 		_apply_city_stage_appearance(city_id)
 		if next_stage > previous_stage:
 			_log("%s developed into a %s." % [city["name"], _city_stage_name(next_stage).to_lower()])
+	var sync_started_usec: int = Time.get_ticks_usec()
 	var houses_changed: bool = _sync_city_buildings(city_id) if population > 0 and not bool(city.get("ruined", false)) else false
+	_trace_slow_operation("development-building-sync", sync_started_usec)
 	if population > 0 and not bool(city.get("ruined", false)):
 		# Cached era/population/wealth bands make this check cheap unless a building needs to change.
+		var appearance_started_usec: int = Time.get_ticks_usec()
 		_apply_building_era_appearance(city_id, _world_year())
+		_trace_slow_operation("development-era-appearance", appearance_started_usec)
+	var infrastructure_started_usec: int = Time.get_ticks_usec()
 	_ensure_city_infrastructure(city_id, _world_year())
+	_trace_slow_operation("development-infrastructure", infrastructure_started_usec)
 	if houses_changed or stage_changed:
 		_schedule_city_territory_refresh()
 	city = cities[city_id]
@@ -2007,27 +2050,20 @@ func _apply_city_stage_appearance(city_id: int) -> void:
 
 
 func _spiral_grid_offset(index: int) -> Vector2i:
-	# A deterministic square spiral gives cities a grid plan without making
-	# every neighbourhood a perfect rectangular spreadsheet.
-	var x: int = 0
-	var z: int = 0
-	var direction := Vector2i(1, 0)
-	var segment_length: int = 1
-	var segment_steps: int = 0
-	var segments_at_length: int = 0
-	for step in range(index + 1):
-		x += direction.x
-		z += direction.y
-		segment_steps += 1
-		if segment_steps >= segment_length:
-			segment_steps = 0
-			direction = Vector2i(-direction.y, direction.x)
-			segments_at_length += 1
-			if segments_at_length >= 2:
-				segments_at_length = 0
-				segment_length += 1
-	return Vector2i(x, z)
-
+	if index < 0:
+		return Vector2i.ZERO
+	while spiral_grid_offsets.size() <= index:
+		spiral_grid_position += spiral_grid_direction
+		spiral_grid_offsets.append(spiral_grid_position)
+		spiral_grid_segment_steps += 1
+		if spiral_grid_segment_steps >= spiral_grid_segment_length:
+			spiral_grid_segment_steps = 0
+			spiral_grid_direction = Vector2i(-spiral_grid_direction.y, spiral_grid_direction.x)
+			spiral_grid_segments_at_length += 1
+			if spiral_grid_segments_at_length >= 2:
+				spiral_grid_segments_at_length = 0
+				spiral_grid_segment_length += 1
+	return spiral_grid_offsets[index]
 
 func _is_diagonal_avenue_plot(city_id: int, plot: Vector2i, year: int) -> bool:
 	if year < 1880 or city_id < 0 or city_id >= cities.size():
@@ -2074,6 +2110,7 @@ func _is_large_city_plot(city_id: int, plot_index: int, year: int) -> bool:
 
 
 func _setup_construction_site(house: Node3D, city_id: int, building_type: int, plot_index: int, progress: float = 0.0, refurbishment: bool = false) -> void:
+	var setup_started_usec: int = Time.get_ticks_usec()
 	if not is_instance_valid(house):
 		return
 	for child in house.get_children():
@@ -2115,6 +2152,7 @@ func _setup_construction_site(house: Node3D, city_id: int, building_type: int, p
 	]
 	var assigned_workers: int = 0
 	var assigned_worker_entries: Array[Dictionary] = []
+	var worker_search_started_usec: int = Time.get_ticks_usec()
 	for person_index in range(people.size()):
 		if assigned_workers >= worker_targets.size():
 			break
@@ -2136,6 +2174,7 @@ func _setup_construction_site(house: Node3D, city_id: int, building_type: int, p
 		people[person_index] = person
 		assigned_worker_entries.append({"person": person, "phase_index": person_index})
 		assigned_workers += 1
+	_trace_slow_operation("construction-worker-search", worker_search_started_usec)
 	construction_sites.append({
 		"id": site_id, "node": house, "city_id": city_id,
 		"building_type": building_type, "plot_index": plot_index,
@@ -2144,6 +2183,7 @@ func _setup_construction_site(house: Node3D, city_id: int, building_type: int, p
 		"refurbishment": refurbishment, "scaffold": scaffold, "phase": randf() * TAU,
 		"worker_count": assigned_workers, "worker_entries": assigned_worker_entries, "pad_size": pad_size
 	})
+	_trace_slow_operation("construction-scaffold-full-setup", setup_started_usec)
 
 
 func _get_construction_site(site_id: int) -> Dictionary:
@@ -2305,12 +2345,14 @@ func _sync_city_buildings(city_id: int) -> bool:
 	var houses_before: int = houses.size()
 	var plot_index: int = int(city.get("next_plot_index", houses.size()))
 	var terrain_changed: bool = false
+	var sync_buildings_started_usec: int = Time.get_ticks_usec()
 	# A single city refresh can start at most one building, and the entire game
 	# starts at most one building per frame. Remaining demand is queued for later
 	# frames so several growing cities cannot all rebuild roads/meshes together.
 	if in_simulation_frame and building_start_budget_remaining <= 0:
 		if houses.size() < desired_houses:
 			_queue_city_development(city_id)
+		_trace_slow_operation("city-building-sync-budget-check", sync_buildings_started_usec)
 		return false
 	# A population or era update must not synchronously instantiate an entire
 	# neighbourhood in one frame. Queue at most one new lot per development call.
@@ -2322,6 +2364,7 @@ func _sync_city_buildings(city_id: int) -> bool:
 		var candidate_large_plot: bool = false
 		var candidate_footprint: float = 3.6
 		# Reserve occasional civic squares and two-plot commercial sites.
+		var lot_search_started_usec: int = Time.get_ticks_usec()
 		for attempt in range(64):
 			var plot: Vector2i = _spiral_grid_offset(plot_index)
 			if plot_index % 17 == 8 or _is_diagonal_avenue_plot(city_id, plot, _world_year()):
@@ -2350,6 +2393,7 @@ func _sync_city_buildings(city_id: int) -> bool:
 				chosen_plot_index = plot_index
 				break
 			plot_index += 1
+		_trace_slow_operation("building-lot-search-overlap", lot_search_started_usec)
 		if not found_building_site:
 			break
 		var building_year: int = _world_year()
@@ -2385,7 +2429,9 @@ func _sync_city_buildings(city_id: int) -> bool:
 		city["copper"] = maxf(0.0, float(city.get("copper", 0.0)) - copper_cost)
 		plot_index = chosen_plot_index + 1
 		var plot_radius: float = 3.45 if large_plot else 2.25
-		var plot_grade: Dictionary = _grade_building_plot(city["pos"].x + offset_x, city["pos"].z + offset_z, plot_radius)
+		var plot_grade_started_usec: int = Time.get_ticks_usec()
+		var plot_grade: Dictionary = _sample_building_plot_grade(city["pos"].x + offset_x, city["pos"].z + offset_z, plot_radius)
+		_trace_slow_operation("building-plot-grade-sampling", plot_grade_started_usec)
 		terrain_changed = terrain_changed or bool(plot_grade.get("changed", false))
 		var base_world_height: float = float(plot_grade.get("base_height", _height_at(city["pos"].x + offset_x, city["pos"].z + offset_z)))
 		var house := Node3D.new()
@@ -2405,7 +2451,9 @@ func _sync_city_buildings(city_id: int) -> bool:
 		house.set_meta("large_plot", large_plot)
 		house.set_meta("plot_footprint", 8.8 if large_plot else 3.6)
 		houses.append(house)
+		var construction_setup_started_usec: int = Time.get_ticks_usec()
 		_setup_construction_site(house, city_id, building_type, chosen_plot_index)
+		_trace_slow_operation("new-building-construction-setup", construction_setup_started_usec)
 	city["houses"] = houses
 	city["next_plot_index"] = plot_index
 	cities[city_id] = city
@@ -2421,7 +2469,10 @@ func _sync_city_buildings(city_id: int) -> bool:
 				_queue_city_roads_rebuild(city_id)
 			else:
 				_rebuild_city_roads(city_id)
+		var new_building_appearance_started_usec: int = Time.get_ticks_usec()
 		_apply_building_era_appearance(city_id, _world_year())
+		_trace_slow_operation("new-building-era-appearance", new_building_appearance_started_usec)
+	_trace_slow_operation("city-building-sync-total", sync_buildings_started_usec)
 	return houses_changed
 
 
