@@ -14,7 +14,7 @@ const STARTING_YEAR: int = 1200
 const SECONDS_PER_YEAR: float = 3.0
 const TERRITORY_CELL_SIZE: float = 4.0
 const SAVE_PATH: String = "user://civiterra_world.json"
-const SAVE_VERSION: int = 2
+const SAVE_VERSION: int = 3
 const MISSILE_UNLOCK_YEAR: int = 1945
 const ERA_SKIP_YEARS: Array[int] = [1200, 1450, 1780, 1880, 1950, 2000, 2026]
 
@@ -58,6 +58,9 @@ var tornadoes: Array = []
 var wars: Array = []
 var city_event_scenes: Array = []
 var rubble_records: Array = []
+var rubble_nodes: Array = []
+var rubble_id_sequence: int = 1
+var abandoned_check_timer: float = 0.0
 var log_entries: Array[String] = []
 
 var selected_city: int = -1
@@ -887,6 +890,10 @@ func _create_city(position: Vector3, city_name: String, color: Color) -> int:
 	road_material.shading_mode = BaseMaterial3D.SHADING_MODE_UNSHADED
 	road_network.material_override = road_material
 	town.add_child(road_network)
+	var sidewalk_network := MeshInstance3D.new()
+	sidewalk_network.name = "SidewalkNetwork"
+	sidewalk_network.material_override = _material(Color(0.53, 0.54, 0.51), 0.98)
+	town.add_child(sidewalk_network)
 
 	var plinth_mesh := BoxMesh.new()
 	plinth_mesh.size = Vector3(3.2, 0.45, 3.2)
@@ -956,6 +963,7 @@ func _create_city(position: Vector3, city_name: String, color: Color) -> int:
 		"color": color,
 		"node": town,
 		"roads": road_network,
+		"sidewalks": sidewalk_network,
 		"label": city_label,
 		"event_marker": event_marker,
 		"event_timer": 0.0,
@@ -985,6 +993,10 @@ func _create_city(position: Vector3, city_name: String, color: Color) -> int:
 		"security": 44.0,
 		"wealth": 12.0,
 		"defence_cooldown": 0.0,
+		"abandoned": false,
+		"abandoned_age": 0.0,
+		"abandoned_decay_timer": 8.0,
+		"ruined": false,
 		"destroyed_building_debt": 0
 	})
 	return index
@@ -1279,8 +1291,14 @@ func _apply_building_era_appearance(city_id: int, year: int) -> void:
 					continue
 				for column in range(3):
 					var pane_x: float = (float(column) - 1.0) * width * 0.27
-					var z_face: float = depth * 0.5 + 0.012
-					_add_surface_quad(panes, Vector3(pane_x-pane_w*0.5,pane_y-pane_h*0.5,z_face), Vector3(pane_x+pane_w*0.5,pane_y-pane_h*0.5,z_face), Vector3(pane_x+pane_w*0.5,pane_y+pane_h*0.5,z_face), Vector3(pane_x-pane_w*0.5,pane_y+pane_h*0.5,z_face))
+					for sign_z in [-1.0, 1.0]:
+						var z_face: float = sign_z * (depth * 0.5 + 0.012)
+						_add_surface_quad(panes, Vector3(pane_x-pane_w*0.5,pane_y-pane_h*0.5,z_face), Vector3(pane_x+pane_w*0.5,pane_y-pane_h*0.5,z_face), Vector3(pane_x+pane_w*0.5,pane_y+pane_h*0.5,z_face), Vector3(pane_x-pane_w*0.5,pane_y+pane_h*0.5,z_face))
+					var side_pane_w: float = depth * 0.16
+					var side_offset: float = (float(column) - 1.0) * depth * 0.27
+					for sign_x in [-1.0, 1.0]:
+						var x_face: float = sign_x * (width * 0.5 + 0.012)
+						_add_surface_quad(panes, Vector3(x_face,pane_y-pane_h*0.5,side_offset-side_pane_w*0.5), Vector3(x_face,pane_y-pane_h*0.5,side_offset+side_pane_w*0.5), Vector3(x_face,pane_y+pane_h*0.5,side_offset+side_pane_w*0.5), Vector3(x_face,pane_y+pane_h*0.5,side_offset-side_pane_w*0.5))
 			panes.generate_normals(true)
 			var windows := MeshInstance3D.new()
 			windows.mesh = panes.commit()
@@ -1323,6 +1341,8 @@ func _apply_building_era_appearance(city_id: int, year: int) -> void:
 		house.set_meta("visual_stage", stage)
 		house.set_meta("visual_pop_band", pop_band)
 		house.set_meta("visual_wealth_band", wealth_band)
+		house.set_meta("building_height", height * house.scale.y)
+		house.set_meta("is_skyscraper", skyscraper)
 
 
 func _add_surface_quad(surface: SurfaceTool, a: Vector3, b: Vector3, c: Vector3, d: Vector3) -> void:
@@ -1366,7 +1386,7 @@ func _refresh_city_development(city_id: int) -> void:
 	var city: Dictionary = cities[city_id]
 	var population: int = _city_population(city_id)
 	var previous_stage: int = int(city.get("stage", 0))
-	var next_stage: int = _city_stage_for_population(population)
+	var next_stage: int = previous_stage if population <= 0 else _city_stage_for_population(population)
 	city["stage"] = next_stage
 	city["population"] = population
 	city["development_population"] = population
@@ -1377,12 +1397,12 @@ func _refresh_city_development(city_id: int) -> void:
 		_apply_building_era_appearance(city_id, _world_year())
 		if next_stage > previous_stage:
 			_log("%s developed into a %s." % [city["name"], _city_stage_name(next_stage).to_lower()])
-	var houses_changed: bool = _sync_city_buildings(city_id)
+	var houses_changed: bool = _sync_city_buildings(city_id) if population > 0 and not bool(city.get("ruined", false)) else false
 	if houses_changed or stage_changed:
 		_schedule_city_territory_refresh()
 	city = cities[city_id]
 	if is_instance_valid(city["label"]):
-		var status: String = "ABANDONED" if population <= 0 else _city_stage_name(next_stage)
+		var status: String = "RUINS" if bool(city.get("ruined", false)) else ("ABANDONED" if population <= 0 else _city_stage_name(next_stage))
 		city["label"].text = "%s\n%s | POP %d" % [city["name"], status, population]
 		city["label"].modulate = Color(0.66, 0.70, 0.72) if population <= 0 else Color.WHITE
 	cities[city_id] = city
@@ -1456,7 +1476,7 @@ func _spiral_grid_offset(index: int) -> Vector2i:
 
 
 func _sync_city_buildings(city_id: int) -> bool:
-	if city_id < 0 or city_id >= cities.size():
+	if city_id < 0 or city_id >= cities.size() or _city_population(city_id) <= 0 or bool(cities[city_id].get("ruined", false)):
 		return false
 	var city: Dictionary = cities[city_id]
 	var population: int = _city_population(city_id)
@@ -1568,14 +1588,19 @@ func _rebuild_city_roads(city_id: int) -> void:
 		return
 	var city: Dictionary = cities[city_id]
 	var road_node: MeshInstance3D = city["roads"]
+	var sidewalk_node: MeshInstance3D = city.get("sidewalks") as MeshInstance3D
 	if not is_instance_valid(road_node):
 		return
 	var surface := SurfaceTool.new()
 	surface.begin(Mesh.PRIMITIVE_TRIANGLES)
+	var sidewalk_surface := SurfaceTool.new()
+	sidewalk_surface.begin(Mesh.PRIMITIVE_TRIANGLES)
 	var city_position: Vector3 = city["pos"]
 	var houses: Array = city["houses"]
 	if houses.is_empty():
 		road_node.mesh = null
+		if is_instance_valid(sidewalk_node):
+			sidewalk_node.mesh = null
 		city["road_grid_min_x"] = -7.5
 		city["road_grid_max_x"] = 7.5
 		city["road_grid_min_z"] = -7.5
@@ -1610,11 +1635,14 @@ func _rebuild_city_roads(city_id: int) -> void:
 	cities[city_id] = city
 	while x <= last_x:
 		_add_road_segment(surface, city_position, Vector2(x, min_z), Vector2(x, max_z), 0.62)
-		x += 7.5
+		_add_road_segment(sidewalk_surface, city_position, Vector2(x - 1.05, min_z), Vector2(x - 1.05, max_z), 0.48)
+		_add_road_segment(sidewalk_surface, city_position, Vector2(x + 1.05, min_z), Vector2(x + 1.05, max_z), 0.48)
+		x += ROAD_GRID_SIZE
 	while z <= last_z:
 		_add_road_segment(surface, city_position, Vector2(min_x, z), Vector2(max_x, z), 0.62)
-		z += 7.5
-	# Sparse diagonal connectors keep the plan from looking mechanically perfect.
+		_add_road_segment(sidewalk_surface, city_position, Vector2(min_x, z - 1.05), Vector2(max_x, z - 1.05), 0.48)
+		_add_road_segment(sidewalk_surface, city_position, Vector2(min_x, z + 1.05), Vector2(max_x, z + 1.05), 0.48)
+		z += ROAD_GRID_SIZE
 	for i in range(0, houses.size(), 9):
 		var house: Node3D = houses[i]
 		if is_instance_valid(house):
@@ -1624,6 +1652,9 @@ func _rebuild_city_roads(city_id: int) -> void:
 				_add_road_segment(surface, city_position, p, q, 0.30)
 	surface.generate_normals(true)
 	road_node.mesh = surface.commit()
+	if is_instance_valid(sidewalk_node):
+		sidewalk_surface.generate_normals(true)
+		sidewalk_node.mesh = sidewalk_surface.commit()
 
 
 func _seed_resources_around(center: Vector3) -> void:
@@ -3379,27 +3410,95 @@ func _finish_building_collapse(house: Node3D, tall_building: bool, building_colo
 	house.queue_free()
 
 
-func _spawn_persistent_rubble(position: Vector3, tall_building: bool, building_color: Color, record: bool = true) -> void:
+func _spawn_persistent_rubble(position: Vector3, tall_building: bool, building_color: Color, record: bool = true, rubble_kind: String = "building", saved_id: int = -1) -> void:
+	var resolved_id: int = saved_id
+	if resolved_id < 0:
+		resolved_id = rubble_id_sequence
+		rubble_id_sequence += 1
+	else:
+		rubble_id_sequence = maxi(rubble_id_sequence, resolved_id + 1)
+	var debris_position: Vector3 = position
+	debris_position.y = _height_at(position.x, position.z)
 	var rubble := Node3D.new()
-	rubble.name = "BuildingRubble"
-	rubble.position = position
+	rubble.name = "BuildingRubble" if rubble_kind == "building" else "VehicleWreck"
+	rubble.position = debris_position
+	rubble.set_meta("rubble_id", resolved_id)
+	rubble.set_meta("rubble_kind", rubble_kind)
 	add_child(rubble)
-	var debris_count: int = 7 if tall_building else 4
+	var debris_count: int = 8 if tall_building else (5 if rubble_kind == "vehicle" else 4)
 	for debris_index in range(debris_count):
 		var piece := MeshInstance3D.new()
 		var piece_mesh := BoxMesh.new()
-		piece_mesh.size = Vector3(randf_range(0.35, 1.0), randf_range(0.16, 0.55), randf_range(0.35, 1.0))
+		if rubble_kind == "vehicle":
+			piece_mesh.size = Vector3(randf_range(0.35, 0.95), randf_range(0.12, 0.32), randf_range(0.35, 0.85))
+		else:
+			piece_mesh.size = Vector3(randf_range(0.35, 1.0), randf_range(0.16, 0.55), randf_range(0.35, 1.0))
 		piece.mesh = piece_mesh
-		piece.material_override = _material(Color(0.34, 0.32, 0.29).lerp(building_color, 0.18))
-		piece.position = Vector3(randf_range(-1.5, 1.5), piece_mesh.size.y * 0.5, randf_range(-1.5, 1.5))
-		piece.rotation = Vector3(randf_range(-0.25, 0.25), randf() * TAU, randf_range(-0.25, 0.25))
+		piece.material_override = _material(Color(0.20, 0.21, 0.22) if rubble_kind == "vehicle" else Color(0.34, 0.32, 0.29).lerp(building_color, 0.18))
+		var landing_position := Vector3(randf_range(-2.3, 2.3), piece_mesh.size.y * 0.5, randf_range(-2.3, 2.3))
+		piece.position = Vector3(randf_range(-0.5, 0.5), randf_range(0.8, 3.0 if tall_building else 1.4), randf_range(-0.5, 0.5))
+		piece.rotation = Vector3(randf_range(-0.75, 0.75), randf() * TAU, randf_range(-0.75, 0.75))
 		rubble.add_child(piece)
+		var fall_tween := create_tween()
+		fall_tween.set_parallel(true)
+		fall_tween.tween_property(piece, "position", landing_position, randf_range(0.28, 0.82)).set_trans(Tween.TRANS_BOUNCE).set_ease(Tween.EASE_OUT)
+		fall_tween.tween_property(piece, "rotation", Vector3(randf_range(-0.9, 0.9), randf() * TAU, randf_range(-0.9, 0.9)), randf_range(0.25, 0.65)).set_trans(Tween.TRANS_CUBIC).set_ease(Tween.EASE_OUT)
+	rubble_nodes.append({"id": resolved_id, "node": rubble, "position": debris_position, "kind": rubble_kind, "reserved": false})
 	if record:
-		rubble_records.append({
-			"position": _vector3_to_array(position),
-			"tall": tall_building,
-			"color": building_color.to_html(true)
-		})
+		rubble_records.append({"id": resolved_id, "position": _vector3_to_array(debris_position), "tall": tall_building, "kind": rubble_kind, "color": building_color.to_html(true)})
+
+
+func _get_rubble_node(rubble_id: int) -> Node3D:
+	for entry in rubble_nodes:
+		if int(entry.get("id", -1)) == rubble_id:
+			var node: Node3D = entry.get("node") as Node3D
+			return node if is_instance_valid(node) else null
+	return null
+
+
+func _find_nearby_cleanup_rubble(position: Vector3, max_distance: float = 22.0) -> int:
+	var best_id: int = -1
+	var best_distance_squared: float = max_distance * max_distance
+	for entry in rubble_nodes:
+		if bool(entry.get("reserved", false)):
+			continue
+		var node: Node3D = entry.get("node") as Node3D
+		if not is_instance_valid(node):
+			continue
+		var rubble_position: Vector3 = node.global_position
+		var dx: float = rubble_position.x - position.x
+		var dz: float = rubble_position.z - position.z
+		var distance_squared: float = dx * dx + dz * dz
+		if distance_squared < best_distance_squared:
+			best_distance_squared = distance_squared
+			best_id = int(entry["id"])
+	return best_id
+
+
+func _reserve_cleanup_rubble(rubble_id: int, reserved: bool) -> void:
+	for index in range(rubble_nodes.size()):
+		var entry: Dictionary = rubble_nodes[index]
+		if int(entry.get("id", -1)) == rubble_id:
+			entry["reserved"] = reserved
+			rubble_nodes[index] = entry
+			return
+
+
+func _clear_rubble_by_id(rubble_id: int) -> void:
+	for index in range(rubble_nodes.size() - 1, -1, -1):
+		var entry: Dictionary = rubble_nodes[index]
+		if int(entry.get("id", -1)) != rubble_id:
+			continue
+		var node: Node3D = entry.get("node") as Node3D
+		if is_instance_valid(node):
+			node.queue_free()
+		rubble_nodes.remove_at(index)
+		break
+	for record_index in range(rubble_records.size() - 1, -1, -1):
+		if int(rubble_records[record_index].get("id", -2)) == rubble_id:
+			rubble_records.remove_at(record_index)
+			break
+	last_detail_signature = ""
 
 
 func _destroy_city_houses(city_id: int, count: int) -> void:
@@ -4279,7 +4378,8 @@ func _refresh_ui() -> void:
 		cities[city_index]["population"] = population_now
 		var stage: int = int(cities[city_index].get("stage", 0))
 		if is_instance_valid(cities[city_index]["label"]):
-			var label_text: String = "%s\n%s | POP %d" % [cities[city_index]["name"], "ABANDONED" if population_now <= 0 else _city_stage_name(stage), population_now]
+			var label_status: String = "RUINS" if bool(cities[city_index].get("ruined", false)) else ("ABANDONED" if population_now <= 0 else _city_stage_name(stage))
+			var label_text: String = "%s\n%s | POP %d" % [cities[city_index]["name"], label_status, population_now]
 			if cities[city_index]["label"].text != label_text:
 				cities[city_index]["label"].text = label_text
 			cities[city_index]["label"].modulate = Color(0.66, 0.70, 0.72) if population_now <= 0 else Color.WHITE
@@ -4346,13 +4446,14 @@ func _update_world_detail_levels() -> void:
 		for visual_key in ["plinth", "body", "roof", "flag_pole", "flag"]:
 			var city_visual: MeshInstance3D = city[visual_key]
 			if is_instance_valid(city_visual):
-				city_visual.visible = show_city_models
+				city_visual.visible = show_city_models and not ruined
+		var ruined: bool = bool(city.get("ruined", false))
 		var zone_fill: MeshInstance3D = city["zone_fill"]
 		var zone_border: MeshInstance3D = city["zone_border"]
 		if is_instance_valid(zone_fill):
-			zone_fill.visible = camera_distance <= 165.0
+			zone_fill.visible = camera_distance <= 165.0 and not ruined
 		if is_instance_valid(zone_border):
-			zone_border.visible = camera_distance <= TERRAIN_SIZE * 2.0
+			zone_border.visible = camera_distance <= TERRAIN_SIZE * 2.0 and not ruined
 		var far_marker: MeshInstance3D = city["far_marker"]
 		if is_instance_valid(far_marker):
 			far_marker.visible = show_far_markers
@@ -4361,7 +4462,10 @@ func _update_world_detail_levels() -> void:
 			city_label.visible = show_city_labels
 		var roads: MeshInstance3D = city["roads"]
 		if is_instance_valid(roads):
-			roads.visible = show_neighbourhoods
+			roads.visible = show_neighbourhoods and not ruined
+		var sidewalks: MeshInstance3D = city.get("sidewalks") as MeshInstance3D
+		if is_instance_valid(sidewalks):
+			sidewalks.visible = show_neighbourhoods and not ruined
 		for house in city["houses"]:
 			if is_instance_valid(house):
 				house.visible = show_neighbourhoods
