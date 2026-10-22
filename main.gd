@@ -173,7 +173,7 @@ func _recover_stuck_citizens() -> void:
 		if not bool(person.get("alive", true)):
 			continue
 		var activity: String = str(person.get("activity", "wandering"))
-		if activity in ["indoors", "riding", "cleaning"]:
+		if activity in ["indoors", "riding", "cleaning", "constructing"]:
 			continue
 		var position: Vector3 = person["pos"]
 		var target: Vector3 = person.get("target", position)
@@ -1307,9 +1307,15 @@ func _apply_building_era_appearance(city_id: int, year: int) -> void:
 		var house: Node3D = city["houses"][house_index]
 		if not is_instance_valid(house):
 			continue
+		if bool(house.get_meta("is_construction_site", false)):
+			continue
 		if int(house.get_meta("visual_era", -1)) == era and int(house.get_meta("visual_stage", -1)) == stage and int(house.get_meta("visual_pop_band", -1)) == pop_band and int(house.get_meta("visual_wealth_band", -1)) == wealth_band:
 			continue
 		var original_type: int = int(house.get_meta("base_building_type", house.get_meta("building_type", house_index % 5)))
+		var plot_id: int = int(house.get_meta("plot_index", house_index))
+		var variation_seed: int = abs((plot_id + 1) * 92821 + (city_id + 3) * 68917)
+		var variation: int = variation_seed % URBAN_FACADE_PALETTE.size()
+		var large_plot: bool = bool(house.get_meta("large_plot", false))
 		var kind: int = original_type
 		# Farms give way to urban blocks after industrialisation.
 		if year >= 1850 and stage >= 2 and kind == 4:
@@ -1328,8 +1334,10 @@ func _apply_building_era_appearance(city_id: int, year: int) -> void:
 		var wall: Color = Color(0.72, 0.66, 0.55).lerp(city["color"], 0.20)
 		var roof_color: Color = city["color"].darkened(0.16)
 		if urban:
-			width = 2.65 + float(stage) * 0.12
-			depth = 2.45 + float(stage) * 0.10
+			var width_variants: Array[float] = [2.30, 2.52, 2.66, 2.78, 2.42, 2.88, 2.58, 2.72, 2.35]
+			var depth_variants: Array[float] = [2.52, 2.34, 2.48, 2.62, 2.70, 2.30, 2.56, 2.42, 2.64]
+			width = width_variants[variation] + float(stage) * 0.10
+			depth = depth_variants[(variation + 3) % depth_variants.size()] + float(stage) * 0.08
 			if year < 1880:
 				floors = 2 + int(house_index % 2)
 				wall = Color(0.53, 0.39, 0.30).lerp(city["color"], 0.12)
@@ -1342,22 +1350,28 @@ func _apply_building_era_appearance(city_id: int, year: int) -> void:
 				floors = 3 + int(house_index % 3)
 				wall = Color(0.57, 0.65, 0.68).lerp(city["color"], 0.08)
 				roof_color = Color(0.22, 0.32, 0.38)
-			height = float(floors) * (0.78 if year < 1950 else 0.86)
+			height = float(floors) * (0.72 + float(variation % 4) * 0.055 if year < 1950 else 0.79 + float(variation % 5) * 0.035)
+			wall = URBAN_FACADE_PALETTE[variation].lerp(wall, 0.42)
+			roof_color = [Color(0.29, 0.27, 0.24), Color(0.24, 0.27, 0.29), Color(0.31, 0.25, 0.21)][variation % 3]
 			if (kind in [1, 3, 5, 6] or house_index % 9 == 0) and year >= 1880:
 				if year >= 2000 and stage >= 4 and population >= 100 and wealth >= 50.0:
-					floors = clampi(17 + int((population - 100) / 55), 17, 30)
+					floors = clampi(14 + int((population - 100) / 55) + (variation % 7) - 3, 12, 34)
 					skyscraper = true
 				elif year >= 1950 and stage >= 3 and population >= 50 and wealth >= 25.0:
-					floors = clampi(8 + int((population - 50) / 18), 8, 17)
+					floors = clampi(7 + int((population - 50) / 18) + (variation % 5) - 2, 6, 21)
 					skyscraper = true
 				elif stage >= 2 and population >= 30 and wealth >= 18.0:
-					floors = clampi(4 + int((population - 30) / 14), 4, 9)
+					floors = clampi(4 + int((population - 30) / 14) + (variation % 5) - 2, 3, 12)
 					skyscraper = true
 			if skyscraper:
-				width = 2.55 if floors < 9 else 3.15
-				depth = 2.45 if floors < 9 else 3.0
-				height = float(floors) * 0.90
-				wall = Color(0.30, 0.43, 0.49) if year < 1950 else Color(0.31, 0.48, 0.56)
+				width = 2.40 if floors < 9 else (2.85 if floors < 18 else 3.22)
+				depth = 2.32 if floors < 9 else (2.70 if floors < 18 else 3.02)
+				height = float(floors) * (0.82 + float(variation % 5) * 0.035)
+				wall = TOWER_FACADE_PALETTE[variation].lerp(city["color"], 0.04)
+				roof_color = URBAN_FACADE_PALETTE[(variation + 3) % URBAN_FACADE_PALETTE.size()].darkened(0.12)
+				if large_plot:
+					width = 4.25
+					depth = 4.0
 		else:
 			match kind:
 				1:
@@ -1378,6 +1392,14 @@ func _apply_building_era_appearance(city_id: int, year: int) -> void:
 					depth = 1.85
 					wall = Color(0.51, 0.42, 0.29)
 
+		if not skyscraper and large_plot and kind != 4:
+			width = minf(4.35, width * 1.42)
+			depth = minf(4.25, depth * 1.38)
+		elif urban and not skyscraper:
+			width *= [0.91, 0.97, 1.0, 1.05, 0.89, 1.08, 0.96, 1.02, 0.93][variation]
+			depth *= [1.03, 0.93, 1.0, 1.06, 0.97, 0.90, 1.05, 0.96, 1.01][variation]
+		else:
+			height *= [0.90, 1.0, 1.08, 0.95, 1.12, 0.92, 1.04, 0.98, 1.15][variation]
 		var body := BoxMesh.new()
 		body.size = Vector3(width, height, depth)
 		_add_mesh(house, body, _material(wall), Vector3(0.0, height * 0.5, 0.0))
@@ -1404,15 +1426,17 @@ func _apply_building_era_appearance(city_id: int, year: int) -> void:
 			panes.generate_normals(true)
 			var windows := MeshInstance3D.new()
 			windows.mesh = panes.commit()
-			windows.material_override = _material(Color(0.32, 0.62, 0.73) if year < 1950 else Color(0.48, 0.76, 0.85), 0.42)
+			var glass_material: StandardMaterial3D = _material(GLASS_PALETTE[(variation + (1 if skyscraper else 0)) % GLASS_PALETTE.size()], 0.38)
+			glass_material.cull_mode = BaseMaterial3D.CULL_DISABLED
+			windows.material_override = glass_material
 			house.add_child(windows)
 			var flat_roof := BoxMesh.new()
 			flat_roof.size = Vector3(width + 0.16, 0.18, depth + 0.16)
 			_add_mesh(house, flat_roof, _material(roof_color), Vector3(0.0, height + 0.09, 0.0))
 			if skyscraper:
 				var crown := BoxMesh.new()
-				crown.size = Vector3(width * 0.48, 0.55, depth * 0.48)
-				_add_mesh(house, crown, _material(Color(0.22, 0.34, 0.40)), Vector3(0.0, height + 0.42, 0.0))
+				crown.size = Vector3(width * (0.30 + float(variation % 4) * 0.08), 0.35 + float(variation % 3) * 0.18, depth * (0.30 + float((variation + 2) % 4) * 0.08))
+				_add_mesh(house, crown, _material(URBAN_FACADE_PALETTE[(variation + 4) % URBAN_FACADE_PALETTE.size()].darkened(0.20)), Vector3(0.0, height + crown.size.y * 0.5, 0.0))
 		elif kind in [0, 1]:
 			var roof := CylinderMesh.new()
 			roof.top_radius = 0.0
@@ -1444,6 +1468,8 @@ func _apply_building_era_appearance(city_id: int, year: int) -> void:
 		house.set_meta("visual_pop_band", pop_band)
 		house.set_meta("visual_wealth_band", wealth_band)
 		house.set_meta("building_height", height * house.scale.y)
+		house.set_meta("building_width", width * house.scale.x)
+		house.set_meta("building_depth", depth * house.scale.z)
 		house.set_meta("is_skyscraper", skyscraper)
 
 
@@ -1579,6 +1605,156 @@ func _spiral_grid_offset(index: int) -> Vector2i:
 	return Vector2i(x, z)
 
 
+func _setup_construction_site(house: Node3D, city_id: int, building_type: int, plot_index: int, progress: float = 0.0) -> void:
+	if not is_instance_valid(house):
+		return
+	for child in house.get_children():
+		child.free()
+	var pad_size: float = 4.2 if bool(house.get_meta("large_plot", false)) else 2.8
+	house.set_meta("is_construction_site", true)
+	house.set_meta("construction_progress", clampf(progress, 0.0, 0.99))
+	house.set_meta("visual_era", -999)
+	house.set_meta("visual_stage", -999)
+	house.set_meta("visual_pop_band", -999)
+	house.set_meta("visual_wealth_band", -999)
+	var foundation := BoxMesh.new()
+	foundation.size = Vector3(pad_size, 0.18, pad_size)
+	_add_mesh(house, foundation, _material(Color(0.43, 0.43, 0.40)), Vector3(0.0, 0.09, 0.0))
+	var scaffold := Node3D.new()
+	scaffold.name = "ConstructionScaffold"
+	house.add_child(scaffold)
+	var post_mesh: Mesh = _cached_box_mesh(Vector3(0.10, 1.0, 0.10))
+	var post_material: Material = _material(Color(0.78, 0.57, 0.27))
+	var half: float = pad_size * 0.5
+	for sign_x in [-1.0, 1.0]:
+		for sign_z in [-1.0, 1.0]:
+			_add_mesh(scaffold, post_mesh, post_material, Vector3(float(sign_x) * half, 1.0, float(sign_z) * half))
+	for level in range(1, 4):
+		var rail := BoxMesh.new()
+		rail.size = Vector3(pad_size, 0.07, 0.07)
+		_add_mesh(scaffold, rail, _material(Color(0.55, 0.43, 0.28)), Vector3(0.0, float(level) * 0.65, -half))
+		_add_mesh(scaffold, rail, _material(Color(0.55, 0.43, 0.28)), Vector3(0.0, float(level) * 0.65, half))
+		var side_rail := BoxMesh.new()
+		side_rail.size = Vector3(0.07, 0.07, pad_size)
+		_add_mesh(scaffold, side_rail, _material(Color(0.55, 0.43, 0.28)), Vector3(-half, float(level) * 0.65, 0.0))
+		_add_mesh(scaffold, side_rail, _material(Color(0.55, 0.43, 0.28)), Vector3(half, float(level) * 0.65, 0.0))
+	var site_id: int = construction_id_sequence
+	construction_id_sequence += 1
+	var worker_targets: Array[Vector3] = [
+		Vector3(-half - 0.45, 0.0, -half - 0.45),
+		Vector3(half + 0.45, 0.0, half + 0.35)
+	]
+	var assigned_workers: int = 0
+	for person_index in range(people.size()):
+		if assigned_workers >= worker_targets.size():
+			break
+		var person: Dictionary = people[person_index]
+		if int(person.get("city_id", -1)) != city_id or not bool(person.get("alive", true)):
+			continue
+		if str(person.get("activity", "wandering")) not in ["wandering", "entering"]:
+			continue
+		var worker_node: Node3D = person.get("node") as Node3D
+		if not is_instance_valid(worker_node):
+			continue
+		var target: Vector3 = _surface_position(house.global_position.x + worker_targets[assigned_workers].x, house.global_position.z + worker_targets[assigned_workers].z)
+		person["activity"] = "constructing_walk"
+		person["construction_site_id"] = site_id
+		person["construction_target"] = target
+		person["target"] = target
+		person["walk_timer"] = 999.0
+		person["indoor_house"] = null
+		people[person_index] = person
+		assigned_workers += 1
+	construction_sites.append({
+		"id": site_id, "node": house, "city_id": city_id,
+		"building_type": building_type, "plot_index": plot_index,
+		"progress": clampf(progress, 0.0, 0.99), "duration": randf_range(10.0, 18.0),
+		"scaffold": scaffold, "phase": randf() * TAU, "worker_count": assigned_workers, "pad_size": pad_size
+	})
+
+
+func _get_construction_site(site_id: int) -> Dictionary:
+	for site in construction_sites:
+		if int(site.get("id", -1)) == site_id:
+			return site
+	return {}
+
+
+func _cancel_construction_site(house: Node3D) -> void:
+	for site_index in range(construction_sites.size() - 1, -1, -1):
+		var site: Dictionary = construction_sites[site_index]
+		if site.get("node") != house:
+			continue
+		var site_id: int = int(site.get("id", -1))
+		for person_index in range(people.size()):
+			var person: Dictionary = people[person_index]
+			if int(person.get("construction_site_id", -1)) != site_id:
+				continue
+			person["construction_site_id"] = -1
+			person["activity"] = "wandering"
+			person["walk_timer"] = 0.0
+			person["activity_timer"] = 0.0
+			people[person_index] = person
+		construction_sites.remove_at(site_index)
+		return
+
+
+func _update_construction_sites(delta: float) -> void:
+	for site_index in range(construction_sites.size() - 1, -1, -1):
+		var site: Dictionary = construction_sites[site_index]
+		var house: Node3D = site.get("node") as Node3D
+		if not is_instance_valid(house) or int(site.get("city_id", -1)) < 0 or int(site.get("city_id", -1)) >= cities.size():
+			construction_sites.remove_at(site_index)
+			continue
+		var progress: float = minf(1.0, float(site.get("progress", 0.0)) + delta / maxf(4.0, float(site.get("duration", 14.0))))
+		site["progress"] = progress
+		house.set_meta("construction_progress", progress)
+		site["phase"] = float(site.get("phase", 0.0)) + delta * 2.8
+		var scaffold: Node3D = site.get("scaffold") as Node3D
+		if is_instance_valid(scaffold):
+			scaffold.scale.y = 0.32 + progress * 0.68
+		for person_index in range(people.size()):
+			var person: Dictionary = people[person_index]
+			if int(person.get("construction_site_id", -1)) != int(site["id"]):
+				continue
+			var worker_node: Node3D = person.get("node") as Node3D
+			if not is_instance_valid(worker_node):
+				continue
+			var activity: String = str(person.get("activity", ""))
+			if activity == "constructing":
+				var phase: float = float(site["phase"]) + float(person_index) * 0.75
+				var reach: float = float(site["pad_size"]) * 0.35
+				var worker_position: Vector3 = _surface_position(house.global_position.x + cos(phase) * reach, house.global_position.z + sin(phase) * reach)
+				person["pos"] = worker_position
+				person["target"] = worker_position
+				people[person_index] = person
+				worker_node.position = worker_position
+				worker_node.rotation.y = -phase
+				var arm: Node3D = person.get("right_arm") as Node3D
+				if is_instance_valid(arm):
+					arm.rotation.x = sin(phase * 3.0) * 0.75
+		if progress >= 1.0:
+			var city_id: int = int(site["city_id"])
+			var site_id: int = int(site["id"])
+			construction_sites.remove_at(site_index)
+			for child in house.get_children():
+				child.free()
+			house.set_meta("is_construction_site", false)
+			for person_index in range(people.size()):
+				var person: Dictionary = people[person_index]
+				if int(person.get("construction_site_id", -1)) != site_id:
+					continue
+				person["construction_site_id"] = -1
+				person["activity"] = "wandering"
+				person["activity_timer"] = 0.0
+				person["walk_timer"] = 0.0
+				person["target"] = _choose_citizen_street_target(city_id, person.get("pos", house.global_position), 12.0)
+				people[person_index] = person
+			_apply_building_era_appearance(city_id, _world_year())
+			_log("%s completed a new building." % cities[city_id]["name"])
+			last_detail_signature = ""
+
+
 func _sync_city_buildings(city_id: int) -> bool:
 	if city_id < 0 or city_id >= cities.size() or _city_population(city_id) <= 0 or bool(cities[city_id].get("ruined", false)):
 		return false
@@ -1596,13 +1772,18 @@ func _sync_city_buildings(city_id: int) -> bool:
 		var offset_z: float = 0.0
 		var found_building_site: bool = false
 		var chosen_plot_index: int = plot_index
-		# Try the next parcels in the grid spiral. Coastal sites are skipped,
-		# preserving street alignment instead of bending the whole district.
+		var candidate_large_plot: bool = false
+		var candidate_footprint: float = 3.6
+		# Reserve occasional civic squares and two-plot commercial sites.
 		for attempt in range(64):
 			var plot: Vector2i = _spiral_grid_offset(plot_index)
-			# Street grid is spaced out; buildings sit inside the blocks.
-			offset_x = float(plot.x) * ROAD_GRID_SIZE + ROAD_GRID_SIZE * 0.5 + randf_range(-0.25, 0.25)
-			offset_z = float(plot.y) * ROAD_GRID_SIZE + ROAD_GRID_SIZE * 0.5 + randf_range(-0.25, 0.25)
+			if plot_index % 17 == 8:
+				plot_index += 1
+				continue
+			candidate_large_plot = _world_year() >= 1780 and plot_index % 13 == 7
+			candidate_footprint = 11.2 if candidate_large_plot else 3.6
+			offset_x = float(plot.x) * ROAD_GRID_SIZE + ROAD_GRID_SIZE * 0.5
+			offset_z = float(plot.y) * ROAD_GRID_SIZE + ROAD_GRID_SIZE * 0.5
 			var candidate_x: float = city["pos"].x + offset_x
 			var candidate_z: float = city["pos"].z + offset_z
 			var inside_world: bool = abs(candidate_x) < TERRAIN_SIZE * 0.47 and abs(candidate_z) < TERRAIN_SIZE * 0.47
@@ -1613,7 +1794,8 @@ func _sync_city_buildings(city_id: int) -> bool:
 					if not is_instance_valid(existing_house):
 						continue
 					var existing_offset := Vector2(existing_house.position.x, existing_house.position.z)
-					if existing_offset.distance_to(Vector2(offset_x, offset_z)) < 3.0:
+					var existing_footprint: float = float(existing_house.get_meta("plot_footprint", 3.6))
+					if existing_offset.distance_to(Vector2(offset_x, offset_z)) < (candidate_footprint + existing_footprint) * 0.5 + 0.35:
 						overlaps_existing = true
 						break
 			if on_land and not overlaps_existing:
@@ -1631,10 +1813,14 @@ func _sync_city_buildings(city_id: int) -> bool:
 		city["node"].add_child(house)
 
 		var building_type: int = house_index_to_building_type(houses.size(), stage)
+		var large_plot: bool = _world_year() >= 1780 and chosen_plot_index % 13 == 7
 		house.set_meta("building_type", building_type)
 		house.set_meta("base_building_type", building_type)
 		house.set_meta("plot_index", chosen_plot_index)
+		house.set_meta("large_plot", large_plot)
+		house.set_meta("plot_footprint", 11.2 if large_plot else 3.6)
 		houses.append(house)
+		_setup_construction_site(house, city_id, building_type, chosen_plot_index)
 	city["houses"] = houses
 	city["next_plot_index"] = plot_index
 	cities[city_id] = city
@@ -5344,6 +5530,20 @@ func _serialize_city_buildings(city: Dictionary) -> Array:
 		saved_buildings.append({
 			"pos": _vector3_to_array(house.position),
 			"base_type": int(house.get_meta("base_building_type", house.get_meta("building_type", 0))),
+			"plot_index": int(house.get_meta("plot_index", 0)),
+			"large_plot": bool(house.get_meta("large_plot", false)),
+			"plot_footprint": float(house.get_meta("plot_footprint", 3.6)),
+			"construction": bool(house.get_meta("is_construction_site", false)),
+			"construction_progress": float(house.get_meta("construction_progress", 0.0))
+		})
+	return saved_buildings
+	var saved_buildings: Array = []
+	for house in city.get("houses", []):
+		if not is_instance_valid(house):
+			continue
+		saved_buildings.append({
+			"pos": _vector3_to_array(house.position),
+			"base_type": int(house.get_meta("base_building_type", house.get_meta("building_type", 0))),
 			"plot_index": int(house.get_meta("plot_index", 0))
 		})
 	return saved_buildings
@@ -5557,6 +5757,10 @@ func _load_world() -> void:
 				house.set_meta("building_type", base_type)
 				house.set_meta("base_building_type", base_type)
 				house.set_meta("plot_index", int(building_data.get("plot_index", 0)))
+				house.set_meta("large_plot", bool(building_data.get("large_plot", false)))
+				house.set_meta("plot_footprint", float(building_data.get("plot_footprint", 3.6)))
+				house.set_meta("is_construction_site", bool(building_data.get("construction", false)))
+				house.set_meta("construction_progress", float(building_data.get("construction_progress", 0.0)))
 				city["houses"].append(house)
 		cities[city_id] = city
 
@@ -5601,6 +5805,9 @@ func _load_world() -> void:
 	# Rebuild homes and territory after all people and cities exist, so borders
 	# are calculated against the final city population and neighbouring zones.
 	for city_id in range(cities.size()):
+		for saved_house in cities[city_id]["houses"]:
+			if is_instance_valid(saved_house) and bool(saved_house.get_meta("is_construction_site", false)):
+				_setup_construction_site(saved_house, city_id, int(saved_house.get_meta("base_building_type", 0)), int(saved_house.get_meta("plot_index", 0)), float(saved_house.get_meta("construction_progress", 0.0)))
 		var loaded_population: int = _city_population(city_id)
 		if loaded_population > 0:
 			cities[city_id]["stage"] = _city_stage_for_population(loaded_population)
