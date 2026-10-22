@@ -104,6 +104,7 @@ var next_building_visual_mutation_usec: int = 0
 var building_visual_mutation_consumed_this_frame: bool = false
 var building_start_budget_remaining: int = 0
 var in_simulation_frame: bool = false
+var is_loading_world: bool = false
 var people_lod_proxy: MultiMeshInstance3D
 var construction_tick_timer: float = 0.0
 var abandoned_check_timer: float = 0.0
@@ -2334,6 +2335,10 @@ func _process_one_pending_city_development() -> void:
 
 func _sync_city_buildings(city_id: int) -> bool:
 	if city_id < 0 or city_id >= cities.size() or _city_population(city_id) <= 0 or bool(cities[city_id].get("ruined", false)):
+		return false
+	# Loading must restore the saved building list exactly; it must never trigger
+	# new purchases or rewrite the saved treasury during development refresh.
+	if is_loading_world:
 		return false
 	var city: Dictionary = cities[city_id]
 	var population: int = _city_population(city_id)
@@ -7063,6 +7068,7 @@ func _load_world() -> void:
 		_log("LOAD FAILED: The save does not contain any cities.")
 		return
 
+	is_loading_world = true
 	_clear_loaded_world()
 	world_seed = int(save_data.get("world_seed", 14029))
 	seed(world_seed)
@@ -7246,6 +7252,7 @@ func _load_world() -> void:
 		if button.text.begins_with("Reset Speed on City Event:"):
 			button.text = "Reset Speed on City Event: ON" if reset_speed_on_city_event else "Reset Speed on City Event: OFF"
 	paused = false
+	is_loading_world = false
 	_update_camera()
 	_update_world_detail_levels()
 	_refresh_ui()
@@ -7271,6 +7278,7 @@ func _clear_loaded_world() -> void:
 	building_visual_mutation_consumed_this_frame = false
 	building_start_budget_remaining = 0
 	in_simulation_frame = false
+	is_loading_world = false
 	for existing_child in get_children():
 		if existing_child is Node3D and existing_child.name in ["BuildingRubble", "VehicleWreck"]:
 			existing_child.queue_free()
