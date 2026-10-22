@@ -2087,11 +2087,11 @@ func _rebuild_city_traffic_lights(city_id: int, grid_x: Array, grid_z: Array) ->
 	var city: Dictionary = cities[city_id]
 	var town: Node3D = city["node"]
 	var old_lights: Node = town.get_node_or_null("TrafficLights")
-	for i in range(traffic_light_records.size() - 1, -1, -1):
-		if int(traffic_light_records[i].get("city_id", -1)) == city_id:
-			traffic_light_records.remove_at(i)
 	var enabled: bool = _world_year() >= 1900 and not bool(city.get("ruined", false)) and _city_population(city_id) > 0 and not bool(city.get("abandoned", false))
 	if not enabled:
+		for record_index in range(traffic_light_records.size() - 1, -1, -1):
+			if int(traffic_light_records[record_index].get("city_id", -1)) == city_id:
+				traffic_light_records.remove_at(record_index)
 		if is_instance_valid(old_lights):
 			old_lights.free()
 		town.set_meta("traffic_light_grid_signature", "disabled")
@@ -2103,6 +2103,9 @@ func _rebuild_city_traffic_lights(city_id: int, grid_x: Array, grid_z: Array) ->
 				pass
 		_update_traffic_light_states()
 		return
+	for record_index in range(traffic_light_records.size() - 1, -1, -1):
+		if int(traffic_light_records[record_index].get("city_id", -1)) == city_id:
+			traffic_light_records.remove_at(record_index)
 	if is_instance_valid(old_lights):
 		old_lights.free()
 	town.set_meta("traffic_light_grid_signature", signature)
