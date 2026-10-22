@@ -2306,6 +2306,25 @@ func _rebuild_city_roads(city_id: int) -> void:
 			var reverse_finish := Vector2(grid_x[x_index + 1] - 1.25, grid_z[z_index] + 1.25)
 			if (x_index + z_index + city_id) % 17 == 5 and _diagonal_road_is_clear(city_id, reverse_start, reverse_finish, 2.4):
 				_add_damaged_aware_road_segment(road_surface, city_id, city_position, reverse_start, reverse_finish, 0.88, 0.36, 0.0)
+
+	# Steep districts get a few winding connectors rather than forcing every
+	# climb to run in a ruler-straight line up the slope.
+	var terrain_minimum: float = INF
+	var terrain_maximum: float = -INF
+	for x_value in grid_x:
+		for z_value in grid_z:
+			var sample_height: float = _terrain_render_height_at(city_position.x + x_value, city_position.z + z_value)
+			terrain_minimum = minf(terrain_minimum, sample_height)
+			terrain_maximum = maxf(terrain_maximum, sample_height)
+	if terrain_maximum - terrain_minimum >= 2.1 and city_id % 3 != 1 and grid_x.size() >= 4 and grid_z.size() >= 3:
+		var switchback_row: float = grid_z[grid_z.size() / 2]
+		for x_index in range(grid_x.size() - 1):
+			var start_offset: float = 2.65 if x_index % 2 == 0 else -2.65
+			var finish_offset: float = -start_offset
+			var switch_start := Vector2(grid_x[x_index] + 0.95, switchback_row + start_offset)
+			var switch_finish := Vector2(grid_x[x_index + 1] - 0.95, switchback_row + finish_offset)
+			if _diagonal_road_is_clear(city_id, switch_start, switch_finish, 1.15):
+				_add_damaged_aware_road_segment(road_surface, city_id, city_position, switch_start, switch_finish, 1.02, 0.38, 0.0)
 	road_surface.generate_normals(true)
 	road_node.mesh = road_surface.commit()
 	if is_instance_valid(sidewalk_node):
@@ -6069,7 +6088,9 @@ func _serialize_city_buildings(city: Dictionary) -> Array:
 			"large_plot": bool(house.get_meta("large_plot", false)),
 			"plot_footprint": float(house.get_meta("plot_footprint", 3.6)),
 			"construction": bool(house.get_meta("is_construction_site", false)),
-			"construction_progress": float(house.get_meta("construction_progress", 0.0))
+			"construction_progress": float(house.get_meta("construction_progress", 0.0)),
+			"terrain_terraced": bool(house.get_meta("terrain_terraced", false)),
+			"plot_grade_radius": float(house.get_meta("plot_grade_radius", 2.25))
 		})
 	return saved_buildings
 
@@ -6289,6 +6310,8 @@ func _load_world() -> void:
 				house.set_meta("plot_footprint", float(building_data.get("plot_footprint", 3.6)))
 				house.set_meta("is_construction_site", bool(building_data.get("construction", false)))
 				house.set_meta("construction_progress", float(building_data.get("construction_progress", 0.0)))
+				house.set_meta("terrain_terraced", bool(building_data.get("terrain_terraced", false)))
+				house.set_meta("plot_grade_radius", float(building_data.get("plot_grade_radius", 2.25)))
 				city["houses"].append(house)
 		cities[city_id] = city
 
