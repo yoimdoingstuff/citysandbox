@@ -55,6 +55,7 @@ var terrain_lod_chunk_nodes: Array = []
 var terrain_lod_dirty: Array[bool] = [true, true, true, true]
 var pending_terrain_edits: Array[Dictionary] = []
 var pending_terrain_chunk_updates: Dictionary = {}
+var pending_terrain_shoreline_change: bool = false
 var terrain_rebuild_cooldown: float = 0.0
 var last_road_terrain_lod: int = -1
 var terrain_moisture_noise: FastNoiseLite
@@ -1196,7 +1197,9 @@ func _flush_pending_terrain_edits() -> void:
 	var rebuild_started_usec: int = Time.get_ticks_usec()
 	_rebuild_terrain_around_many(edits)
 	var alignment_started_usec: int = Time.get_ticks_usec()
-	_update_placed_object_heights_near_many(edits)
+	var refresh_territory: bool = pending_terrain_shoreline_change
+	pending_terrain_shoreline_change = false
+	_update_placed_object_heights_near_many(edits, refresh_territory)
 	_trace_slow_operation("terrain-object-alignment-only", alignment_started_usec)
 	terrain_rebuild_cooldown = TERRAIN_EDIT_REBUILD_INTERVAL
 	_trace_slow_operation("terrain-chunk-rebuild-and-object-alignment", rebuild_started_usec)
@@ -1837,7 +1840,13 @@ func _sculpt_terrain(center: Vector3, amount: float, finalize_edit: bool = true)
 			var distance: float = sqrt(distance_squared)
 			var strength: float = 1.0 - distance / radius
 			var h: float = float(terrain_heights[z_index][x_index])
-			terrain_heights[z_index][x_index] = clampf(h + amount * strength, -4.5, 10.0)
+			var updated_height: float = clampf(h + amount * strength, -4.5, 10.0)
+			# City territory only depends on which sampled cells are land. Avoid
+			# rebuilding every city's territory meshes for inland sculpting that
+			# cannot change the land/water mask.
+			if (h > WATER_LEVEL + 0.10) != (updated_height > WATER_LEVEL + 0.10):
+				pending_terrain_shoreline_change = true
+			terrain_heights[z_index][x_index] = updated_height
 	_queue_terrain_edit_update(center, radius)
 	if not finalize_edit:
 		return
@@ -1910,7 +1919,7 @@ func _terrain_edit_affects_point(x: float, z: float, edits: Array[Dictionary], e
 	return false
 
 
-func _update_placed_object_heights_near_many(edits: Array[Dictionary]) -> void:
+func _update_placed_object_heights_near_many(edits: Array[Dictionary], refresh_territory: bool = true) -> void:
 	if edits.is_empty():
 		return
 	# Scan each world collection once for all brush strokes or meteor craters.
@@ -2010,7 +2019,8 @@ func _update_placed_object_heights_near_many(edits: Array[Dictionary]) -> void:
 			army_node.position = position
 		armies[army_index] = army
 
-	_schedule_city_territory_refresh()
+	if refresh_territory:
+		_schedule_city_territory_refresh()
 
 
 func _scatter_world_resources() -> void:
