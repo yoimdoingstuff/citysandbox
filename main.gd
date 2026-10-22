@@ -107,6 +107,12 @@ var tool_label: Label
 var pending_label: Label
 var radius_label: Label
 var log_label: Label
+var chronicle_panel: PanelContainer
+var chronicle_button: Button
+var chronicle_expanded: bool = false
+var traffic_light_records: Array = []
+var traffic_light_timer: float = 0.0
+var traffic_light_phase: int = 0
 var pause_button: Button
 var speed_button: Button
 var control_button: Button
@@ -137,6 +143,7 @@ func _ready() -> void:
 
 
 func _process(delta: float) -> void:
+	_update_traffic_lights(delta)
 	_update_camera_input(delta)
 	_update_auto_city_camera(delta)
 	preview_timer += delta
@@ -1499,8 +1506,8 @@ func _sync_city_buildings(city_id: int) -> bool:
 		for attempt in range(64):
 			var plot: Vector2i = _spiral_grid_offset(plot_index)
 			# Street grid is spaced out; buildings sit inside the blocks.
-			offset_x = float(plot.x) * 7.5 + 2.35 + randf_range(-0.45, 0.45)
-			offset_z = float(plot.y) * 7.5 + 2.35 + randf_range(-0.45, 0.45)
+			offset_x = float(plot.x) * ROAD_GRID_SIZE + ROAD_GRID_SIZE * 0.5 + randf_range(-0.25, 0.25)
+			offset_z = float(plot.y) * ROAD_GRID_SIZE + ROAD_GRID_SIZE * 0.5 + randf_range(-0.25, 0.25)
 			var candidate_x: float = city["pos"].x + offset_x
 			var candidate_z: float = city["pos"].z + offset_z
 			var inside_world: bool = abs(candidate_x) < TERRAIN_SIZE * 0.47 and abs(candidate_z) < TERRAIN_SIZE * 0.47
@@ -1555,16 +1562,18 @@ func house_index_to_building_type(index: int, stage: int) -> int:
 	return kind
 
 
-func _add_road_segment(surface: SurfaceTool, city_position: Vector3, from_point: Vector2, to_point: Vector2, width: float = 0.48) -> void:
+func _add_road_segment(surface: SurfaceTool, city_position: Vector3, from_point: Vector2, to_point: Vector2, width: float = 0.48, height_offset: float = 0.10, endpoint_padding: float = 0.0) -> void:
 	var delta: Vector2 = to_point - from_point
 	var distance: float = delta.length()
-	if distance < 1.0:
+	if distance < 0.5:
 		return
 	var direction: Vector2 = delta / distance
 	var side := Vector2(-direction.y, direction.x) * width * 0.5
-	var start_point: Vector2 = from_point + direction * 1.05
-	var finish_point: Vector2 = to_point - direction * 1.05
-	var segment_count: int = max(2, int(ceil(distance / 5.0)))
+	var start_point: Vector2 = from_point + direction * endpoint_padding
+	var finish_point: Vector2 = to_point - direction * endpoint_padding
+	if finish_point.distance_to(start_point) < 0.1:
+		return
+	var segment_count: int = max(2, int(ceil(start_point.distance_to(finish_point) / 5.0)))
 	var previous_left := Vector3.ZERO
 	var previous_right := Vector3.ZERO
 	for segment in range(segment_count + 1):
@@ -1572,8 +1581,8 @@ func _add_road_segment(surface: SurfaceTool, city_position: Vector3, from_point:
 		var center_line: Vector2 = start_point.lerp(finish_point, t)
 		var left_xz: Vector2 = center_line + side
 		var right_xz: Vector2 = center_line - side
-		var left := Vector3(left_xz.x, _height_at(city_position.x + left_xz.x, city_position.z + left_xz.y) - city_position.y + 0.10, left_xz.y)
-		var right := Vector3(right_xz.x, _height_at(city_position.x + right_xz.x, city_position.z + right_xz.y) - city_position.y + 0.10, right_xz.y)
+		var left := Vector3(left_xz.x, _height_at(city_position.x + left_xz.x, city_position.z + left_xz.y) - city_position.y + height_offset, left_xz.y)
+		var right := Vector3(right_xz.x, _height_at(city_position.x + right_xz.x, city_position.z + right_xz.y) - city_position.y + height_offset, right_xz.y)
 		if segment > 0:
 			surface.add_vertex(previous_left)
 			surface.add_vertex(previous_right)
@@ -1585,6 +1594,29 @@ func _add_road_segment(surface: SurfaceTool, city_position: Vector3, from_point:
 		previous_right = right
 
 
+func _add_sidewalk_corner(surface: SurfaceTool, city_position: Vector3, intersection_x: float, intersection_z: float, sign_x: float, sign_z: float) -> void:
+	var curb_edge: float = 0.81
+	var walk_centre: float = 1.05
+	var xa: float = intersection_x + sign_x * curb_edge
+	var xb: float = intersection_x + sign_x * walk_centre
+	var za: float = intersection_z + sign_z * curb_edge
+	var zb: float = intersection_z + sign_z * walk_centre
+	var min_x: float = minf(xa, xb)
+	var max_x: float = maxf(xa, xb)
+	var min_z: float = minf(za, zb)
+	var max_z: float = maxf(za, zb)
+	var a := Vector3(min_x, _height_at(city_position.x + min_x, city_position.z + min_z) - city_position.y + 0.26, min_z)
+	var b := Vector3(max_x, _height_at(city_position.x + max_x, city_position.z + min_z) - city_position.y + 0.26, min_z)
+	var c := Vector3(max_x, _height_at(city_position.x + max_x, city_position.z + max_z) - city_position.y + 0.26, max_z)
+	var d := Vector3(min_x, _height_at(city_position.x + min_x, city_position.z + max_z) - city_position.y + 0.26, max_z)
+	surface.add_vertex(a)
+	surface.add_vertex(b)
+	surface.add_vertex(c)
+	surface.add_vertex(a)
+	surface.add_vertex(c)
+	surface.add_vertex(d)
+
+
 func _rebuild_city_roads(city_id: int) -> void:
 	if city_id < 0 or city_id >= cities.size():
 		return
@@ -1593,8 +1625,8 @@ func _rebuild_city_roads(city_id: int) -> void:
 	var sidewalk_node: MeshInstance3D = city.get("sidewalks") as MeshInstance3D
 	if not is_instance_valid(road_node):
 		return
-	var surface := SurfaceTool.new()
-	surface.begin(Mesh.PRIMITIVE_TRIANGLES)
+	var road_surface := SurfaceTool.new()
+	road_surface.begin(Mesh.PRIMITIVE_TRIANGLES)
 	var sidewalk_surface := SurfaceTool.new()
 	sidewalk_surface.begin(Mesh.PRIMITIVE_TRIANGLES)
 	var city_position: Vector3 = city["pos"]
@@ -1608,6 +1640,7 @@ func _rebuild_city_roads(city_id: int) -> void:
 		city["road_grid_min_z"] = -7.5
 		city["road_grid_max_z"] = 7.5
 		cities[city_id] = city
+		_rebuild_city_traffic_lights(city_id, [-7.5, 0.0, 7.5], [-7.5, 0.0, 7.5])
 		return
 	var min_x: float = 0.0
 	var max_x: float = 0.0
@@ -1620,43 +1653,130 @@ func _rebuild_city_roads(city_id: int) -> void:
 		max_x = maxf(max_x, house.position.x + 3.0)
 		min_z = minf(min_z, house.position.z - 3.0)
 		max_z = maxf(max_z, house.position.z + 3.0)
-	var x: float = floor(min_x / ROAD_GRID_SIZE) * ROAD_GRID_SIZE
+	var first_x: float = floor(min_x / ROAD_GRID_SIZE) * ROAD_GRID_SIZE
 	var last_x: float = ceil(max_x / ROAD_GRID_SIZE) * ROAD_GRID_SIZE
-	var z: float = floor(min_z / ROAD_GRID_SIZE) * ROAD_GRID_SIZE
+	var first_z: float = floor(min_z / ROAD_GRID_SIZE) * ROAD_GRID_SIZE
 	var last_z: float = ceil(max_z / ROAD_GRID_SIZE) * ROAD_GRID_SIZE
-	city["road_grid_min_x"] = ceil(min_x / ROAD_GRID_SIZE) * ROAD_GRID_SIZE
-	city["road_grid_max_x"] = floor(max_x / ROAD_GRID_SIZE) * ROAD_GRID_SIZE
-	city["road_grid_min_z"] = ceil(min_z / ROAD_GRID_SIZE) * ROAD_GRID_SIZE
-	city["road_grid_max_z"] = floor(max_z / ROAD_GRID_SIZE) * ROAD_GRID_SIZE
-	if float(city["road_grid_min_x"]) > float(city["road_grid_max_x"]):
-		city["road_grid_min_x"] = 0.0
-		city["road_grid_max_x"] = 0.0
-	if float(city["road_grid_min_z"]) > float(city["road_grid_max_z"]):
-		city["road_grid_min_z"] = 0.0
-		city["road_grid_max_z"] = 0.0
+	city["road_grid_min_x"] = first_x
+	city["road_grid_max_x"] = last_x
+	city["road_grid_min_z"] = first_z
+	city["road_grid_max_z"] = last_z
 	cities[city_id] = city
-	while x <= last_x:
-		_add_road_segment(surface, city_position, Vector2(x, min_z), Vector2(x, max_z), 0.62)
-		_add_road_segment(sidewalk_surface, city_position, Vector2(x - 1.05, min_z), Vector2(x - 1.05, max_z), 0.48)
-		_add_road_segment(sidewalk_surface, city_position, Vector2(x + 1.05, min_z), Vector2(x + 1.05, max_z), 0.48)
-		x += ROAD_GRID_SIZE
-	while z <= last_z:
-		_add_road_segment(surface, city_position, Vector2(min_x, z), Vector2(max_x, z), 0.62)
-		_add_road_segment(sidewalk_surface, city_position, Vector2(min_x, z - 1.05), Vector2(max_x, z - 1.05), 0.48)
-		_add_road_segment(sidewalk_surface, city_position, Vector2(min_x, z + 1.05), Vector2(max_x, z + 1.05), 0.48)
-		z += ROAD_GRID_SIZE
-	for i in range(0, houses.size(), 9):
-		var house: Node3D = houses[i]
-		if is_instance_valid(house):
-			var p := Vector2(house.position.x, house.position.z)
-			var q := p + Vector2(3.75, 3.75)
-			if q.x <= max_x and q.y <= max_z:
-				_add_road_segment(surface, city_position, p, q, 0.30)
-	surface.generate_normals(true)
-	road_node.mesh = surface.commit()
+	var grid_x: Array[float] = []
+	var grid_z: Array[float] = []
+	var cursor_x: float = first_x
+	while cursor_x <= last_x + 0.001:
+		grid_x.append(cursor_x)
+		_add_road_segment(road_surface, city_position, Vector2(cursor_x, min_z), Vector2(cursor_x, max_z), 1.62, 0.035, 0.0)
+		cursor_x += ROAD_GRID_SIZE
+	var cursor_z: float = first_z
+	while cursor_z <= last_z + 0.001:
+		grid_z.append(cursor_z)
+		_add_road_segment(road_surface, city_position, Vector2(min_x, cursor_z), Vector2(max_x, cursor_z), 1.62, 0.035, 0.0)
+		cursor_z += ROAD_GRID_SIZE
+
+	# Pedestrian strips run between crossroads and terminate at the curb.
+	# Their inner edge is exactly aligned with the road's outer edge (0.81).
+	for x_index in range(grid_x.size()):
+		var x_value: float = grid_x[x_index]
+		for z_index in range(grid_z.size() - 1):
+			var sidewalk_start: float = grid_z[z_index] + 1.05
+			var sidewalk_end: float = grid_z[z_index + 1] - 1.05
+			if sidewalk_end <= sidewalk_start:
+				continue
+			for side_sign in [-1.0, 1.0]:
+				_add_road_segment(sidewalk_surface, city_position, Vector2(x_value + side_sign * 1.05, sidewalk_start), Vector2(x_value + side_sign * 1.05, sidewalk_end), 0.48, 0.26, 0.0)
+	for z_index in range(grid_z.size()):
+		var z_value: float = grid_z[z_index]
+		for x_index in range(grid_x.size() - 1):
+			var sidewalk_start_x: float = grid_x[x_index] + 1.05
+			var sidewalk_end_x: float = grid_x[x_index + 1] - 1.05
+			if sidewalk_end_x <= sidewalk_start_x:
+				continue
+			for side_sign in [-1.0, 1.0]:
+				_add_road_segment(sidewalk_surface, city_position, Vector2(sidewalk_start_x, z_value + side_sign * 1.05), Vector2(sidewalk_end_x, z_value + side_sign * 1.05), 0.48, 0.26, 0.0)
+
+	# Four raised paving corner tiles close the gap around each crossing without
+	# extending pavement across the carriageways.
+	for x_value in grid_x:
+		for z_value in grid_z:
+			for side_x in [-1.0, 1.0]:
+				for side_z in [-1.0, 1.0]:
+					_add_sidewalk_corner(sidewalk_surface, city_position, x_value, z_value, side_x, side_z)
+	road_surface.generate_normals(true)
+	road_node.mesh = road_surface.commit()
 	if is_instance_valid(sidewalk_node):
 		sidewalk_surface.generate_normals(true)
 		sidewalk_node.mesh = sidewalk_surface.commit()
+	_rebuild_city_traffic_lights(city_id, grid_x, grid_z)
+
+
+func _rebuild_city_traffic_lights(city_id: int, grid_x: Array, grid_z: Array) -> void:
+	if city_id < 0 or city_id >= cities.size():
+		return
+	var city: Dictionary = cities[city_id]
+	var town: Node3D = city["node"]
+	var old_lights: Node = town.get_node_or_null("TrafficLights")
+	if is_instance_valid(old_lights):
+		old_lights.free()
+	for i in range(traffic_light_records.size() - 1, -1, -1):
+		if int(traffic_light_records[i].get("city_id", -1)) == city_id:
+			traffic_light_records.remove_at(i)
+	if _world_year() < 1900 or bool(city.get("ruined", false)):
+		return
+	var light_root := Node3D.new()
+	light_root.name = "TrafficLights"
+	town.add_child(light_root)
+	var pole_mesh: Mesh = _cached_box_mesh(Vector3(0.10, 2.05, 0.10))
+	var head_mesh: Mesh = _cached_box_mesh(Vector3(0.34, 0.68, 0.22))
+	var lamp_mesh: Mesh = _cached_box_mesh(Vector3(0.18, 0.14, 0.07))
+	var pole_material: Material = _material(Color(0.12, 0.14, 0.16))
+	var head_material: Material = _material(Color(0.07, 0.08, 0.09))
+	var red_material: Material = _material(Color(0.95, 0.16, 0.13), 0.38)
+	var amber_material: Material = _material(Color(1.0, 0.66, 0.12), 0.38)
+	var green_material: Material = _material(Color(0.15, 0.86, 0.42), 0.38)
+	var counter: int = 0
+	for xi in range(grid_x.size()):
+		for zi in range(grid_z.size()):
+			if xi % 3 != 1 or zi % 3 != 1:
+				continue
+			# One signal mast on each selected crossing keeps geometry inexpensive.
+			var x_value: float = float(grid_x[xi])
+			var z_value: float = float(grid_z[zi])
+			var mast := Node3D.new()
+			mast.name = "Signal_%d" % counter
+			mast.position = Vector3(x_value + 0.93, 0.0, z_value + 0.93)
+			light_root.add_child(mast)
+			_add_mesh(mast, pole_mesh, pole_material, Vector3(0.0, 1.025, 0.0))
+			_add_mesh(mast, head_mesh, head_material, Vector3(0.0, 2.05, 0.0))
+			var red := _add_mesh(mast, lamp_mesh, red_material, Vector3(0.0, 2.26, -0.118))
+			var amber := _add_mesh(mast, lamp_mesh, amber_material, Vector3(0.0, 2.05, -0.118))
+			var green := _add_mesh(mast, lamp_mesh, green_material, Vector3(0.0, 1.84, -0.118))
+			traffic_light_records.append({"city_id": city_id, "red": red, "amber": amber, "green": green})
+			counter += 1
+	_update_traffic_light_states()
+
+
+func _update_traffic_lights(delta: float) -> void:
+	traffic_light_timer += delta
+	var phase_durations: Array[float] = [3.8, 3.8, 0.85]
+	if traffic_light_timer >= phase_durations[traffic_light_phase]:
+		traffic_light_timer = 0.0
+		traffic_light_phase = (traffic_light_phase + 1) % phase_durations.size()
+		_update_traffic_light_states()
+
+
+func _update_traffic_light_states() -> void:
+	for record in traffic_light_records:
+		var red: MeshInstance3D = record.get("red") as MeshInstance3D
+		var amber: MeshInstance3D = record.get("amber") as MeshInstance3D
+		var green: MeshInstance3D = record.get("green") as MeshInstance3D
+		if is_instance_valid(red):
+			red.visible = traffic_light_phase == 0
+		if is_instance_valid(amber):
+			amber.visible = traffic_light_phase == 2
+		if is_instance_valid(green):
+			green.visible = traffic_light_phase == 1
 
 
 func _seed_resources_around(center: Vector3) -> void:
@@ -4302,32 +4422,54 @@ func _build_ui() -> void:
 	top_row.add_child(_make_button("LOAD", _load_world, Color(0.12, 0.24, 0.32)))
 	top_row.add_child(_make_button("EVENT 1×: OFF", _toggle_reset_speed_on_city_event, Color(0.20, 0.28, 0.34)))
 
-	# Small chronicle panel; it no longer dictates half the screen layout.
-	var chronicle := PanelContainer.new()
-	chronicle.anchor_left = 0.0
-	chronicle.anchor_right = 0.0
-	chronicle.anchor_top = 0.0
-	chronicle.anchor_bottom = 0.0
-	chronicle.offset_left = 12.0
-	chronicle.offset_right = 292.0
-	chronicle.offset_top = 88.0
-	chronicle.offset_bottom = 198.0
-	chronicle.add_theme_stylebox_override("panel", _panel_style(Color(0.025, 0.040, 0.060, 0.84)))
-	ui_root.add_child(chronicle)
+	# Right-side dropdown keeps the world map unobstructed when the chronicle is closed.
+	chronicle_button = _make_button("WORLD CHRONICLE  ▼", _toggle_chronicle, Color(0.025, 0.040, 0.060))
+	chronicle_button.anchor_left = 1.0
+	chronicle_button.anchor_right = 1.0
+	chronicle_button.anchor_top = 0.0
+	chronicle_button.anchor_bottom = 0.0
+	chronicle_button.offset_left = -292.0
+	chronicle_button.offset_right = -12.0
+	chronicle_button.offset_top = 88.0
+	chronicle_button.offset_bottom = 124.0
+	chronicle_button.z_index = 8
+	chronicle_button.add_theme_stylebox_override("normal", _button_style(Color(0.025, 0.040, 0.060, 0.94)))
+	chronicle_button.add_theme_stylebox_override("hover", _button_style(Color(0.08, 0.13, 0.17, 0.98)))
+	ui_root.add_child(chronicle_button)
+
+	chronicle_panel = PanelContainer.new()
+	chronicle_panel.anchor_left = 1.0
+	chronicle_panel.anchor_right = 1.0
+	chronicle_panel.anchor_top = 0.0
+	chronicle_panel.anchor_bottom = 0.0
+	chronicle_panel.offset_left = -292.0
+	chronicle_panel.offset_right = -12.0
+	chronicle_panel.offset_top = 128.0
+	chronicle_panel.offset_bottom = 342.0
+	chronicle_panel.z_index = 8
+	chronicle_panel.add_theme_stylebox_override("panel", _panel_style(Color(0.025, 0.040, 0.060, 0.96)))
+	ui_root.add_child(chronicle_panel)
 	var chronicle_margin := MarginContainer.new()
 	chronicle_margin.add_theme_constant_override("margin_left", 10)
 	chronicle_margin.add_theme_constant_override("margin_right", 10)
-	chronicle_margin.add_theme_constant_override("margin_top", 7)
-	chronicle_margin.add_theme_constant_override("margin_bottom", 7)
-	chronicle.add_child(chronicle_margin)
+	chronicle_margin.add_theme_constant_override("margin_top", 8)
+	chronicle_margin.add_theme_constant_override("margin_bottom", 8)
+	chronicle_panel.add_child(chronicle_margin)
 	var chronicle_content := VBoxContainer.new()
-	chronicle_content.add_theme_constant_override("separation", 4)
+	chronicle_content.add_theme_constant_override("separation", 5)
 	chronicle_margin.add_child(chronicle_content)
-	chronicle_content.add_child(_make_label("WORLD CHRONICLE", 11, Color(0.46, 0.86, 0.98)))
+	chronicle_content.add_child(_make_label("WORLD CHRONICLE · RECENT EVENTS", 11, Color(0.46, 0.86, 0.98)))
+	var chronicle_scroll := ScrollContainer.new()
+	chronicle_scroll.size_flags_vertical = Control.SIZE_EXPAND_FILL
+	chronicle_scroll.horizontal_scroll_mode = ScrollContainer.SCROLL_MODE_DISABLED
+	chronicle_content.add_child(chronicle_scroll)
 	log_label = _make_label("Waiting for history to happen...", 10, Color(0.76, 0.83, 0.86))
 	log_label.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
-	log_label.size_flags_vertical = Control.SIZE_EXPAND_FILL
-	chronicle_content.add_child(log_label)
+	log_label.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	log_label.custom_minimum_size = Vector2(246.0, 0.0)
+	chronicle_scroll.add_child(log_label)
+	chronicle_panel.visible = false
+	chronicle_expanded = false
 
 	# City controls float only while a city is selected.
 	city_context_panel = PanelContainer.new()
@@ -4340,6 +4482,7 @@ func _build_ui() -> void:
 	city_context_panel.offset_top = 90.0
 	city_context_panel.offset_bottom = 408.0
 	city_context_panel.add_theme_stylebox_override("panel", _panel_style(Color(0.025, 0.040, 0.060, 0.94)))
+	city_context_panel.z_index = 2
 	ui_root.add_child(city_context_panel)
 	var city_margin := MarginContainer.new()
 	city_margin.add_theme_constant_override("margin_left", 12)
@@ -4584,6 +4727,16 @@ func _joined_logs() -> String:
 	return "\n\n".join(lines)
 
 
+func _toggle_chronicle() -> void:
+	chronicle_expanded = not chronicle_expanded
+	if is_instance_valid(chronicle_panel):
+		chronicle_panel.visible = chronicle_expanded
+	if is_instance_valid(chronicle_button):
+		chronicle_button.text = "WORLD CHRONICLE  %s" % ("▲" if chronicle_expanded else "▼")
+	if is_instance_valid(city_context_panel):
+		city_context_panel.visible = selected_city >= 0 and selected_city < cities.size() and not chronicle_expanded
+
+
 func _refresh_ui() -> void:
 	var population_counts: Array[int] = _population_counts_by_city()
 	var year: int = _world_year()
@@ -4624,7 +4777,11 @@ func _refresh_ui() -> void:
 				cities[city_index]["label"].text = label_text
 			cities[city_index]["label"].modulate = Color(0.66, 0.70, 0.72) if population_now <= 0 else Color.WHITE
 	if is_instance_valid(city_context_panel):
-		city_context_panel.visible = selected_city >= 0 and selected_city < cities.size()
+		city_context_panel.visible = selected_city >= 0 and selected_city < cities.size() and not chronicle_expanded
+	if is_instance_valid(chronicle_panel):
+		chronicle_panel.visible = chronicle_expanded
+	if is_instance_valid(chronicle_button):
+		chronicle_button.text = "WORLD CHRONICLE  %s" % ("▲" if chronicle_expanded else "▼")
 	if is_instance_valid(city_info_label):
 		if selected_city >= 0 and selected_city < cities.size():
 			var city: Dictionary = cities[selected_city]
