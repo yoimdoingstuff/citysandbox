@@ -4989,7 +4989,7 @@ func _resolve_falling_building_collisions(source_city_id: int, source_house: Nod
 		if bool(target_city.get("ruined", false)):
 			continue
 		for target_house in target_city["houses"]:
-			if not is_instance_valid(target_house) or target_house == source_house or bool(target_house.get_meta("is_collapsing", false)):
+			if not is_instance_valid(target_house) or target_house == source_house or bool(target_house.get_meta("is_collapsing", false)) or bool(target_house.get_meta("is_targeted_by_collapse", false)):
 				continue
 			var target_position: Vector3 = target_house.global_position
 			var offset := Vector2(target_position.x - source_position.x, target_position.z - source_position.z)
@@ -5031,6 +5031,7 @@ func _resolve_falling_building_collisions(source_city_id: int, source_house: Nod
 			continue
 		var distance: float = float(candidate["distance"])
 		var transferred_energy: float = clampf(impact_strength * (0.95 - distance / maxf(1.0, collision_reach) * 0.38), 0.22, 0.88)
+		target_house.set_meta("is_targeted_by_collapse", true)
 		_log("COLLISION: A falling building in %s struck a structure in %s." % [cities[source_city_id]["name"], cities[target_city_id]["name"]])
 		_spawn_building_collapse_smoke(target_house.global_position + Vector3(0.0, 0.8, 0.0), float(target_house.get_meta("building_height", 2.0)), false, true)
 		_throw_debris_at_building(target_city_id, source_position, target_house, source_color, chain_depth + 1, transferred_energy, source_height)
@@ -5096,7 +5097,10 @@ func _throw_debris_at_building(city_id: int, source_position: Vector3, target_ho
 
 
 func _on_building_debris_impact(city_id: int, target_house: Node3D, building_color: Color, chain_depth: int, impact_strength: float) -> void:
-	if not is_instance_valid(target_house) or city_id < 0 or city_id >= cities.size():
+	if not is_instance_valid(target_house):
+		return
+	target_house.set_meta("is_targeted_by_collapse", false)
+	if city_id < 0 or city_id >= cities.size():
 		return
 	var city: Dictionary = cities[city_id]
 	if not (city["houses"] as Array).has(target_house):
