@@ -550,9 +550,12 @@ func _run_runtime_stress_action(action_name: String) -> void:
 			if cities.is_empty():
 				return
 			brush_radius = 7.0
-			for terrain_edit_index in range(3):
+			# Include the real god-power path, not just raw height-map edits: the
+			# regression should catch collapse/road/damage cost as well as terrain work.
+			_god_earthquake(_stress_city_target(0))
+			for terrain_edit_index in range(1, 3):
 				var target: Vector3 = _stress_city_target(terrain_edit_index)
-				_sculpt_terrain(target, 0.28 if terrain_edit_index % 2 == 0 else -0.24)
+				_sculpt_terrain(target, -0.24 if terrain_edit_index % 2 == 0 else 0.28)
 		"collapse":
 			var collapse_count: int = 0
 			for city_id in range(cities.size()):
@@ -6557,7 +6560,8 @@ func _update_god_effects(delta: float) -> void:
 			god_effects[i] = effect
 
 
-func _power_damage(center: Vector3, radius: float, people_limit: int, resource_chance: float, house_damage: int) -> void:
+func _power_damage(center: Vector3, radius: float, people_limit: int, resource_chance: float, house_damage: int, refresh_ui: bool = true) -> void:
+	var power_damage_started_usec: int = Time.get_ticks_usec()
 	var removed: int = 0
 	for i in range(people.size() - 1, -1, -1):
 		var person_position: Vector3 = people[i]["pos"]
@@ -6618,13 +6622,16 @@ func _power_damage(center: Vector3, radius: float, people_limit: int, resource_c
 		var affected_city_id: int = int(road_city_id)
 		if affected_city_id >= 0 and affected_city_id < cities.size():
 			_queue_city_roads_rebuild(affected_city_id)
-	_refresh_ui()
+	if refresh_ui:
+		_refresh_ui()
+	_trace_slow_operation("power-damage", power_damage_started_usec)
 
 
 func _god_lightning(position: Vector3) -> void:
 	_spawn_god_effect(position, Color(0.30, 0.82, 1.0), 2.7, 0.45, "lightning")
-	_power_damage(position, 3.0, MAX_PEOPLE, 0.30, 1)
+	_power_damage(position, 3.0, MAX_PEOPLE, 0.30, 1, false)
 	_log("Lightning tears into the ground. Nature has submitted a strongly worded complaint.")
+	_refresh_ui()
 
 
 func _ignite_fire(position: Vector3) -> void:
@@ -6672,7 +6679,7 @@ func _update_fire_zones(delta: float) -> void:
 				flame.scale.y = pulse
 		if float(fire["tick"]) >= 0.9:
 			fire["tick"] = 0.0
-			_power_damage(fire["pos"], float(fire["radius"]), 2, 0.22, 1)
+			_power_damage(fire["pos"], float(fire["radius"]), 2, 0.22, 1, false)
 			if fire_zones.size() < 12:
 				for resource in resources:
 					if str(resource["type"]) != "tree" or int(resource["amount"]) <= 0:
@@ -6731,7 +6738,7 @@ func _update_falling_meteors(delta: float) -> void:
 			if is_instance_valid(node):
 				node.queue_free()
 			_spawn_god_effect(target_position, Color(1.0, 0.28, 0.035), maxf(4.0, brush_radius * 1.4), 0.75)
-			_power_damage(target_position, maxf(4.0, brush_radius * 1.25), MAX_PEOPLE, 1.0, 3)
+			_power_damage(target_position, maxf(4.0, brush_radius * 1.25), MAX_PEOPLE, 1.0, 3, false)
 			_sculpt_terrain(target_position, -1.1, false)
 			terrain_impacts.append(target_position)
 			falling_meteors.remove_at(i)
@@ -6788,10 +6795,13 @@ func _god_forest(position: Vector3) -> void:
 
 
 func _god_earthquake(position: Vector3) -> void:
+	var earthquake_started_usec: int = Time.get_ticks_usec()
 	_spawn_god_effect(position, Color(0.77, 0.54, 0.28), max(4.0, brush_radius * 1.4), 0.8)
-	_power_damage(position, max(4.0, brush_radius * 1.3), MAX_PEOPLE, 0.8, 3)
+	_power_damage(position, maxf(4.0, brush_radius * 1.3), MAX_PEOPLE, 0.8, 3, false)
 	_sculpt_terrain(position, -0.8)
 	_log("Earthquake! The terrain shifts and nearby settlements take damage.")
+	_refresh_ui()
+	_trace_slow_operation("earthquake-total", earthquake_started_usec)
 
 
 func _god_plague(position: Vector3) -> void:
@@ -6950,7 +6960,7 @@ func _update_tornadoes(delta: float) -> void:
 				ring.rotate_y(delta * (2.5 + float(ring_index) * 1.1))
 		if float(tornado["tick"]) >= 0.75:
 			tornado["tick"] = 0.0
-			_power_damage(position, 2.8, 2, 0.25, 1)
+			_power_damage(position, 2.8, 2, 0.25, 1, false)
 		if float(tornado["age"]) >= 10.0:
 			if is_instance_valid(node):
 				node.queue_free()
