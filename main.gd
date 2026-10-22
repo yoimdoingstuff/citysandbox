@@ -95,6 +95,7 @@ var pending_city_road_rebuilds: Array[int] = []
 var pending_city_road_rebuild_set: Dictionary = {}
 var next_city_road_rebuild_usec: int = 0
 var next_building_visual_mutation_usec: int = 0
+var building_visual_mutation_consumed_this_frame: bool = false
 var building_start_budget_remaining: int = 0
 var in_simulation_frame: bool = false
 var people_lod_proxy: MultiMeshInstance3D
@@ -317,6 +318,7 @@ func _process(delta: float) -> void:
 	var frame_started_usec: int = Time.get_ticks_usec()
 	performance_frame_count += 1
 	in_simulation_frame = not paused
+	building_visual_mutation_consumed_this_frame = false
 	building_start_budget_remaining = MAX_BUILDING_STARTS_PER_FRAME if Time.get_ticks_usec() >= next_building_visual_mutation_usec else 0
 	detail_refresh_cooldown = maxf(0.0, detail_refresh_cooldown - delta)
 	people_lod_refresh_cooldown = maxf(0.0, people_lod_refresh_cooldown - delta)
@@ -405,6 +407,10 @@ func _process(delta: float) -> void:
 	var frame_elapsed_usec: int = Time.get_ticks_usec() - frame_started_usec
 	if frame_elapsed_usec >= FRAME_HITCH_THRESHOLD_USEC:
 		_write_performance_sample("FRAME-HITCH", frame_elapsed_usec)
+	# Start this cooldown only after synchronous construction/mesh work has
+	# finished. A slow build must not overrun a cooldown stamped at its start.
+	if building_visual_mutation_consumed_this_frame:
+		next_building_visual_mutation_usec = Time.get_ticks_usec() + BUILDING_VISUAL_MUTATION_INTERVAL_USEC
 	in_simulation_frame = false
 
 
@@ -1698,7 +1704,7 @@ func _apply_building_era_appearance(city_id: int, year: int, only_house_index: i
 			_setup_construction_site(house, city_id, original_type, plot_id, 0.0, true)
 			if in_simulation_frame:
 				building_start_budget_remaining = maxi(0, building_start_budget_remaining - 1)
-				next_building_visual_mutation_usec = Time.get_ticks_usec() + BUILDING_VISUAL_MUTATION_INTERVAL_USEC
+				building_visual_mutation_consumed_this_frame = true
 			break
 		var kind: int = original_type
 		# Farms give way to urban blocks after industrialisation.
@@ -2207,7 +2213,7 @@ func _update_construction_sites(delta: float) -> void:
 		if progress >= 1.0:
 			if in_simulation_frame:
 				building_start_budget_remaining = maxi(0, building_start_budget_remaining - 1)
-				next_building_visual_mutation_usec = Time.get_ticks_usec() + BUILDING_VISUAL_MUTATION_INTERVAL_USEC
+				building_visual_mutation_consumed_this_frame = true
 			var city_id: int = int(site["city_id"])
 			var site_id: int = int(site["id"])
 			construction_sites.remove_at(site_index)
@@ -2390,7 +2396,7 @@ func _sync_city_buildings(city_id: int) -> bool:
 		city["node"].add_child(house)
 		if in_simulation_frame:
 			building_start_budget_remaining = maxi(0, building_start_budget_remaining - 1)
-			next_building_visual_mutation_usec = Time.get_ticks_usec() + BUILDING_VISUAL_MUTATION_INTERVAL_USEC
+			building_visual_mutation_consumed_this_frame = true
 
 		var building_type: int = pending_building_type
 		house.set_meta("building_type", building_type)
@@ -7164,6 +7170,7 @@ func _clear_loaded_world() -> void:
 	pending_city_road_rebuild_set.clear()
 	next_city_road_rebuild_usec = 0
 	next_building_visual_mutation_usec = 0
+	building_visual_mutation_consumed_this_frame = false
 	building_start_budget_remaining = 0
 	in_simulation_frame = false
 	for existing_child in get_children():
