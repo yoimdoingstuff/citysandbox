@@ -2306,7 +2306,63 @@ func _update_traffic_population() -> void:
 			return
 
 
+func _update_abandoned_cities(interval: float) -> void:
+	var population_counts: Array[int] = _population_counts_by_city()
+	for city_id in range(cities.size()):
+		var city: Dictionary = cities[city_id]
+		if population_counts[city_id] > 0:
+			city["abandoned"] = false
+			city["abandoned_age"] = 0.0
+			city["abandoned_decay_timer"] = 8.0
+			cities[city_id] = city
+			continue
+		city["abandoned"] = true
+		city["abandoned_age"] = float(city.get("abandoned_age", 0.0)) + interval
+		var houses: Array = city["houses"]
+		if not houses.is_empty() and not bool(city.get("ruined", false)):
+			city["abandoned_decay_timer"] = float(city.get("abandoned_decay_timer", 8.0)) - interval
+			if float(city["abandoned_decay_timer"]) <= 0.0:
+				for attempt in range(houses.size()):
+					var house: Node3D = houses[randi_range(0, houses.size() - 1)]
+					if not is_instance_valid(house):
+						continue
+					if _collapse_specific_building(city_id, house, true, false):
+						city = cities[city_id]
+						city["abandoned_decay_timer"] = randf_range(7.0, 13.0)
+						_rebuild_city_roads(city_id)
+						_schedule_city_territory_refresh()
+					break
+		elif float(city.get("abandoned_age", 0.0)) >= 24.0 and not bool(city.get("ruined", false)):
+			city["ruined"] = true
+			for visual_key in ["plinth", "body", "roof", "flag_pole", "flag", "far_marker"]:
+				var visual: MeshInstance3D = city.get(visual_key) as MeshInstance3D
+				if is_instance_valid(visual):
+					visual.visible = false
+			var road_node: MeshInstance3D = city.get("roads") as MeshInstance3D
+			var sidewalk_node: MeshInstance3D = city.get("sidewalks") as MeshInstance3D
+			if is_instance_valid(road_node):
+				road_node.mesh = null
+			if is_instance_valid(sidewalk_node):
+				sidewalk_node.mesh = null
+			var fill: MeshInstance3D = city["zone_fill"]
+			var border: MeshInstance3D = city["zone_border"]
+			if is_instance_valid(fill):
+				fill.visible = false
+			if is_instance_valid(border):
+				border.visible = false
+			_log("%s has become a ruin. Nature is gradually reclaiming the settlement." % city["name"])
+		cities[city_id] = city
+		if is_instance_valid(city.get("label")):
+			var label: Label3D = city["label"]
+			var status: String = "RUINS" if bool(city.get("ruined", false)) else "ABANDONED"
+			label.text = "%s\n%s | POP 0" % [city["name"], status]
+
+
 func _update_simulation_timers(delta: float) -> void:
+	abandoned_check_timer += delta
+	if abandoned_check_timer >= 4.0:
+		abandoned_check_timer = fmod(abandoned_check_timer, 4.0)
+		_update_abandoned_cities(4.0)
 	city_defence_timer += delta
 	if city_defence_timer >= 1.0:
 		city_defence_timer = fmod(city_defence_timer, 1.0)
@@ -2348,6 +2404,10 @@ func _update_simulation_timers(delta: float) -> void:
 func _update_city_economies() -> void:
 	for city_id in range(cities.size()):
 		var city: Dictionary = cities[city_id]
+		if _city_population(city_id) <= 0 or bool(city.get("ruined", false)):
+			city["wealth"] = maxf(0.0, float(city.get("wealth", 0.0)) - 0.04)
+			cities[city_id] = city
+			continue
 		var farms: int = 0
 		var workshops: int = 0
 		var commercial: int = 0
