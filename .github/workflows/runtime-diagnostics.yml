@@ -187,5 +187,14 @@ jobs:
           }
           git commit -m "Update Civiterra runtime diagnostic logs [skip ci]"
           if ($LASTEXITCODE -ne 0) { throw "Could not commit runtime diagnostic logs." }
+          # The game can be updated while the two-minute capture is running.
+          # Replay this log-only commit onto the latest branch head before pushing.
+          git fetch origin "$env:GITHUB_REF_NAME"
+          if ($LASTEXITCODE -ne 0) { throw "Could not fetch the latest branch before saving logs." }
+          git rebase "origin/$env:GITHUB_REF_NAME"
+          if ($LASTEXITCODE -ne 0) {
+            git rebase --abort
+            throw "Could not rebase diagnostic logs onto the latest branch head."
+          }
           git push origin "HEAD:$env:GITHUB_REF_NAME"
           if ($LASTEXITCODE -ne 0) { throw "Could not push runtime diagnostic logs to $env:GITHUB_REF_NAME." }
