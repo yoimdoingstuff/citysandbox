@@ -133,6 +133,8 @@ var chronicle_button: Button
 var chronicle_expanded: bool = false
 var traffic_light_records: Array = []
 var traffic_light_timer: float = 0.0
+var detail_refresh_cooldown: float = 0.0
+var people_lod_refresh_cooldown: float = 0.0
 var traffic_light_phase: int = 0
 var traffic_lights_enabled: bool = false
 var stuck_recovery_timer: float = 0.0
@@ -227,6 +229,8 @@ func _update_rubble_aging(delta: float) -> void:
 
 
 func _process(delta: float) -> void:
+	detail_refresh_cooldown = maxf(0.0, detail_refresh_cooldown - delta)
+	people_lod_refresh_cooldown = maxf(0.0, people_lod_refresh_cooldown - delta)
 	_update_traffic_lights(delta)
 	if not paused:
 		stuck_recovery_timer += delta
@@ -1960,6 +1964,7 @@ func _setup_construction_site(house: Node3D, city_id: int, building_type: int, p
 		Vector3(half + 0.45, 0.0, half + 0.35)
 	]
 	var assigned_workers: int = 0
+	var assigned_worker_indices: Array[int] = []
 	for person_index in range(people.size()):
 		if assigned_workers >= worker_targets.size():
 			break
@@ -1979,6 +1984,7 @@ func _setup_construction_site(house: Node3D, city_id: int, building_type: int, p
 		person["walk_timer"] = 999.0
 		person["indoor_house"] = null
 		people[person_index] = person
+		assigned_worker_indices.append(person_index)
 		assigned_workers += 1
 	construction_sites.append({
 		"id": site_id, "node": house, "city_id": city_id,
@@ -1986,7 +1992,7 @@ func _setup_construction_site(house: Node3D, city_id: int, building_type: int, p
 		"progress": clampf(progress, 0.0, 0.99),
 		"duration": randf_range(6.0, 10.0) if refurbishment else randf_range(10.0, 18.0),
 		"refurbishment": refurbishment, "scaffold": scaffold, "phase": randf() * TAU,
-		"worker_count": assigned_workers, "pad_size": pad_size
+		"worker_count": assigned_workers, "worker_indices": assigned_worker_indices, "pad_size": pad_size
 	})
 
 
@@ -2003,7 +2009,11 @@ func _cancel_construction_site(house: Node3D) -> void:
 		if site.get("node") != house:
 			continue
 		var site_id: int = int(site.get("id", -1))
-		for person_index in range(people.size()):
+		var worker_indices: Array = site.get("worker_indices", [])
+		for raw_person_index in worker_indices:
+			var person_index: int = int(raw_person_index)
+			if person_index < 0 or person_index >= people.size():
+				continue
 			var person: Dictionary = people[person_index]
 			if int(person.get("construction_site_id", -1)) != site_id:
 				continue
@@ -2030,7 +2040,11 @@ func _update_construction_sites(delta: float) -> void:
 		var scaffold: Node3D = site.get("scaffold") as Node3D
 		if is_instance_valid(scaffold):
 			scaffold.scale.y = 0.32 + progress * 0.68
-		for person_index in range(people.size()):
+		var worker_indices: Array = site.get("worker_indices", [])
+		for raw_person_index in worker_indices:
+			var person_index: int = int(raw_person_index)
+			if person_index < 0 or person_index >= people.size():
+				continue
 			var person: Dictionary = people[person_index]
 			if int(person.get("construction_site_id", -1)) != int(site["id"]):
 				continue
@@ -2058,7 +2072,10 @@ func _update_construction_sites(delta: float) -> void:
 			for child in house.get_children():
 				child.free()
 			house.set_meta("is_construction_site", false)
-			for person_index in range(people.size()):
+			for raw_person_index in worker_indices:
+				var person_index: int = int(raw_person_index)
+				if person_index < 0 or person_index >= people.size():
+					continue
 				var person: Dictionary = people[person_index]
 				if int(person.get("construction_site_id", -1)) != site_id:
 					continue
@@ -2824,7 +2841,6 @@ func _update_people(delta: float) -> void:
 				position = _surface_position(position.x, position.z)
 				person["pos"] = position
 				person["target"] = position
-				last_detail_signature = ""
 				person["activity"] = "wandering"
 				person["activity_timer"] = 0.0
 				person["indoor_house"] = null
@@ -2923,7 +2939,6 @@ func _update_people(delta: float) -> void:
 				person["cleanup_rubble_id"] = -1
 				person["activity_timer"] = 0.0
 				person["walk_timer"] = 0.0
-				last_detail_signature = ""
 				people[i] = person
 				continue
 			var cleanup_position: Vector3 = cleanup_node.global_position
@@ -2968,7 +2983,6 @@ func _update_people(delta: float) -> void:
 				person["walk_timer"] = 0.0
 			elif distance_to_target <= 0.9:
 				person["activity"] = "indoors"
-				last_detail_signature = ""
 				person["activity_timer"] = randf_range(8.0, 28.0)
 				position = target
 				person["pos"] = position
@@ -4579,6 +4593,8 @@ func _collapse_specific_building(city_id: int, house: Node3D, allow_chain: bool 
 	damage_tween.tween_interval(contact_delay)
 	damage_tween.tween_callback(_kill_people_in_fall_corridor.bind(impact_position, fall_direction, fall_reach, fall_half_width, house))
 	damage_tween.tween_callback(_destroy_cars_in_fall_corridor.bind(impact_position, fall_direction, fall_reach, fall_half_width + 0.8))
+	if allow_chain and chain_depth < 3:
+		damage_tween.tween_callback(_resolve_falling_building_collisions.bind(city_id, house, impact_position, fall_direction, building_height, fall_reach, fall_half_width, chain_depth, impact_strength))
 	_spawn_building_collapse_smoke(impact_position + Vector3(0.0, minf(building_height * 0.3, 7.0), 0.0), building_height, tall_building)
 	if tall_building or randf() < 0.24:
 		var road_impact_position: Vector3 = impact_position + Vector3(fall_direction.x * fall_reach, 0.0, fall_direction.y * fall_reach)
@@ -4590,34 +4606,79 @@ func _collapse_specific_building(city_id: int, house: Node3D, allow_chain: bool 
 	cities[city_id] = city
 	last_detail_signature = ""
 
-	# A neighbour is not flagged to collapse immediately. A visible debris chunk
-	# flies into it first, and only that timed impact can start its own fall.
-	if allow_chain and chain_depth < 3 and (tall_building or randf() < 0.12):
-		var chain_radius: float = minf(21.0, maxf(7.8, building_height * 0.62 + 2.0))
-		var target_house: Node3D = null
-		var target_score: float = INF
-		for other in houses:
-			if not is_instance_valid(other) or bool(other.get_meta("is_collapsing", false)):
-				continue
-			var offset := Vector2(other.position.x - local_position.x, other.position.z - local_position.z)
-			var distance_squared: float = offset.length_squared()
-			if distance_squared < 0.1 or distance_squared > chain_radius * chain_radius:
-				continue
-			if offset.normalized().dot(fall_direction) < 0.15:
-				continue
-			var score: float = sqrt(distance_squared) + randf_range(0.0, 1.2)
-			if score < target_score:
-				target_score = score
-				target_house = other
-		if is_instance_valid(target_house) and randf() < (0.68 if tall_building else 0.20):
-			var distance_to_target: float = Vector2(target_house.position.x - local_position.x, target_house.position.z - local_position.z).length()
-			var transferred_energy: float = clampf(0.88 - distance_to_target / maxf(1.0, chain_radius) * 0.46, 0.30, 0.86)
-			_throw_debris_at_building(city_id, impact_position, target_house, city["color"], chain_depth + 1, transferred_energy, building_height)
 
 	if rebuild_roads and city_id < cities.size():
 		_rebuild_city_roads(city_id)
 		_schedule_city_territory_refresh()
 	return true
+
+
+func _resolve_falling_building_collisions(source_city_id: int, source_house: Node3D, source_position: Vector3, fall_direction: Vector2, source_height: float, original_fall_reach: float, source_half_width: float, chain_depth: int, impact_strength: float) -> void:
+	if chain_depth >= 3 or not is_instance_valid(source_house):
+		return
+	if source_city_id < 0 or source_city_id >= cities.size():
+		return
+	var direction: Vector2 = fall_direction.normalized()
+	if direction.length_squared() < 0.01:
+		return
+	var source_width: float = maxf(1.0, float(source_house.get_meta("building_width", 3.0)) * source_house.scale.x)
+	var collision_reach: float = maxf(original_fall_reach, clampf(source_height * 0.78, 2.5, 18.0))
+	var candidates: Array[Dictionary] = []
+	for target_city_id in range(cities.size()):
+		var target_city: Dictionary = cities[target_city_id]
+		if bool(target_city.get("ruined", false)):
+			continue
+		for target_house in target_city["houses"]:
+			if not is_instance_valid(target_house) or target_house == source_house or bool(target_house.get_meta("is_collapsing", false)):
+				continue
+			var target_position: Vector3 = target_house.global_position
+			var offset := Vector2(target_position.x - source_position.x, target_position.z - source_position.z)
+			var forward: float = offset.dot(direction)
+			if forward <= 0.55:
+				continue
+			var target_width: float = maxf(float(target_house.get_meta("building_width", 2.8)), float(target_house.get_meta("building_depth", 2.6))) * maxf(target_house.scale.x, target_house.scale.z)
+			var target_radius: float = maxf(0.8, target_width * 0.48)
+			var max_forward: float = minf(collision_reach + target_radius, source_height * 0.96 + target_radius)
+			if forward > max_forward:
+				continue
+			var lateral: float = absf(offset.x * direction.y - offset.y * direction.x)
+			var lateral_limit: float = source_width * 0.46 + target_radius + 0.35
+			if lateral > lateral_limit:
+				continue
+			var target_height: float = float(target_house.get_meta("building_height", 2.5)) * target_house.scale.y
+			if target_height > source_height * 1.35:
+				continue
+			var score: float = forward + lateral * 1.8 - minf(target_height, source_height) * 0.025
+			candidates.append({
+				"city_id": target_city_id,
+				"house": target_house,
+				"score": score,
+				"distance": offset.length(),
+				"position": target_position
+			})
+	candidates.sort_custom(_fall_collision_candidate_nearer)
+	var max_hits: int = 2 if source_height >= 6.0 else 1
+	var hit_count: int = 0
+	var source_color: Color = cities[source_city_id]["color"]
+	for candidate in candidates:
+		if hit_count >= max_hits:
+			break
+		var target_house: Node3D = candidate["house"] as Node3D
+		var target_city_id: int = int(candidate["city_id"])
+		if not is_instance_valid(target_house) or target_city_id < 0 or target_city_id >= cities.size():
+			continue
+		if bool(target_house.get_meta("is_collapsing", false)) or not (cities[target_city_id]["houses"] as Array).has(target_house):
+			continue
+		var distance: float = float(candidate["distance"])
+		var transferred_energy: float = clampf(impact_strength * (0.95 - distance / maxf(1.0, collision_reach) * 0.38), 0.22, 0.88)
+		_log("COLLISION: A falling building in %s struck a structure in %s." % [cities[source_city_id]["name"], cities[target_city_id]["name"]])
+		_spawn_building_collapse_smoke(target_house.global_position + Vector3(0.0, 0.8, 0.0), float(target_house.get_meta("building_height", 2.0)), false, true)
+		_throw_debris_at_building(target_city_id, source_position, target_house, source_color, chain_depth + 1, transferred_energy, source_height)
+		hit_count += 1
+
+
+func _fall_collision_candidate_nearer(a: Dictionary, b: Dictionary) -> bool:
+	return float(a["score"]) < float(b["score"])
 
 
 func _recover_citizens_from_collapsing_house(house: Node3D) -> void:
@@ -5985,6 +6046,7 @@ func _cull_buildings_behind_nearby_structures() -> void:
 		return
 	var viewport_size: Vector2 = get_viewport().get_visible_rect().size
 	var focal_pixels: float = viewport_size.y * 0.5 / maxf(0.1, tan(deg_to_rad(camera.fov * 0.5)))
+	const CELL_SIZE: float = 64.0
 	var candidates: Array[Dictionary] = []
 	for city in cities:
 		if bool(city.get("ruined", false)):
@@ -6007,14 +6069,18 @@ func _cull_buildings_behind_nearby_structures() -> void:
 			var bounds := Rect2(Vector2(center_screen.x - projected_width * 0.5, minf(top_screen.y, bottom_screen.y)), Vector2(projected_width, projected_height))
 			candidates.append({"node": house, "distance": depth, "height": height, "center": center_screen, "bounds": bounds})
 	candidates.sort_custom(_building_candidate_nearer)
-	var occluders: Array[Dictionary] = []
+	# Check only occluders in the screen-space cells overlapping each candidate's
+	# centre. This avoids a quadratic scan through every high-rise in the city.
+	var occluder_cells: Dictionary = {}
 	for candidate in candidates:
 		var building: Node3D = candidate["node"]
 		var building_height: float = float(candidate["height"])
 		var depth: float = float(candidate["distance"])
 		var center: Vector2 = candidate["center"]
+		var cell := Vector2i(floori(center.x / CELL_SIZE), floori(center.y / CELL_SIZE))
+		var nearby_occluders: Array = occluder_cells.get(cell, [])
 		var occluded: bool = false
-		for occluder in occluders:
+		for occluder in nearby_occluders:
 			if float(occluder["distance"]) + 0.8 >= depth:
 				continue
 			if float(occluder["height"]) < building_height * 0.78:
@@ -6025,7 +6091,20 @@ func _cull_buildings_behind_nearby_structures() -> void:
 				break
 		building.visible = not occluded
 		if not occluded and building_height >= 6.0:
-			occluders.append({"distance": depth, "height": building_height, "bounds": candidate["bounds"]})
+			var record := {"distance": depth, "height": building_height, "bounds": candidate["bounds"]}
+			var bounds: Rect2 = candidate["bounds"]
+			var min_cell_x: int = floori(bounds.position.x / CELL_SIZE)
+			var max_cell_x: int = floori(bounds.end.x / CELL_SIZE)
+			var min_cell_y: int = floori(bounds.position.y / CELL_SIZE)
+			var max_cell_y: int = floori(bounds.end.y / CELL_SIZE)
+			# Projected bounds are clamped by the candidate margins/size, so this
+			# stays bounded even for very tall buildings near the camera.
+			for cell_y in range(min_cell_y, max_cell_y + 1):
+				for cell_x in range(min_cell_x, max_cell_x + 1):
+					var key := Vector2i(cell_x, cell_y)
+					var bucket: Array = occluder_cells.get(key, [])
+					bucket.append(record)
+					occluder_cells[key] = bucket
 
 
 func _update_world_detail_levels() -> void:
@@ -6056,12 +6135,21 @@ func _update_world_detail_levels() -> void:
 		focus_cell_x, focus_cell_z, int(camera_yaw * 10.0), int(camera_pitch * 10.0),
 		int(camera_distance * 0.5), int(camera_target.y)
 	]
-	# Rebuild the low-cost citizen representation continuously whenever the
-	# normal detailed citizens are replaced by distance LOD.
-	_refresh_people_lod_proxy(not show_people)
+	# Citizen movement changes constantly. Refresh the distance proxy on a wall-clock
+	# cadence, but do not rerun the expensive whole-city occlusion pass for every
+	# citizen entering/leaving a building.
+	if show_people:
+		if is_instance_valid(people_lod_proxy):
+			people_lod_proxy.visible = false
+	elif people_lod_refresh_cooldown <= 0.0:
+		_refresh_people_lod_proxy(true)
+		people_lod_refresh_cooldown = 0.75
 	if detail_signature == last_detail_signature:
 		return
+	if detail_refresh_cooldown > 0.0:
+		return
 	last_detail_signature = detail_signature
+	detail_refresh_cooldown = 0.45
 	for city in cities:
 		var ruined: bool = bool(city.get("ruined", false))
 		for visual_key in ["plinth", "body", "roof", "flag_pole", "flag"]:
