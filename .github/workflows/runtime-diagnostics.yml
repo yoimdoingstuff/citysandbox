@@ -1,4 +1,4 @@
-name: Runtime freeze diagnostics
+name: Runtime stress tests
 
 on:
   push:
@@ -11,12 +11,12 @@ permissions:
   contents: write
 
 concurrency:
-  group: civiterra-runtime-diagnostics-${{ github.ref }}
+  group: civiterra-runtime-stress-tests-${{ github.ref }}
   cancel-in-progress: false
 
 jobs:
   run-and-capture:
-    name: Run Civiterra for two minutes and capture logs
+    name: Launch Civiterra and profile runtime stress scenarios
     runs-on: windows-latest
     timeout-minutes: 8
     steps:
@@ -33,24 +33,27 @@ jobs:
           include-templates: false
           cache: false
 
-      - name: Run the game for up to 120 seconds and monitor it
+      - name: Launch rendered game and capture FPS plus process telemetry
         id: diagnostic
         shell: pwsh
         continue-on-error: true
         run: |
           New-Item -ItemType Directory -Force -Path "logs" | Out-Null
-          $stdoutPath = Join-Path $PWD "logs/runtime-latest.stdout.log"
-          $stderrPath = Join-Path $PWD "logs/runtime-latest.stderr.log"
-          $monitorPath = Join-Path $PWD "logs/runtime-latest.monitor.log"
-          $summaryPath = Join-Path $PWD "logs/runtime-latest-summary.txt"
-          $combinedPath = Join-Path $PWD "logs/runtime-latest.log"
+          $stdoutPath = Join-Path $PWD "logs/runtime-stresstests.stdout.log"
+          $stderrPath = Join-Path $PWD "logs/runtime-stresstests.stderr.log"
+          $monitorPath = Join-Path $PWD "logs/runtime-stresstests.monitor.log"
+          $summaryPath = Join-Path $PWD "logs/runtime-stresstests-summary.txt"
+          $combinedPath = Join-Path $PWD "logs/runtime-stresstests.log"
           $godotConsole = Join-Path "$env:USERPROFILE\godot" "Godot_v4.3-stable_win64_console.exe"
           $startedAt = Get-Date
           $timedOut = $false
           $exitCode = "not-started"
           $runSeconds = 0.0
+          $suiteCompleted = $false
+          $scenarioCount = 0
+          $fpsSampleCount = 0
 
-          "Civiterra runtime diagnostic monitor" | Set-Content -LiteralPath $monitorPath
+          "Civiterra runtime stress-test monitor" | Set-Content -LiteralPath $monitorPath
           "Run ID: $env:GITHUB_RUN_ID / attempt $env:GITHUB_RUN_ATTEMPT" | Add-Content -LiteralPath $monitorPath
           "Commit: $env:GITHUB_SHA" | Add-Content -LiteralPath $monitorPath
           "Sample time (s) | CPU time (s) | Working set (MB) | Private memory (MB)" | Add-Content -LiteralPath $monitorPath
@@ -65,11 +68,11 @@ jobs:
             $cpuDescription = (Get-CimInstance Win32_Processor | Select-Object -First 1 -ExpandProperty Name)
             $memoryGb = [math]::Round((Get-CimInstance Win32_ComputerSystem).TotalPhysicalMemory / 1GB, 1)
 
-            $process = Start-Process -FilePath $godotConsole -ArgumentList @("--headless", "--verbose", "--path", ".", "--", "--civiterra-freeze-stress-test") -WorkingDirectory $PWD -RedirectStandardOutput $stdoutPath -RedirectStandardError $stderrPath -PassThru
+            $process = Start-Process -FilePath $godotConsole -ArgumentList @("--path", ".", "--rendering-method", "gl_compatibility", "--rendering-driver", "opengl3", "--", "--civiterra-runtime-stress-tests") -WorkingDirectory $PWD -RedirectStandardOutput $stdoutPath -RedirectStandardError $stderrPath -PassThru
 
             $timer = [System.Diagnostics.Stopwatch]::StartNew()
             $nextSample = 0
-            while ($timer.Elapsed.TotalSeconds -lt 120) {
+            while ($timer.Elapsed.TotalSeconds -lt 180) {
               $process.Refresh()
               if ($process.HasExited) {
                 break
@@ -81,7 +84,7 @@ jobs:
                 $privateMemory = [math]::Round($process.PrivateMemorySize64 / 1MB, 1)
                 "{0,6:N1} | {1,8:N2} | {2,14:N1} | {3,16:N1}" -f $timer.Elapsed.TotalSeconds, $cpu, $workingSet, $privateMemory |
                   Add-Content -LiteralPath $monitorPath
-                $nextSample += 5
+                $nextSample += 2
               }
               Start-Sleep -Seconds 1
             }
@@ -96,9 +99,13 @@ jobs:
             } else {
               $exitCode = $process.ExitCode
             }
+            if (Test-Path -LiteralPath $stdoutPath) {
+              $suiteCompleted = [bool](Select-String -LiteralPath $stdoutPath -SimpleMatch "STRESS_SUITE_END|status=completed" -Quiet)
+              $scenarioCount = @(Select-String -LiteralPath $stdoutPath -Pattern "STRESS_SCENARIO_COMPLETE\|" -ErrorAction SilentlyContinue).Count
+            }
 
             @(
-              "Civiterra runtime diagnostic",
+              "Civiterra Runtime Stress Tests",
               "UTC start: $($startedAt.ToUniversalTime().ToString('o'))",
               "UTC finish: $((Get-Date).ToUniversalTime().ToString('o'))",
               "Run ID: $env:GITHUB_RUN_ID",
@@ -110,9 +117,12 @@ jobs:
               "CPU: $cpuDescription",
               "Installed RAM: $memoryGb GB",
               "Observed runtime: $runSeconds seconds",
-              "Still running at 120-second limit: $timedOut",
-              "Process result: $exitCode",
-              "Interpretation: a process still alive at the time limit was force-stopped after its log output and resource samples were collected. This bounded diagnostic run does not by itself prove a freeze."
+              "Timed out: $timedOut",
+              "Game process exit code: $exitCode",
+              "Stress suite completed: $suiteCompleted",
+              "Completed scenarios: $scenarioCount",
+              "One-second FPS sample windows: $fpsSampleCount",
+              "Interpretation: engine FPS, frame interval percentiles, maximum frame work, stress action duration, entity counts and process CPU/memory are measured separately."
             ) | Set-Content -LiteralPath $summaryPath
           }
           catch {
@@ -136,7 +146,20 @@ jobs:
             if (Test-Path -LiteralPath $appDataRoot) {
               $perfLog = Get-ChildItem -LiteralPath $appDataRoot -Filter "civiterra-performance.log" -File -Recurse -ErrorAction SilentlyContinue | Select-Object -First 1
               if ($perfLog) {
-                Copy-Item -LiteralPath $perfLog.FullName -Destination (Join-Path $PWD "logs/runtime-latest.performance.log") -Force
+                Copy-Item -LiteralPath $perfLog.FullName -Destination (Join-Path $PWD "logs/runtime-stresstests.performance.log") -Force
+              }
+              $stressCsv = Get-ChildItem -LiteralPath $appDataRoot -Filter "civiterra-stresstests.csv" -File -Recurse -ErrorAction SilentlyContinue | Select-Object -First 1
+              if ($stressCsv) {
+                Copy-Item -LiteralPath $stressCsv.FullName -Destination (Join-Path $PWD "logs/runtime-stresstests.csv") -Force
+              }
+            }
+            if (Test-Path -LiteralPath (Join-Path $PWD "logs/runtime-stresstests.csv")) {
+              try {
+                $stressRows = @(Import-Csv -LiteralPath (Join-Path $PWD "logs/runtime-stresstests.csv"))
+                $fpsSampleCount = @($stressRows | Where-Object { $_.record_type -eq "sample" }).Count
+                Add-Content -LiteralPath $summaryPath -Value "One-second FPS sample windows: $fpsSampleCount"
+              } catch {
+                "CSV parse error: $($_.Exception.Message)" | Add-Content -LiteralPath $stderrPath
               }
             }
             $combined = @(
@@ -153,29 +176,32 @@ jobs:
               (Get-Content -LiteralPath $monitorPath -Raw -ErrorAction SilentlyContinue),
               "",
               "===== FRAME HITCH / SLOW OPERATION SAMPLES =====",
-              (Get-Content -LiteralPath (Join-Path $PWD "logs/runtime-latest.performance.log") -Raw -ErrorAction SilentlyContinue)
+              (Get-Content -LiteralPath (Join-Path $PWD "logs/runtime-stresstests.performance.log") -Raw -ErrorAction SilentlyContinue),
+              "",
+              "===== FRAME RATE CSV =====",
+              (Get-Content -LiteralPath (Join-Path $PWD "logs/runtime-stresstests.csv") -Raw -ErrorAction SilentlyContinue)
             )
             $combined | Set-Content -LiteralPath $combinedPath
             Write-Output (Get-Content -LiteralPath $summaryPath -Raw -ErrorAction SilentlyContinue)
           }
 
-      - name: Upload diagnostic logs as an Actions artifact
+      - name: Upload per-run performance results
         if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: Civiterra-runtime-logs-${{ github.run_id }}-${{ github.run_attempt }}
-          path: logs/runtime-latest*
+          name: Civiterra-runtime-stresstests-${{ github.run_id }}-${{ github.run_attempt }}
+          path: logs/runtime-stresstests*
           if-no-files-found: warn
           retention-days: 14
 
-      - name: Commit latest logs into the repository logs folder
+      - name: Publish per-run results to the rolling logs folder
         if: always()
         shell: pwsh
         run: |
           New-Item -ItemType Directory -Force -Path "logs" | Out-Null
-          if (-not (Test-Path -LiteralPath "logs/runtime-latest.log")) {
+          if (-not (Test-Path -LiteralPath "logs/runtime-stresstests.log")) {
             "No runtime log was produced. Check the setup/run step in the Actions job." |
-              Set-Content -LiteralPath "logs/runtime-latest.log"
+              Set-Content -LiteralPath "logs/runtime-stresstests.log"
           }
 
           # Keep this run's samples separate from the checked-out branch. The
@@ -185,7 +211,7 @@ jobs:
             Remove-Item -LiteralPath $snapshot -Recurse -Force
           }
           New-Item -ItemType Directory -Force -Path $snapshot | Out-Null
-          Get-ChildItem -LiteralPath "logs" -Filter "runtime-latest*" -File |
+          Get-ChildItem -LiteralPath "logs" -Filter "runtime-stresstests*" -File |
             Copy-Item -Destination $snapshot -Force
 
           git config user.name "github-actions[bot]"
@@ -206,7 +232,7 @@ jobs:
             New-Item -ItemType Directory -Force -Path "logs" | Out-Null
             Get-ChildItem -LiteralPath $snapshot -File |
               Copy-Item -Destination "logs" -Force
-            git add logs/runtime-latest*
+            git add logs/runtime-stresstests*
             git diff --cached --quiet
             if ($LASTEXITCODE -eq 0) {
               Write-Output "The latest diagnostic logs already match the repository."
@@ -214,7 +240,7 @@ jobs:
               break
             }
 
-            git commit -m "Update Civiterra runtime diagnostic logs [skip ci]"
+            git commit -m "Update Civiterra runtime stress-test results [skip ci]"
             if ($LASTEXITCODE -ne 0) { throw "Could not commit runtime diagnostic logs." }
             git push origin "HEAD:$env:GITHUB_REF_NAME"
             if ($LASTEXITCODE -eq 0) {
@@ -228,3 +254,24 @@ jobs:
           if (-not $pushed) {
             throw "Could not publish runtime logs after four attempts. The artifact was uploaded separately."
           }
+
+      - name: Validate stress suite completion and FPS telemetry
+        if: always()
+        shell: pwsh
+        run: |
+          $summaryPath = "logs/runtime-stresstests-summary.txt"
+          $stdoutPath = "logs/runtime-stresstests.stdout.log"
+          $csvPath = "logs/runtime-stresstests.csv"
+          if (-not (Test-Path -LiteralPath $summaryPath)) { throw "The stress-test summary is missing." }
+          $summary = Get-Content -LiteralPath $summaryPath -Raw
+          if ($summary -notmatch "Stress suite completed: True") { throw "The game did not report a completed stress suite. Check the uploaded logs." }
+          if ($summary -match "Timed out: True") { throw "The game exceeded the stress-test timeout." }
+          if ($summary -notmatch "Game process exit code: 0") { throw "The game did not exit successfully." }
+          if (-not (Test-Path -LiteralPath $stdoutPath)) { throw "The game's standard output log is missing." }
+          $scenarioCount = @(Select-String -LiteralPath $stdoutPath -Pattern "STRESS_SCENARIO_COMPLETE\|" -ErrorAction SilentlyContinue).Count
+          if ($scenarioCount -lt 12) { throw "Expected at least 12 completed scenarios, but found $scenarioCount." }
+          if (-not (Test-Path -LiteralPath $csvPath)) { throw "The FPS telemetry CSV was not generated." }
+          $rows = @(Import-Csv -LiteralPath $csvPath)
+          $sampleRows = @($rows | Where-Object { $_.record_type -eq "sample" })
+          if ($sampleRows.Count -lt 30) { throw "Expected at least 30 one-second FPS samples, but found $($sampleRows.Count)." }
+          Write-Output "Stress suite passed: $scenarioCount scenarios and $($sampleRows.Count) FPS sampling windows."
