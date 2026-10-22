@@ -44,6 +44,11 @@ The Windows build is currently unsigned. Direct downloads avoid the Actions ZIP 
 - Cities have a larger 256-unit world with multiple broad landmasses, leaving more room for grids, neighbourhoods, and city expansion.
 - Grid roads now have separate sidewalk meshes; pedestrians route along sidewalk strips, enter houses and disappear indoors for a while, and sometimes board moving cars. Only nearby citizens render as detailed characters.
 - Farms provide food, workshops convert a little wood into wealth, apartments and commercial buildings contribute to prosperity, and commercial buildings gradually improve city security.
+- City construction spends treasury funds and timber/stone; later industrial and high-rise buildings also need metal supplies, so low funds or scarce stockpiles delay expansion instead of allowing unlimited free buildings.
+- World deposits include iron ore, copper ore, coal, and gold alongside food, trees, and stone. Industrial mine/metalworks buildings supply iron and coal.
+- City-states buy and sell surplus food, timber, stone, iron, copper, coal, and gold. Trade improves relations, while hostile relations and active wars embargo trade immediately.
+- Cities introduce coal-fired electricity infrastructure after 1880 and telecommunications/internet exchanges after 2000. Power depends on coal and upkeep; internet requires electrical service, copper, and operating funds.
+- Selected-city status now shows treasury, resource inventories, electricity/internet service levels, diplomatic relations, and active trade/war status.
 - New buildings search for open land and avoid obvious overlaps, so coastal towns expand along the available terrain instead of placing houses in the sea.
 - Initial condition-driven city events include protests, strikes, rebellions, bank robberies, rare extremist incidents, and positive festivals, influenced by stability, security, food, and wealth.
 - City incidents display temporary floating alerts above the affected settlement as well as entries in the world chronicle.
@@ -51,6 +56,8 @@ The Windows build is currently unsigned. Direct downloads avoid the Actions ZIP 
 - Each city has a coloured territory zone that expands as it builds more houses, with shared boundaries calculated when city influence zones meet.
 - Selecting a city smoothly focuses the camera and automatically zooms out when its territory expands; manual camera input overrides auto-zoom.
 - Abandoned cities stop growing new buildings, lose structures gradually to collapse, and eventually become permanent ruins. Ruin states, city buildings, and building/vehicle debris survive save/load.
+- Falling buildings use a directional footprint check to identify nearby structures in their fall path. Confirmed impacts send debris into the target building and can trigger bounded collapse chains.
+- Construction is paced so one development update cannot instantiate an entire neighbourhood in one frame. Construction workers are referenced directly rather than by mutable citizen-array indexes, and slow operation/frame-hitch samples are written to `user://civiterra-performance.log`.
 - Collapsing skyscrapers can knock nearby buildings down in a bounded chain reaction. Falling structures can kill exposed citizens, destroy nearby cars, scatter lasting rubble, and create wrecks.
 - Living citizens can walk to rubble and spend time cleaning it up, removing debris from the world instead of leaving every disaster site permanently cluttered.
 - Missile strikes can target any point on the playable ground after 1945; hostile armies trigger city defence units that intercept attackers near home.
@@ -61,6 +68,7 @@ The Windows build is currently unsigned. Direct downloads avoid the Actions ZIP 
 - Pause and simulation speed controls.
 - Native 3D desktop UI with refreshed dark panels, rounded controls, hover states, and clearer world-simulation branding.
 - Automatic Windows/Linux validation, main-scene smoke tests, save/load regression tests, and desktop exports through GitHub Actions.
+- A separate [runtime diagnostics workflow](.github/workflows/runtime-diagnostics.yml) runs a two-minute, 16× modern-city stress scenario, collects console/resource/performance logs, and uploads an Actions artifact. The latest captured logs are also retained in `logs/` in the repository.
 - Local Save World / Load World controls persist terrain edits, city data, citizens, resources, camera framing, and simulation time; temporary combat and god-power effects are not persisted yet.
 
 ## Controls
