@@ -113,6 +113,7 @@ var chronicle_expanded: bool = false
 var traffic_light_records: Array = []
 var traffic_light_timer: float = 0.0
 var traffic_light_phase: int = 0
+var traffic_lights_enabled: bool = false
 var stuck_recovery_timer: float = 0.0
 var pause_button: Button
 var speed_button: Button
@@ -144,6 +145,8 @@ func _ready() -> void:
 
 
 func _recover_stuck_citizens() -> void:
+	if paused:
+		return
 	for person_index in range(people.size()):
 		var person: Dictionary = people[person_index]
 		if not bool(person.get("alive", true)):
@@ -154,11 +157,14 @@ func _recover_stuck_citizens() -> void:
 		var position: Vector3 = person["pos"]
 		var target: Vector3 = person.get("target", position)
 		var distance_to_target: float = Vector2(position.x - target.x, position.z - target.z).length()
+		var last_watch_position: Vector3 = person.get("stuck_watch_position", position)
+		var moved_distance: float = Vector2(position.x - last_watch_position.x, position.z - last_watch_position.z).length()
 		var stuck_timer: float = float(person.get("stuck_timer", 0.0))
-		if distance_to_target > 1.1:
+		if distance_to_target > 1.1 and moved_distance < 0.25:
 			stuck_timer += 1.0
 		else:
 			stuck_timer = 0.0
+		person["stuck_watch_position"] = position
 		person["stuck_timer"] = stuck_timer
 		if stuck_timer >= 6.0:
 			var cleanup_id: int = int(person.get("cleanup_rubble_id", -1))
@@ -181,10 +187,11 @@ func _recover_stuck_citizens() -> void:
 
 func _process(delta: float) -> void:
 	_update_traffic_lights(delta)
-	stuck_recovery_timer += delta
-	if stuck_recovery_timer >= 1.0:
-		stuck_recovery_timer = fmod(stuck_recovery_timer, 1.0)
-		_recover_stuck_citizens()
+	if not paused:
+		stuck_recovery_timer += delta
+		if stuck_recovery_timer >= 1.0:
+			stuck_recovery_timer = fmod(stuck_recovery_timer, 1.0)
+			_recover_stuck_citizens()
 	_update_camera_input(delta)
 	_update_auto_city_camera(delta)
 	preview_timer += delta
@@ -942,6 +949,10 @@ func _create_city(position: Vector3, city_name: String, color: Color) -> int:
 	sidewalk_network.name = "SidewalkNetwork"
 	sidewalk_network.material_override = _material(Color(0.53, 0.54, 0.51), 0.98)
 	town.add_child(sidewalk_network)
+	var crosswalk_network := MeshInstance3D.new()
+	crosswalk_network.name = "CrosswalkNetwork"
+	crosswalk_network.material_override = _material(Color(0.88, 0.88, 0.80), 0.96)
+	town.add_child(crosswalk_network)
 
 	var plinth_mesh := BoxMesh.new()
 	plinth_mesh.size = Vector3(3.2, 0.45, 3.2)
@@ -1012,6 +1023,7 @@ func _create_city(position: Vector3, city_name: String, color: Color) -> int:
 		"node": town,
 		"roads": road_network,
 		"sidewalks": sidewalk_network,
+		"crosswalks": crosswalk_network,
 		"label": city_label,
 		"event_marker": event_marker,
 		"event_timer": 0.0,
@@ -1664,18 +1676,23 @@ func _rebuild_city_roads(city_id: int) -> void:
 	var city: Dictionary = cities[city_id]
 	var road_node: MeshInstance3D = city["roads"]
 	var sidewalk_node: MeshInstance3D = city.get("sidewalks") as MeshInstance3D
+	var crosswalk_node: MeshInstance3D = city.get("crosswalks") as MeshInstance3D
 	if not is_instance_valid(road_node):
 		return
 	var road_surface := SurfaceTool.new()
 	road_surface.begin(Mesh.PRIMITIVE_TRIANGLES)
 	var sidewalk_surface := SurfaceTool.new()
 	sidewalk_surface.begin(Mesh.PRIMITIVE_TRIANGLES)
+	var crosswalk_surface := SurfaceTool.new()
+	crosswalk_surface.begin(Mesh.PRIMITIVE_TRIANGLES)
 	var city_position: Vector3 = city["pos"]
 	var houses: Array = city["houses"]
 	if houses.is_empty():
 		road_node.mesh = null
 		if is_instance_valid(sidewalk_node):
 			sidewalk_node.mesh = null
+		if is_instance_valid(crosswalk_node):
+			crosswalk_node.mesh = null
 		city["road_grid_min_x"] = -7.5
 		city["road_grid_max_x"] = 7.5
 		city["road_grid_min_z"] = -7.5
@@ -1716,8 +1733,8 @@ func _rebuild_city_roads(city_id: int) -> void:
 		_add_road_segment(road_surface, city_position, Vector2(min_x, cursor_z), Vector2(max_x, cursor_z), 1.62, 0.035, 0.0)
 		cursor_z += ROAD_GRID_SIZE
 
-	# Pedestrian strips run between crossroads and terminate at the curb.
-	# Their inner edge is exactly aligned with the road's outer edge (0.81).
+	# Sidewalk paths terminate before every junction, rather than forming paving
+	# ribbons across the road. Their inner edge touches the carriageway exactly.
 	for x_index in range(grid_x.size()):
 		var x_value: float = grid_x[x_index]
 		for z_index in range(grid_z.size() - 1):
@@ -1737,18 +1754,26 @@ func _rebuild_city_roads(city_id: int) -> void:
 			for side_sign in [-1.0, 1.0]:
 				_add_road_segment(sidewalk_surface, city_position, Vector2(sidewalk_start_x, z_value + side_sign * 1.05), Vector2(sidewalk_end_x, z_value + side_sign * 1.05), 0.48, 0.26, 0.0)
 
-	# Four raised paving corner tiles close the gap around each crossing without
-	# extending pavement across the carriageways.
 	for x_value in grid_x:
 		for z_value in grid_z:
 			for side_x in [-1.0, 1.0]:
 				for side_z in [-1.0, 1.0]:
 					_add_sidewalk_corner(sidewalk_surface, city_position, x_value, z_value, side_x, side_z)
+			# Zebra markings sit on the approach lanes and stay clear of the
+			# raised paving and the crossing street itself.
+			for stripe_index in range(4):
+				var stripe_offset: float = 0.95 + float(stripe_index) * 0.25
+				for stripe_sign in [-1.0, 1.0]:
+					_add_road_segment(crosswalk_surface, city_position, Vector2(x_value - 0.78, z_value + stripe_sign * stripe_offset), Vector2(x_value + 0.78, z_value + stripe_sign * stripe_offset), 0.13, 0.073, 0.0)
+					_add_road_segment(crosswalk_surface, city_position, Vector2(x_value + stripe_sign * stripe_offset, z_value - 0.78), Vector2(x_value + stripe_sign * stripe_offset, z_value + 0.78), 0.13, 0.073, 0.0)
 	road_surface.generate_normals(true)
 	road_node.mesh = road_surface.commit()
 	if is_instance_valid(sidewalk_node):
 		sidewalk_surface.generate_normals(true)
 		sidewalk_node.mesh = sidewalk_surface.commit()
+	if is_instance_valid(crosswalk_node):
+		crosswalk_surface.generate_normals(true)
+		crosswalk_node.mesh = crosswalk_surface.commit()
 	_rebuild_city_traffic_lights(city_id, grid_x, grid_z)
 
 
@@ -1763,8 +1788,13 @@ func _rebuild_city_traffic_lights(city_id: int, grid_x: Array, grid_z: Array) ->
 	for i in range(traffic_light_records.size() - 1, -1, -1):
 		if int(traffic_light_records[i].get("city_id", -1)) == city_id:
 			traffic_light_records.remove_at(i)
-	if _world_year() < 1900 or bool(city.get("ruined", false)):
+	if _world_year() < 1900 or bool(city.get("ruined", false)) or _city_population(city_id) <= 0:
+		town.set_meta("traffic_light_grid_signature", "disabled")
 		return
+	var signature: String = "%d|%d|%.1f|%.1f|%.1f|%.1f" % [grid_x.size(), grid_z.size(), float(grid_x[0]), float(grid_x[grid_x.size() - 1]), float(grid_z[0]), float(grid_z[grid_z.size() - 1])]
+	if is_instance_valid(old_lights) and str(town.get_meta("traffic_light_grid_signature", "")) == signature:
+		return
+	town.set_meta("traffic_light_grid_signature", signature)
 	var light_root := Node3D.new()
 	light_root.name = "TrafficLights"
 	town.add_child(light_root)
@@ -1793,7 +1823,7 @@ func _rebuild_city_traffic_lights(city_id: int, grid_x: Array, grid_z: Array) ->
 			var red := _add_mesh(mast, lamp_mesh, red_material, Vector3(0.0, 2.26, -0.118))
 			var amber := _add_mesh(mast, lamp_mesh, amber_material, Vector3(0.0, 2.05, -0.118))
 			var green := _add_mesh(mast, lamp_mesh, green_material, Vector3(0.0, 1.84, -0.118))
-			traffic_light_records.append({"city_id": city_id, "red": red, "amber": amber, "green": green})
+			traffic_light_records.append({"city_id": city_id, "intersection": city["pos"] + Vector3(x_value, 0.0, z_value), "red": red, "amber": amber, "green": green, "phase_offset": (xi + zi) % 2})
 			counter += 1
 	_update_traffic_light_states()
 
@@ -1809,15 +1839,33 @@ func _update_traffic_lights(delta: float) -> void:
 
 func _update_traffic_light_states() -> void:
 	for record in traffic_light_records:
+		var local_phase: int = (traffic_light_phase + int(record.get("phase_offset", 0))) % 3
 		var red: MeshInstance3D = record.get("red") as MeshInstance3D
 		var amber: MeshInstance3D = record.get("amber") as MeshInstance3D
 		var green: MeshInstance3D = record.get("green") as MeshInstance3D
 		if is_instance_valid(red):
-			red.visible = traffic_light_phase == 0
+			red.visible = local_phase == 0
 		if is_instance_valid(amber):
-			amber.visible = traffic_light_phase == 2
+			amber.visible = local_phase == 2
 		if is_instance_valid(green):
-			green.visible = traffic_light_phase == 1
+			green.visible = local_phase == 1
+
+
+func _car_should_stop_for_signal(city_id: int, waypoint: Vector3) -> bool:
+	if city_id < 0 or city_id >= cities.size() or _world_year() < 1900:
+		return false
+	if bool(cities[city_id].get("ruined", false)) or _city_population(city_id) <= 0:
+		return false
+	for record in traffic_light_records:
+		if int(record.get("city_id", -1)) != city_id:
+			continue
+		var intersection: Vector3 = record.get("intersection", Vector3.ZERO)
+		var dx: float = waypoint.x - intersection.x
+		var dz: float = waypoint.z - intersection.z
+		if dx * dx + dz * dz <= 0.1:
+			var green: MeshInstance3D = record.get("green") as MeshInstance3D
+			return not is_instance_valid(green) or not green.visible
+	return false
 
 
 func _seed_resources_around(center: Vector3) -> void:
@@ -2283,20 +2331,27 @@ func _choose_citizen_street_target(city_id: int, centre: Vector3, radius: float)
 		var min_z: float = float(city.get("road_grid_min_z", -7.5))
 		var max_z: float = float(city.get("road_grid_max_z", 7.5))
 		if max_x >= min_x and max_z >= min_z:
-			var local_x: float
-			var local_z: float
-			if randf() < 0.5:
-				var x_steps: int = maxi(0, roundi((max_x - min_x) / ROAD_GRID_SIZE))
-				local_x = min_x + float(randi_range(0, x_steps)) * ROAD_GRID_SIZE + randf_range(-1.1, 1.1)
-				local_z = randf_range(min_z, max_z)
-			else:
-				var z_steps: int = maxi(0, roundi((max_z - min_z) / ROAD_GRID_SIZE))
-				local_z = min_z + float(randi_range(0, z_steps)) * ROAD_GRID_SIZE + randf_range(-1.1, 1.1)
-				local_x = randf_range(min_x, max_x)
-			var street_x: float = clampf(float(city["pos"].x) + local_x, -TERRAIN_SIZE * 0.47, TERRAIN_SIZE * 0.47)
-			var street_z: float = clampf(float(city["pos"].z) + local_z, -TERRAIN_SIZE * 0.47, TERRAIN_SIZE * 0.47)
-			if _height_at(street_x, street_z) > WATER_LEVEL + 0.15:
-				return _surface_position(street_x, street_z)
+			var x_steps: int = maxi(0, roundi((max_x - min_x) / ROAD_GRID_SIZE))
+			var z_steps: int = maxi(0, roundi((max_z - min_z) / ROAD_GRID_SIZE))
+			if x_steps > 0 and z_steps > 0:
+				var local_x: float
+				var local_z: float
+				if randf() < 0.5:
+					var street_index: int = randi_range(0, x_steps)
+					var street_side: float = -1.0 if randf() < 0.5 else 1.0
+					local_x = min_x + float(street_index) * ROAD_GRID_SIZE + street_side * 1.05 + randf_range(-0.08, 0.08)
+					var block_z: int = randi_range(0, z_steps - 1)
+					local_z = min_z + float(block_z) * ROAD_GRID_SIZE + randf_range(1.25, ROAD_GRID_SIZE - 1.25)
+				else:
+					var street_index: int = randi_range(0, z_steps)
+					var street_side: float = -1.0 if randf() < 0.5 else 1.0
+					local_z = min_z + float(street_index) * ROAD_GRID_SIZE + street_side * 1.05 + randf_range(-0.08, 0.08)
+					var block_x: int = randi_range(0, x_steps - 1)
+					local_x = min_x + float(block_x) * ROAD_GRID_SIZE + randf_range(1.25, ROAD_GRID_SIZE - 1.25)
+				var street_x: float = clampf(float(city["pos"].x) + local_x, -TERRAIN_SIZE * 0.47, TERRAIN_SIZE * 0.47)
+				var street_z: float = clampf(float(city["pos"].z) + local_z, -TERRAIN_SIZE * 0.47, TERRAIN_SIZE * 0.47)
+				if _height_at(street_x, street_z) > WATER_LEVEL + 0.15:
+					return _surface_position(street_x, street_z)
 	for attempt in range(8):
 		var angle: float = randf() * TAU
 		var distance: float = randf_range(2.0, radius)
@@ -2432,6 +2487,13 @@ func _update_cars(delta: float) -> void:
 		var offset := Vector2(waypoint.x - position.x, waypoint.z - position.z)
 		var distance: float = offset.length()
 		var step: float = float(car["speed"]) * delta
+		if distance <= 2.8 and _car_should_stop_for_signal(city_id, waypoint):
+			car["pos"] = position
+			car["waiting_at_signal"] = true
+			node.position = position
+			cars[i] = car
+			continue
+		car["waiting_at_signal"] = false
 		if distance <= 0.40 or step >= distance:
 			position = _surface_position(waypoint.x, waypoint.z)
 			var route: Dictionary = _choose_next_car_waypoint(city_id, position, car["direction"])
@@ -5018,6 +5080,9 @@ func _update_world_detail_levels() -> void:
 		var sidewalks: MeshInstance3D = city.get("sidewalks") as MeshInstance3D
 		if is_instance_valid(sidewalks):
 			sidewalks.visible = show_neighbourhoods and not ruined
+		var crosswalks: MeshInstance3D = city.get("crosswalks") as MeshInstance3D
+		if is_instance_valid(crosswalks):
+			crosswalks.visible = show_neighbourhoods and not ruined
 		for house in city["houses"]:
 			if is_instance_valid(house):
 				house.visible = show_neighbourhoods and not ruined
@@ -5557,14 +5622,19 @@ func _on_era_skipper_selected(index: int) -> void:
 func _update_historical_era(force: bool = false) -> void:
 	var year: int = _world_year()
 	var era: int = _historical_era_index(year)
-	if not force and era == last_architecture_era:
+	var lights_available: bool = year >= 1900
+	var lights_transitioned: bool = lights_available != traffic_lights_enabled
+	if not force and era == last_architecture_era and not lights_transitioned:
 		return
 	var previous_era: int = last_architecture_era
 	last_architecture_era = era
+	traffic_lights_enabled = lights_available
 	for city_id in range(cities.size()):
 		_apply_building_era_appearance(city_id, year)
+		if lights_transitioned or force:
+			_rebuild_city_roads(city_id)
 	if previous_era >= 0 and era > previous_era:
-		_log("HISTORICAL SHIFT: %s begins in year %d. Cities can now develop new architecture and social events." % [_historical_era_name(year), year])
+		_log("HISTORICAL SHIFT: %s begins in year %d. Cities can now develop new architecture and social events." % [_historical_era_name(year), year)
 
 
 func _format_time(seconds: float) -> String:
