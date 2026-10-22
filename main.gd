@@ -6802,6 +6802,20 @@ func _is_point_in_camera_view(world_position: Vector3, margin: float = 36.0) -> 
 	return projected.x >= viewport_rect.position.x - margin and projected.x <= viewport_rect.end.x + margin and projected.y >= viewport_rect.position.y - margin and projected.y <= viewport_rect.end.y + margin
 
 
+func _is_point_in_camera_view_fast(world_position: Vector3, margin: float, view_inverse: Transform3D, viewport_rect: Rect2, focal_pixels: float) -> bool:
+	# Camera3D.unproject_position() is convenient, but hundreds of calls during a
+	# visibility refresh dominate CPU time on large worlds. Project from one cached
+	# inverse camera transform instead; the perspective math is equivalent here.
+	var view_position: Vector3 = view_inverse * world_position
+	var depth: float = -view_position.z
+	if depth <= 0.1:
+		return false
+	var viewport_center: Vector2 = viewport_rect.position + viewport_rect.size * 0.5
+	var screen_x: float = viewport_center.x + view_position.x * focal_pixels / depth
+	var screen_y: float = viewport_center.y - view_position.y * focal_pixels / depth
+	return screen_x >= viewport_rect.position.x - margin and screen_x <= viewport_rect.end.x + margin and screen_y >= viewport_rect.position.y - margin and screen_y <= viewport_rect.end.y + margin
+
+
 func _refresh_people_lod_proxy(show_proxy: bool) -> void:
 	if not is_instance_valid(people_lod_proxy) or people_lod_proxy.multimesh == null:
 		return
@@ -7398,6 +7412,9 @@ func _update_world_detail_levels() -> void:
 		return
 	last_detail_signature = detail_signature
 	detail_refresh_cooldown = 0.45
+	var viewport_rect: Rect2 = get_viewport().get_visible_rect()
+	var view_inverse: Transform3D = camera.global_transform.affine_inverse()
+	var focal_pixels: float = viewport_rect.size.y * 0.5 / maxf(0.1, tan(deg_to_rad(camera.fov * 0.5)))
 	for city in cities:
 		var ruined: bool = bool(city.get("ruined", false))
 		for visual_key in ["plinth", "body", "roof", "flag_pole", "flag"]:
@@ -7439,7 +7456,7 @@ func _update_world_detail_levels() -> void:
 			var building_width: float = float(house.get_meta("building_width", 2.8))
 			var view_point: Vector3 = house.global_position + Vector3(0.0, building_height * 0.5, 0.0)
 			var top_point: Vector3 = house.global_position + Vector3(0.0, building_height, 0.0)
-			var in_frustum: bool = _is_point_in_camera_view(view_point, 54.0) or _is_point_in_camera_view(top_point, 54.0)
+			var in_frustum: bool = _is_point_in_camera_view_fast(view_point, 54.0, view_inverse, viewport_rect, focal_pixels) or _is_point_in_camera_view_fast(top_point, 54.0, view_inverse, viewport_rect, focal_pixels)
 			var distance_squared: float = house.global_position.distance_squared_to(camera.global_position)
 			var base_visible: bool = show_neighbourhoods and not ruined and distance_squared <= 220.0 * 220.0 and in_frustum
 			if building_occlusion_refresh_cooldown > 0.0:
@@ -7461,7 +7478,7 @@ func _update_world_detail_levels() -> void:
 		var dx: float = position.x - camera_target.x
 		var dz: float = position.z - camera_target.z
 		var indoors: bool = str(person.get("activity", "")) == "indoors" or str(person.get("activity", "")) == "riding"
-		person_node.visible = show_people and not indoors and bool(person.get("alive", true)) and dx * dx + dz * dz <= person_range_squared and _is_point_in_camera_view(position + Vector3(0.0, 0.65, 0.0), 28.0)
+		person_node.visible = show_people and not indoors and bool(person.get("alive", true)) and dx * dx + dz * dz <= person_range_squared and _is_point_in_camera_view_fast(position + Vector3(0.0, 0.65, 0.0), 28.0, view_inverse, viewport_rect, focal_pixels)
 	for car in cars:
 		var car_node: Node3D = car["node"]
 		if not is_instance_valid(car_node):
@@ -7470,11 +7487,11 @@ func _update_world_detail_levels() -> void:
 		var dx: float = car_position.x - camera_target.x
 		var dz: float = car_position.z - camera_target.z
 		var render_range: float = maxf(42.0, camera_distance * 0.68)
-		car_node.visible = show_neighbourhoods and dx * dx + dz * dz <= render_range * render_range and _is_point_in_camera_view(car_position + Vector3(0.0, 0.5, 0.0), 32.0)
+		car_node.visible = show_neighbourhoods and dx * dx + dz * dz <= render_range * render_range and _is_point_in_camera_view_fast(car_position + Vector3(0.0, 0.5, 0.0), 32.0, view_inverse, viewport_rect, focal_pixels)
 	for resource in resources:
 		var resource_node: Node3D = resource["node"]
 		if is_instance_valid(resource_node):
-			resource_node.visible = show_resources and bool(resource.get("alive", true)) and int(resource.get("amount", 1)) > 0 and _is_point_in_camera_view(resource.get("pos", Vector3.ZERO) + Vector3(0.0, 0.4, 0.0), 22.0)
+			resource_node.visible = show_resources and bool(resource.get("alive", true)) and int(resource.get("amount", 1)) > 0 and _is_point_in_camera_view_fast(resource.get("pos", Vector3.ZERO) + Vector3(0.0, 0.4, 0.0), 22.0, view_inverse, viewport_rect, focal_pixels)
 
 
 func _run_save_load_smoke_test() -> void:
