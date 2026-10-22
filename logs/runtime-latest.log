@@ -1,14 +1,14 @@
 ===== SUMMARY =====
 Civiterra runtime diagnostic
-UTC start: 2026-10-22T04:34:12.7125027Z
-UTC finish: 2026-10-22T04:36:15.5243844Z
-Run ID: 39723087479
+UTC start: 2026-10-22T04:39:39.2168974Z
+UTC finish: 2026-10-22T04:41:42.5630429Z
+Run ID: 39723589281
 Attempt: 1
-Commit: 87e41285b0f3a57a5a3616a6784c766831528219
+Commit: 73a2453d8ecf2530203001a152546ae8a435319a
 Branch/ref: refs/heads/main
 Godot version: 4.3.stable.official.77dcf97d8
 OS: Microsoft Windows Server 2025 Datacenter
-CPU: AMD EPYC 9V74 80-Core Processor                
+CPU: AMD EPYC 9V45 96-Core Processor                
 Installed RAM: 16 GB
 Observed runtime: 120.12 seconds
 Still running at 120-second limit: True
@@ -260,144 +260,36 @@ ERROR: Parameter "m" is null.
    at: mesh_get_surface_count (servers/rendering/dummy/storage/mesh_storage.h:120)
 ERROR: Parameter "m" is null.
    at: mesh_get_surface_count (servers/rendering/dummy/storage/mesh_storage.h:120)
-ERROR: Parameter "m" is null.
-   at: mesh_get_surface_count (servers/rendering/dummy/storage/mesh_storage.h:120)
-ERROR: Parameter "m" is null.
-   at: mesh_get_surface_count (servers/rendering/dummy/storage/mesh_storage.h:120)
-ERROR: Parameter "m" is null.
-   at: mesh_get_surface_count (servers/rendering/dummy/storage/mesh_storage.h:120)
-ERROR: Parameter "m" is null.
-   at: mesh_get_surface_count (servers/rendering/dummy/storage/mesh_storage.h:120)
-ERROR: Parameter "m" is null.
-   at: mesh_get_surface_count (servers/rendering/dummy/storage/mesh_storage.h:120)
-ERROR: Parameter "m" is null.
-   at: mesh_get_surface_count (servers/rendering/dummy/storage/mesh_storage.h:120)
-ERROR: Parameter "m" is null.
-   at: mesh_get_surface_count (servers/rendering/dummy/storage/mesh_storage.h:120)
-ERROR: Parameter "m" is null.
-   at: mesh_get_surface_count (servers/rendering/dummy/storage/mesh_storage.h:120)
-ERROR: Parameter "m" is null.
-   at: mesh_get_surface_count (servers/rendering/dummy/storage/mesh_storage.h:120)
-ERROR: Parameter "m" is null.
-   at: mesh_get_surface_count (servers/rendering/dummy/storage/mesh_storage.h:120)
-ERROR: Parameter "m" is null.
-   at: mesh_get_surface_count (servers/rendering/dummy/storage/mesh_storage.h:120)
-ERROR: Parameter "m" is null.
-   at: mesh_get_surface_count (servers/rendering/dummy/storage/mesh_storage.h:120)
-ERROR: Parameter "m" is null.
-   at: mesh_get_surface_count (servers/rendering/dummy/storage/mesh_storage.h:120)
-ERROR: Parameter "m" is null.
-   at: mesh_get_surface_count (servers/rendering/dummy/storage/mesh_storage.h:120)
-ERROR: Parameter "m" is null.
-   at: mesh_get_surface_count (servers/rendering/dummy/storage/mesh_storage.h:120)
-ERROR: Parameter "m" is null.
-   at: mesh_get_surface_count (servers/rendering/dummy/storage/mesh_storage.h:120)
-ERROR: Parameter "m" is null.
-   at: mesh_get_surface_count (servers/rendering/dummy/storage/mesh_storage.h:120)
-ERROR: Parameter "m" is null.
-   at: mesh_get_surface_count (servers/rendering/dummy/storage/mesh_storage.h:120)
-ERROR: Parameter "m" is null.
-   at: mesh_get_surface_count (servers/rendering/dummy/storage/mesh_storage.h:120)
-ERROR: Parameter "m" is null.
-   at: mesh_get_surface_count (servers/rendering/dummy/storage/mesh_storage.h:120)
-ERROR: Parameter "m" is null.
-   at: mesh_get_surface_count (servers/rendering/dummy/storage/mesh_storage.h:120)
-ERROR: Parameter "m" is null.
-   at: mesh_get_surface_count (servers/rendering/dummy/storage/mesh_storage.h:120)
-ERROR: Parameter "m" is null.
-   at: mesh_get_surface_count (servers/rendering/dummy/storage/mesh_storage.h:120)
-ERROR: Parameter "m" is null.
-   at: mesh_get_surface_count (servers/rendering/dummy/storage/mesh_storage.h:120)
-ERROR: Parameter "m" is null.
-   at: mesh_get_surface_count (servers/rendering/dummy/storage/mesh_storage.h:120)
-ERROR: Parameter "m" is null.
-   at: mesh_get_surface_count (servers/rendering/dummy/storage/mesh_storage.h:120)
-ERROR: Parameter "m" is null.
-   at: mesh_get_surface_count (servers/rendering/dummy/storage/mesh_storage.h:120)
-ERROR: Parameter "m" is null.
-   at: mesh_get_surface_count (servers/rendering/dummy/storage/mesh_storage.h:120)
-ERROR: Parameter "m" is null.
-   at: mesh_get_surface_count (servers/rendering/dummy/storage/mesh_storage.h:120)
-ERROR: Parameter "m" is null.
-   at: mesh_get_surface_count (servers/rendering/dummy/storage/mesh_storage.h:120)
-ERROR: Parameter "m" is null.
-   at: mesh_get_surface_count (servers/rendering/dummy/storage/mesh_storage.h:120)
-ERROR: Parameter "m" is null.
-   at: mesh_get_surface_count (servers/rendering/dummy/storage/mesh_storage.h:120)
-ERROR: Parameter "m" is null.
-   at: mesh_get_surface_count (servers/rendering/dummy/storage/mesh_storage.h:120)
-ERROR: Parameter "m" is null.
-   at: mesh_get_surface_count (servers/rendering/dummy/storage/mesh_storage.h:120)
-ERROR: Parameter "m" is null.
-   at: mesh_get_surface_count (servers/rendering/dummy/storage/mesh_storage.h:120)
-ERROR: Parameter "m" is null.
-   at: mesh_get_surface_count (servers/rendering/dummy/storage/mesh_storage.h:120)
-ERROR: Parameter "m" is null.
-   at: mesh_get_surface_count (servers/rendering/dummy/storage/mesh_storage.h:120)
-ERROR: Parameter "m" is null.
-   at: mesh_get_surface_count (servers/rendering/dummy/storage/mesh_storage.h:120)
-ERROR: Parameter "m" is null.
-   at: mesh_get_surface_count (servers/rendering/dummy/storage/mesh_storage.h:120)
-ERROR: Parameter "m" is null.
-   at: mesh_get_surface_count (servers/rendering/dummy/storage/mesh_storage.h:120)
-ERROR: Parameter "m" is null.
-   at: mesh_get_surface_count (servers/rendering/dummy/storage/mesh_storage.h:120)
-ERROR: Parameter "m" is null.
-   at: mesh_get_surface_count (servers/rendering/dummy/storage/mesh_storage.h:120)
-ERROR: Parameter "m" is null.
-   at: mesh_get_surface_count (servers/rendering/dummy/storage/mesh_storage.h:120)
-ERROR: Parameter "m" is null.
-   at: mesh_get_surface_count (servers/rendering/dummy/storage/mesh_storage.h:120)
-ERROR: Parameter "m" is null.
-   at: mesh_get_surface_count (servers/rendering/dummy/storage/mesh_storage.h:120)
-ERROR: Parameter "m" is null.
-   at: mesh_get_surface_count (servers/rendering/dummy/storage/mesh_storage.h:120)
-ERROR: Parameter "m" is null.
-   at: mesh_get_surface_count (servers/rendering/dummy/storage/mesh_storage.h:120)
-ERROR: Parameter "m" is null.
-   at: mesh_get_surface_count (servers/rendering/dummy/storage/mesh_storage.h:120)
-ERROR: Parameter "m" is null.
-   at: mesh_get_surface_count (servers/rendering/dummy/storage/mesh_storage.h:120)
-ERROR: Parameter "m" is null.
-   at: mesh_get_surface_count (servers/rendering/dummy/storage/mesh_storage.h:120)
-ERROR: Parameter "m" is null.
-   at: mesh_get_surface_count (servers/rendering/dummy/storage/mesh_storage.h:120)
-ERROR: Parameter "m" is null.
-   at: mesh_get_surface_count (servers/rendering/dummy/storage/mesh_storage.h:120)
-ERROR: Parameter "m" is null.
-   at: mesh_get_surface_count (servers/rendering/dummy/storage/mesh_storage.h:120)
-ERROR: Parameter "m" is null.
-   at: mesh_get_surface_count (servers/rendering/dummy/storage/mesh_storage.h:120)
-ERROR: Parameter "m" is null.
-   at: mesh_get_surface_count (servers/rendering/dummy/storage/mesh_storage.h:120)
-ERROR: Parameter "m" is null.
-   at: mesh_get_surface_count (servers/rendering/dummy/storage/mesh_storage.h:120)
-ERROR: Parameter "m" is null.
-   at: mesh_get_surface_count (servers/rendering/dummy/storage/mesh_storage.h:120)
-ERROR: Parameter "m" is null.
-   at: mesh_get_surface_count (servers/rendering/dummy/storage/mesh_storage.h:120)
-ERROR: Parameter "m" is null.
-   at: mesh_get_surface_count (servers/rendering/dummy/storage/mesh_storage.h:120)
-ERROR: Parameter "m" is null.
-   at: mesh_get_surface_count (servers/rendering/dummy/storage/mesh_storage.h:120)
-ERROR: Parameter "m" is null.
-   at: mesh_get_surface_count (servers/rendering/dummy/storage/mesh_storage.h:120)
-ERROR: Parameter "m" is null.
-   at: mesh_get_surface_count (servers/rendering/dummy/storage/mesh_storage.h:120)
-ERROR: Parameter "m" is null.
-   at: mesh_get_surface_count (servers/rendering/dummy/storage/mesh_storage.h:120)
-ERROR: Parameter "m" is null.
-   at: mesh_get_surface_count (servers/rendering/dummy/storage/mesh_storage.h:120)
-ERROR: Parameter "m" is null.
-   at: mesh_get_surface_count (servers/rendering/dummy/storage/mesh_storage.h:120)
-ERROR: Parameter "m" is null.
-   at: mesh_get_surface_count (servers/rendering/dummy/storage/mesh_storage.h:120)
-ERROR: Parameter "m" is null.
-   at: mesh_get_surface_count (servers/rendering/dummy/storage/mesh_storage.h:120)
-ERROR: Parameter "m" is null.
-   at: mesh_get_surface_count (servers/rendering/dummy/storage/mesh_storage.h:120)
-ERROR: Parameter "m" is null.
-   at: mesh_get_surface_count (servers/rendering/dummy/storage/mesh_storage.h:120)
+ERROR: Condition "!is_inside_tree()" is true. Returning: Transform3D()
+   at: get_global_transform (scene/3d/node_3d.cpp:345)
+ERROR: Condition "!is_inside_tree()" is true. Returning: Transform3D()
+   at: get_global_transform (scene/3d/node_3d.cpp:345)
+ERROR: Condition "!is_inside_tree()" is true. Returning: Transform3D()
+   at: get_global_transform (scene/3d/node_3d.cpp:345)
+ERROR: Condition "!is_inside_tree()" is true. Returning: Transform3D()
+   at: get_global_transform (scene/3d/node_3d.cpp:345)
+ERROR: Condition "!is_inside_tree()" is true. Returning: Transform3D()
+   at: get_global_transform (scene/3d/node_3d.cpp:345)
+ERROR: Condition "!is_inside_tree()" is true. Returning: Transform3D()
+   at: get_global_transform (scene/3d/node_3d.cpp:345)
+ERROR: Condition "!is_inside_tree()" is true. Returning: Transform3D()
+   at: get_global_transform (scene/3d/node_3d.cpp:345)
+ERROR: Condition "!is_inside_tree()" is true. Returning: Transform3D()
+   at: get_global_transform (scene/3d/node_3d.cpp:345)
+ERROR: Parameter "m" is null.
+   at: mesh_get_surface_count (servers/rendering/dummy/storage/mesh_storage.h:120)
+ERROR: Parameter "m" is null.
+   at: mesh_get_surface_count (servers/rendering/dummy/storage/mesh_storage.h:120)
+ERROR: Parameter "m" is null.
+   at: mesh_get_surface_count (servers/rendering/dummy/storage/mesh_storage.h:120)
+ERROR: Condition "!is_inside_tree()" is true. Returning: Transform3D()
+   at: get_global_transform (scene/3d/node_3d.cpp:345)
+ERROR: Condition "!is_inside_tree()" is true. Returning: Transform3D()
+   at: get_global_transform (scene/3d/node_3d.cpp:345)
+ERROR: Condition "!is_inside_tree()" is true. Returning: Transform3D()
+   at: get_global_transform (scene/3d/node_3d.cpp:345)
+ERROR: Condition "!is_inside_tree()" is true. Returning: Transform3D()
+   at: get_global_transform (scene/3d/node_3d.cpp:345)
 ERROR: Parameter "m" is null.
    at: mesh_get_surface_count (servers/rendering/dummy/storage/mesh_storage.h:120)
 ERROR: Parameter "m" is null.
@@ -1104,18 +996,18 @@ ERROR: Parameter "m" is null.
 
 ===== PROCESS MONITOR =====
 Civiterra runtime diagnostic monitor
-Run ID: 39723087479 / attempt 1
-Commit: 87e41285b0f3a57a5a3616a6784c766831528219
+Run ID: 39723589281 / attempt 1
+Commit: 73a2453d8ecf2530203001a152546ae8a435319a
 Sample time (s) | CPU time (s) | Working set (MB) | Private memory (MB)
    0.0 |     0.00 |            2.3 |              0.5
-   5.0 |     0.00 |            4.3 |              0.9
-  10.0 |     0.00 |            4.3 |              0.9
-  15.0 |     0.00 |            4.3 |              0.9
-  20.0 |     0.00 |            4.3 |              0.9
-  25.0 |     0.00 |            4.3 |              0.9
-  30.0 |     0.00 |            4.3 |              0.9
+   5.0 |     0.00 |            4.3 |              0.8
+  10.0 |     0.00 |            4.3 |              0.8
+  15.0 |     0.00 |            4.3 |              0.8
+  20.0 |     0.00 |            4.4 |              0.9
+  25.0 |     0.00 |            4.4 |              0.9
+  30.0 |     0.00 |            4.4 |              0.9
   35.0 |     0.00 |            4.3 |              0.8
-  40.0 |     0.00 |            4.3 |              0.8
+  40.1 |     0.00 |            4.3 |              0.8
   45.1 |     0.00 |            4.3 |              0.8
   50.1 |     0.00 |            4.3 |              0.8
   55.1 |     0.00 |            4.3 |              0.8
