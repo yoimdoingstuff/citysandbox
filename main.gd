@@ -993,6 +993,10 @@ func _territory_cell_is_land(cell: Vector2i) -> bool:
 	return _height_at(x, z) > WATER_LEVEL + 0.10
 
 
+func _schedule_city_territory_refresh() -> void:
+	territory_refresh_pending = true
+
+
 func _refresh_city_territory(city_id: int) -> void:
 	# Recalculate all claims so every land tile has one owner and contested
 	# boundaries remain shared instead of overlapping circular influence areas.
@@ -1355,11 +1359,12 @@ func _refresh_city_development(city_id: int) -> void:
 	var stage_changed: bool = next_stage != previous_stage
 	if stage_changed:
 		_apply_city_stage_appearance(city_id)
+		_apply_building_era_appearance(city_id, _world_year())
 		if next_stage > previous_stage:
 			_log("%s developed into a %s." % [city["name"], _city_stage_name(next_stage).to_lower()])
 	var houses_changed: bool = _sync_city_buildings(city_id)
 	if houses_changed or stage_changed:
-		_refresh_city_territory(city_id)
+		_schedule_city_territory_refresh()
 	city = cities[city_id]
 	if is_instance_valid(city["label"]):
 		var status: String = "ABANDONED" if population <= 0 else _city_stage_name(next_stage)
@@ -2030,6 +2035,12 @@ func _update_traffic_population() -> void:
 
 
 func _update_simulation_timers(delta: float) -> void:
+	if territory_refresh_pending:
+		territory_refresh_timer += delta
+		if territory_refresh_timer >= 5.0:
+			territory_refresh_timer = 0.0
+			territory_refresh_pending = false
+			_refresh_city_territory(0)
 	traffic_spawn_timer += delta
 	if traffic_spawn_timer >= 2.6:
 		traffic_spawn_timer = fmod(traffic_spawn_timer, 2.6)
@@ -2241,9 +2252,7 @@ func _try_found_cities() -> void:
 				member["home_offset"] = Vector2(member["pos"].x - city_position.x, member["pos"].z - city_position.z)
 				people[member_id] = member
 			_refresh_city_development(new_city_id)
-			for affected_city_id in range(cities.size()):
-				if affected_city_id != new_city_id:
-					_refresh_city_territory(affected_city_id)
+			_schedule_city_territory_refresh()
 			_seed_resources_around(cities[new_city_id]["pos"])
 			_log("A new settlement, %s, has been founded by %d humans." % [new_name, members.size()])
 			return
@@ -4242,8 +4251,8 @@ func _load_world() -> void:
 		_apply_city_stage_appearance(city_id)
 	for city_id in range(cities.size()):
 		_refresh_city_development(city_id)
+	_refresh_city_territory(0)
 	for city_id in range(cities.size()):
-		_refresh_city_territory(city_id)
 		_rebuild_city_roads(city_id)
 
 	for rubble_entry_data in saved_rubble:
