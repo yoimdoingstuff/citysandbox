@@ -61,6 +61,7 @@ var rubble_records: Array = []
 var rubble_nodes: Array = []
 var rubble_id_sequence: int = 1
 var abandoned_check_timer: float = 0.0
+var rubble_aging_timer: float = 0.0
 var log_entries: Array[String] = []
 
 var selected_city: int = -1
@@ -185,6 +186,25 @@ func _recover_stuck_citizens() -> void:
 		people[person_index] = person
 
 
+func _update_rubble_aging(delta: float) -> void:
+	# Citizen crews normally clear debris first. This is a long-stop maintenance
+	# cleanup so wrecks do not remain forever if the area has no residents.
+	rubble_aging_timer += delta
+	if rubble_aging_timer < 2.0:
+		return
+	var age_step: float = rubble_aging_timer
+	rubble_aging_timer = 0.0
+	var expired_ids: Array[int] = []
+	for i in range(rubble_nodes.size()):
+		var entry: Dictionary = rubble_nodes[i]
+		entry["age"] = float(entry.get("age", 0.0)) + age_step
+		if float(entry["age"]) >= 90.0:
+			expired_ids.append(int(entry["id"]))
+		rubble_nodes[i] = entry
+	for rubble_id in expired_ids:
+		_clear_rubble_by_id(rubble_id)
+
+
 func _process(delta: float) -> void:
 	_update_traffic_lights(delta)
 	if not paused:
@@ -242,6 +262,7 @@ func _process(delta: float) -> void:
 		_update_tornadoes(sim_delta)
 		_update_plague(sim_delta)
 		_update_simulation_timers(sim_delta)
+		_update_rubble_aging(sim_delta)
 		_update_city_event_markers(sim_delta)
 		_update_city_event_scenes(sim_delta)
 		_update_historical_era()
@@ -2201,6 +2222,9 @@ func _update_people(delta: float) -> void:
 					if is_instance_valid(node):
 						node.rotation.y = randf() * TAU
 				else:
+					# Move every assigned cleaner toward the rubble even if its
+					# render node is valid. This used to be nested under the
+					# wrong else branch, so visible cleaners never reached debris.
 					position = position.move_toward(Vector3(cleanup_position.x, position.y, cleanup_position.z), delta * 2.0)
 					position.y = _height_at(position.x, position.z)
 					person["pos"] = position
@@ -2253,8 +2277,8 @@ func _update_people(delta: float) -> void:
 			var selected_house: Node3D = null
 			var selected_vehicle: Node3D = null
 			var selected_rubble_id: int = -1
-			if city_id >= 0 and city_id < cities.size() and not rubble_nodes.is_empty() and randf() < 0.24:
-				selected_rubble_id = _find_nearby_cleanup_rubble(position, 22.0)
+			if city_id >= 0 and city_id < cities.size() and not rubble_nodes.is_empty() and randf() < 0.42:
+				selected_rubble_id = _find_nearby_cleanup_rubble(position, 34.0)
 				if selected_rubble_id >= 0:
 					var rubble_target: Node3D = _get_rubble_node(selected_rubble_id)
 					if is_instance_valid(rubble_target):
@@ -4030,7 +4054,7 @@ func _spawn_persistent_rubble(position: Vector3, tall_building: bool, building_c
 		fall_tween.set_parallel(true)
 		fall_tween.tween_property(piece, "position", landing_position, randf_range(0.28, 0.82)).set_trans(Tween.TRANS_BOUNCE).set_ease(Tween.EASE_OUT)
 		fall_tween.tween_property(piece, "rotation", Vector3(randf_range(-0.9, 0.9), randf() * TAU, randf_range(-0.9, 0.9)), randf_range(0.25, 0.65)).set_trans(Tween.TRANS_CUBIC).set_ease(Tween.EASE_OUT)
-	rubble_nodes.append({"id": resolved_id, "node": rubble, "position": debris_position, "kind": rubble_kind, "reserved": false})
+	rubble_nodes.append({"id": resolved_id, "node": rubble, "position": debris_position, "kind": rubble_kind, "reserved": false, "age": 0.0, "decaying": false})
 	if record:
 		rubble_records.append({"id": resolved_id, "position": _vector3_to_array(debris_position), "tall": tall_building, "kind": rubble_kind, "color": building_color.to_html(true)})
 
