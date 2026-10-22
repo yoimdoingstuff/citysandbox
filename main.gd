@@ -1,7 +1,7 @@
 extends Node3D
 
-const TERRAIN_RES: int = 161
-const TERRAIN_SIZE: float = 160.0
+const TERRAIN_RES: int = 241
+const TERRAIN_SIZE: float = 256.0
 const TERRAIN_LOD_STEPS: Array[int] = [1, 2, 4, 8]
 const MAX_CITIES: int = 10
 const MAX_PEOPLE: int = 800
@@ -14,7 +14,9 @@ const STARTING_YEAR: int = 1200
 const SECONDS_PER_YEAR: float = 3.0
 const TERRITORY_CELL_SIZE: float = 4.0
 const SAVE_PATH: String = "user://civiterra_world.json"
-const SAVE_VERSION: int = 1
+const SAVE_VERSION: int = 2
+const MISSILE_UNLOCK_YEAR: int = 1945
+const ERA_SKIP_YEARS: Array[int] = [1200, 1450, 1780, 1880, 1950, 2000, 2026]
 
 var terrain: MeshInstance3D
 var terrain_material: StandardMaterial3D
@@ -43,6 +45,9 @@ var _box_mesh_cache: Dictionary = {}
 var citizen_infection_marker_mesh: SphereMesh
 var citizen_infection_marker_material: StandardMaterial3D
 var last_detail_signature: String = ""
+var territory_refresh_pending: bool = false
+var territory_refresh_timer: float = 0.0
+var city_defence_timer: float = 0.0
 var armies: Array = []
 var missiles: Array = []
 var explosions: Array = []
@@ -102,6 +107,11 @@ var log_label: Label
 var pause_button: Button
 var speed_button: Button
 var control_button: Button
+var missile_button: Button
+var invasion_button: Button
+var ceasefire_button: Button
+var era_skipper: OptionButton
+var city_context_panel: PanelContainer
 var tool_buttons: Dictionary = {}
 
 
@@ -273,9 +283,6 @@ func _generate_terrain_heights() -> void:
 	coastline_noise.seed = world_seed + 33191
 	coastline_noise.frequency = 0.052
 	coastline_noise.fractal_octaves = 2
-
-	# Separate climate fields add broad wet/dry and warm/cold regions without
-	# requiring image textures or extra materials.
 	terrain_moisture_noise = FastNoiseLite.new()
 	terrain_moisture_noise.seed = world_seed + 51713
 	terrain_moisture_noise.frequency = 0.032
@@ -285,25 +292,15 @@ func _generate_terrain_heights() -> void:
 	terrain_temperature_noise.frequency = 0.024
 	terrain_temperature_noise.fractal_octaves = 2
 
-	# Broad elliptical landmasses create separate continents. Noise roughens
-	# their coastlines, while the elevation fields add hills and high ground.
+	# Scaled landmasses provide room for larger cities and expanding suburbs.
 	var continent_centers: Array[Vector2] = [
-		Vector2(-31.0, -20.0),
-		Vector2(40.0, -20.0),
-		Vector2(2.0, 39.0),
-		Vector2(-63.0, 24.0),
-		Vector2(63.0, 45.0),
-		Vector2(-61.0, -54.0)
+		Vector2(-43.0, -27.0), Vector2(56.0, -28.0), Vector2(3.0, 53.0),
+		Vector2(-85.0, 32.0), Vector2(85.0, 61.0), Vector2(-82.0, -73.0)
 	]
 	var continent_radii: Array[Vector2] = [
-		Vector2(37.0, 31.0),
-		Vector2(28.0, 38.0),
-		Vector2(44.0, 32.0),
-		Vector2(16.0, 21.0),
-		Vector2(14.0, 17.0),
-		Vector2(15.0, 13.0)
+		Vector2(55.5, 46.5), Vector2(42.0, 57.0), Vector2(66.0, 48.0),
+		Vector2(24.0, 31.5), Vector2(21.0, 25.5), Vector2(22.5, 19.5)
 	]
-
 	for z_index in range(TERRAIN_RES):
 		var row: Array = []
 		for x_index in range(TERRAIN_RES):
@@ -315,19 +312,16 @@ func _generate_terrain_heights() -> void:
 					(x - continent_centers[continent_index].x) / continent_radii[continent_index].x,
 					(z - continent_centers[continent_index].y) / continent_radii[continent_index].y
 				)
-				var score: float = 1.0 - relative.length()
-				continent_score = max(continent_score, score)
+				continent_score = maxf(continent_score, 1.0 - relative.length())
 			var land_score: float = continent_score + coastline_noise.get_noise_2d(x, z) * 0.18
 			var broad_value: float = broad_noise.get_noise_2d(x, z)
 			var detail_value: float = detail_noise.get_noise_2d(x, z)
 			var h: float
 			if land_score > -0.025:
-				var land_strength: float = clamp((land_score + 0.025) / 0.92, 0.0, 1.0)
+				var land_strength: float = clampf((land_score + 0.025) / 0.92, 0.0, 1.0)
 				h = WATER_LEVEL + 0.18 + land_strength * 5.5 + broad_value * 1.25 + maxf(0.0, detail_value) * 0.35
-				# Keep the generated shoreline just above the water plane.
 				h = maxf(WATER_LEVEL + 0.06, h)
 			else:
-				# The underwater seabed stays low and relatively calm.
 				h = WATER_LEVEL - 0.90 + broad_value * 0.16
 			row.append(h)
 		terrain_heights.append(row)
@@ -629,11 +623,11 @@ func _get_ground_position(screen_position: Vector2) -> Vector3:
 		return Vector3(1000.0, 0.0, 1000.0)
 
 	var half_size: float = TERRAIN_SIZE * 0.5
-	var step_size: float = 0.45
+	var step_size: float = 0.70
 	var previous_t: float = 0.0
 	var previous_difference: float = 0.0
 	var was_inside: bool = false
-	for step_index in range(1, 1201):
+	for step_index in range(1, 1401):
 		var ray_t: float = float(step_index) * step_size
 		var point: Vector3 = ray_origin + ray_direction * ray_t
 		if abs(point.x) > half_size or abs(point.z) > half_size:
@@ -844,11 +838,11 @@ func _seed_civilizations() -> void:
 	# Start across the major continents and a few smaller islands so the map
 	# immediately feels like a world with room for competing civilizations.
 	var starts: Array[Vector2] = [
-		Vector2(-25.0, -18.0),
-		Vector2(28.0, -20.0),
-		Vector2(2.0, 38.0),
-		Vector2(-63.0, 24.0),
-		Vector2(63.0, 45.0)
+		Vector2(-34.0, -24.0),
+		Vector2(38.0, -27.0),
+		Vector2(3.0, 51.0),
+		Vector2(-85.0, 32.0),
+		Vector2(85.0, 61.0)
 	]
 	var populations: Array[int] = [6, 5, 5, 4, 4]
 	for i in range(starts.size()):
@@ -4065,6 +4059,7 @@ func _save_world() -> void:
 
 	var save_data: Dictionary = {
 		"version": SAVE_VERSION,
+		"terrain_size": TERRAIN_SIZE,
 		"world_seed": world_seed,
 		"game_clock": game_clock,
 		"terrain_heights": terrain_heights,
@@ -4092,6 +4087,31 @@ func _save_world() -> void:
 	_log("WORLD SAVED: Terrain, cities, people, resources, city damage, rubble, camera, and simulation time saved locally.")
 
 
+func _adapt_saved_heightmap(saved_heights: Array, saved_world_size: float) -> Array:
+	if saved_heights.size() == TERRAIN_RES and is_equal_approx(saved_world_size, TERRAIN_SIZE):
+		return saved_heights
+	var result: Array = terrain_heights.duplicate(true)
+	var old_resolution: int = saved_heights.size()
+	if old_resolution < 2 or saved_world_size <= 0.0:
+		return result
+	var old_half: float = saved_world_size * 0.5
+	for z_index in range(TERRAIN_RES):
+		var world_z: float = (float(z_index) / float(TERRAIN_RES - 1) - 0.5) * TERRAIN_SIZE
+		if absf(world_z) > old_half:
+			continue
+		var old_z: int = clampi(roundi((world_z / saved_world_size + 0.5) * float(old_resolution - 1)), 0, old_resolution - 1)
+		var row: Array = result[z_index]
+		var saved_row: Array = saved_heights[old_z]
+		for x_index in range(TERRAIN_RES):
+			var world_x: float = (float(x_index) / float(TERRAIN_RES - 1) - 0.5) * TERRAIN_SIZE
+			if absf(world_x) > old_half:
+				continue
+			var old_x: int = clampi(roundi((world_x / saved_world_size + 0.5) * float(old_resolution - 1)), 0, old_resolution - 1)
+			row[x_index] = float(saved_row[old_x])
+		result[z_index] = row
+	return result
+
+
 func _load_world() -> void:
 	if not FileAccess.file_exists(SAVE_PATH):
 		_log("LOAD FAILED: No saved world exists yet. Use Save World first.")
@@ -4106,17 +4126,19 @@ func _load_world() -> void:
 		_log("LOAD FAILED: The save file is invalid or corrupted.")
 		return
 	var save_data: Dictionary = parsed
-	if int(save_data.get("version", 0)) != SAVE_VERSION:
+	var save_version: int = int(save_data.get("version", 1))
+	if save_version < 1 or save_version > SAVE_VERSION:
 		_log("LOAD FAILED: This save uses an unsupported version.")
 		return
-
 	var raw_heights: Variant = save_data.get("terrain_heights", [])
-	if typeof(raw_heights) != TYPE_ARRAY or raw_heights.size() != TERRAIN_RES:
+	if typeof(raw_heights) != TYPE_ARRAY or raw_heights.size() < 32:
 		_log("LOAD FAILED: The save has an incompatible terrain grid.")
 		return
+	var saved_height_resolution: int = raw_heights.size()
+	var saved_terrain_size: float = float(save_data.get("terrain_size", 160.0 if save_version == 1 else TERRAIN_SIZE))
 	var restored_heights: Array = []
 	for raw_row in raw_heights:
-		if typeof(raw_row) != TYPE_ARRAY or raw_row.size() != TERRAIN_RES:
+		if typeof(raw_row) != TYPE_ARRAY or raw_row.size() != saved_height_resolution:
 			_log("LOAD FAILED: The saved terrain grid is incomplete.")
 			return
 		var row: Array = []
@@ -4139,7 +4161,7 @@ func _load_world() -> void:
 	world_seed = int(save_data.get("world_seed", 14029))
 	seed(world_seed)
 	_generate_terrain_heights() # Refresh climate noise from the saved seed.
-	terrain_heights = restored_heights
+	terrain_heights = _adapt_saved_heightmap(restored_heights, saved_terrain_size)
 	_rebuild_terrain()
 	game_clock = float(save_data.get("game_clock", 0.0))
 	city_events_total = int(save_data.get("city_events_total", 0))
