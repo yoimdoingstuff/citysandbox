@@ -4167,6 +4167,8 @@ func _collapse_specific_building(city_id: int, house: Node3D, allow_chain: bool 
 	var fall_reach: float = clampf(building_height * 0.42, 1.8, 12.0)
 	var fall_half_width: float = clampf(building_height * 0.11 + 1.3, 1.7, 4.5)
 	house.set_meta("is_collapsing", true)
+	if bool(house.get_meta("is_construction_site", false)):
+		_cancel_construction_site(house)
 	_recover_citizens_from_collapsing_house(house)
 	var contact_delay: float = lerpf(1.55, 0.65, clampf(impact_strength, 0.08, 1.0)) if tall_building else lerpf(1.15, 0.45, clampf(impact_strength, 0.08, 1.0))
 	var damage_tween := create_tween()
@@ -5549,6 +5551,54 @@ func _refresh_ui() -> void:
 		log_label.text = _joined_logs()
 
 
+func _cull_buildings_behind_nearby_structures() -> void:
+	if not is_instance_valid(camera):
+		return
+	var viewport_size: Vector2 = get_viewport().get_visible_rect().size
+	var focal_pixels: float = viewport_size.y * 0.5 / maxf(0.1, tan(deg_to_rad(camera.fov * 0.5)))
+	var candidates: Array[Dictionary] = []
+	for city in cities:
+		if bool(city.get("ruined", false)):
+			continue
+		for house in city["houses"]:
+			if not is_instance_valid(house) or not house.visible:
+				continue
+			var height: float = float(house.get_meta("building_height", 3.0))
+			var width: float = float(house.get_meta("building_width", 2.8))
+			var house_position: Vector3 = house.global_position
+			var center_world: Vector3 = house_position + Vector3(0.0, height * 0.5, 0.0)
+			var depth: float = camera.global_position.distance_to(center_world)
+			if depth < 0.1 or camera.is_position_behind(center_world):
+				continue
+			var top_screen: Vector2 = camera.unproject_position(house_position + Vector3(0.0, height, 0.0))
+			var bottom_screen: Vector2 = camera.unproject_position(house_position)
+			var center_screen: Vector2 = camera.unproject_position(center_world)
+			var projected_width: float = clampf(focal_pixels * width / depth, 4.0, 320.0)
+			var projected_height: float = clampf(absf(bottom_screen.y - top_screen.y), 8.0, 640.0)
+			var bounds := Rect2(Vector2(center_screen.x - projected_width * 0.5, minf(top_screen.y, bottom_screen.y)), Vector2(projected_width, projected_height))
+			candidates.append({"node": house, "distance": depth, "height": height, "center": center_screen, "bounds": bounds})
+	candidates.sort_custom(_building_candidate_nearer)
+	var occluders: Array[Dictionary] = []
+	for candidate in candidates:
+		var building: Node3D = candidate["node"]
+		var building_height: float = float(candidate["height"])
+		var depth: float = float(candidate["distance"])
+		var center: Vector2 = candidate["center"]
+		var occluded: bool = false
+		for occluder in occluders:
+			if float(occluder["distance"]) + 0.8 >= depth:
+				continue
+			if float(occluder["height"]) < building_height * 0.78:
+				continue
+			var occluder_bounds: Rect2 = occluder["bounds"]
+			if occluder_bounds.has_point(center):
+				occluded = true
+				break
+		building.visible = not occluded
+		if not occluded and building_height >= 6.0:
+			occluders.append({"distance": depth, "height": building_height, "bounds": candidate["bounds"]})
+
+
 func _update_world_detail_levels() -> void:
 	var active_lod: int = _terrain_lod_index_for_distance(camera_distance)
 	if active_lod < terrain_lod_dirty.size() and terrain_lod_dirty[active_lod]:
@@ -5619,6 +5669,7 @@ func _update_world_detail_levels() -> void:
 			var in_frustum: bool = _is_point_in_camera_view(view_point, 54.0) or _is_point_in_camera_view(top_point, 54.0)
 			var distance_squared: float = house.global_position.distance_squared_to(camera.global_position)
 			house.visible = show_neighbourhoods and not ruined and distance_squared <= 220.0 * 220.0 and in_frustum
+	_cull_buildings_behind_nearby_structures()
 	var person_range: float = clampf(camera_distance * 0.54, 22.0, 68.0)
 	var person_range_squared: float = person_range * person_range
 	for person in people:
