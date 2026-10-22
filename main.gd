@@ -1239,9 +1239,9 @@ func _update_placed_object_heights() -> void:
 			if bool(house.get_meta("terrain_terraced", false)):
 				base_height = _max_terrain_height_in_radius(house_world_x, house_world_z, float(house.get_meta("plot_grade_radius", 2.25))) + 0.18
 			house.position.y = base_height - p.y
+	_schedule_city_territory_refresh()
 	for city_id in range(cities.size()):
-		_refresh_city_territory(city_id)
-		_rebuild_city_roads(city_id)
+		_queue_city_roads_rebuild(city_id)
 	for army in armies:
 		var p: Vector3 = army["pos"]
 		p.y = _height_at(p.x, p.z)
@@ -5077,7 +5077,7 @@ func _collapse_specific_building(city_id: int, house: Node3D, allow_chain: bool 
 
 
 	if rebuild_roads and city_id < cities.size():
-		_rebuild_city_roads(city_id)
+		_queue_city_roads_rebuild(city_id)
 		_schedule_city_territory_refresh()
 	return true
 
