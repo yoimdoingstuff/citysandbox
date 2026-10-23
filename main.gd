@@ -6031,10 +6031,39 @@ func _update_armies(delta: float) -> void:
 				attack_interval = 1.7
 			elif unit_type == "apc":
 				attack_interval = 2.5
+			elif unit_type == "artillery":
+				attack_interval = 4.2
 			if float(army["attack_timer"]) >= attack_interval:
 				army["attack_timer"] = 0.0
 				var damage: float = float(army.get("attack_power", 1.0))
-				_damage_city(target_id, maxi(1, int(ceil(damage))), unit_type)
+				_damage_city(target_id, maxi(1, int(ceil(damage))), "army")
+				# Ground forces can seize civilians as bargaining chips once they
+				# reach city streets. Captives remain visible beside their escort.
+				if unit_type in ["infantry", "tank", "apc"] and randf() < 0.35:
+					_capture_city_hostages(target_id, source_id, 1)
+				# Artillery shells and occasional airstrikes damage actual roadside
+				# infrastructure and trigger the existing building-collapse system.
+				var bombard: bool = unit_type == "artillery"
+				if unit_type in ["aircraft", "helicopter"] and randf() < 0.22:
+					bombard = true
+				if bombard:
+					var city_houses: Array = cities[target_id]["houses"]
+					var bombard_target: Node3D = null
+					for house in city_houses:
+						if is_instance_valid(house) and not bool(house.get_meta("is_collapsing", false)):
+							bombard_target = house
+							break
+					var impact_position: Vector3 = bombard_target.global_position if is_instance_valid(bombard_target) else cities[target_id]["pos"]
+					var impact_radius: float = 4.8 if unit_type == "artillery" else 7.0
+					_spawn_god_effect(impact_position, Color(1.0, 0.30, 0.08), 2.6 if unit_type == "artillery" else 3.6, 0.8, "impact")
+					_damage_roads_at_position(impact_position, impact_radius, false)
+					if is_instance_valid(bombard_target):
+						_collapse_specific_building(target_id, bombard_target, true, false, 0, 0.62)
+					_queue_city_roads_rebuild(target_id)
+					if unit_type == "artillery":
+						_log("ARTILLERY BOMBARDMENT: %s batteries are shelling roads and buildings in %s." % [cities[source_id]["name"], cities[target_id]["name"]])
+					else:
+						_log("AIRSTRIKE: %s aircraft attacked infrastructure in %s." % [cities[source_id]["name"], cities[target_id]["name"]])
 				if _city_population(target_id) <= 0:
 					_capture_city(target_id, source_id)
 				# Combat losses are less frequent for armoured units; aircraft can
