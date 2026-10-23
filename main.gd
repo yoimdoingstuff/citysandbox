@@ -7535,11 +7535,13 @@ func _spawn_building_collapse_smoke(center: Vector3, building_height: float, tal
 		puff_mesh.height = puff_mesh.radius * 2.0
 		smoke_material.albedo_color = Color(randf_range(0.17, 0.29), randf_range(0.18, 0.30), randf_range(0.19, 0.31), randf_range(0.48, 0.70))
 		var drift := Vector3(randf_range(-2.2, 2.2), randf_range(0.4, maxf(2.0, building_height * 0.36)), randf_range(-2.2, 2.2))
+		if puff.get_parent() == null:
+			add_child(puff)
+		# global_position queries the parent transform, so only set it after the
+		# puff is in the scene tree (also avoids warnings in headless stress runs).
 		puff.global_position = center + Vector3(randf_range(-1.8, 1.8), randf_range(0.0, 1.3), randf_range(-1.8, 1.8))
 		puff.scale = Vector3.ONE * randf_range(0.4, 0.9)
 		puff.visible = true
-		if puff.get_parent() == null:
-			add_child(puff)
 		active_building_smoke_puffs += 1
 		var lifetime: float = randf_range(2.5, 4.2) if tall_building else randf_range(1.8, 3.0)
 		if impact_burst:
