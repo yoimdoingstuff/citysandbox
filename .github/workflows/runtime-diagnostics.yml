@@ -308,8 +308,10 @@ jobs:
           }
           if ($source -notmatch 'construction_site_indices\.get\(requested_site_id' -or
               $source -notmatch 'rubble_index_by_id\.get\(rubble_id' -or
-              $source -notmatch 'construction_site_count_by_city\.get\(city_id') {
-            throw "Construction-site, rubble or per-city construction-count optimization is missing."
+              $source -notmatch 'construction_site_count_by_city\.get\(city_id' -or
+              $source -notmatch 'population_counts_cache_frame == performance_frame_count' -or
+              $source -notmatch 'func _invalidate_population_counts\(') {
+            throw "Construction/rubble indexes or per-frame population caching is missing."
           }
           if ($source -notmatch 'airport_render_range_squared' -or
               $source -notmatch '_spawn_transport\(first_airport_city, first_airport_city, "air"\)') {
