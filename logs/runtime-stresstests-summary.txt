@@ -1,15 +1,15 @@
 Civiterra Runtime Stress Tests
-UTC start: 2026-10-23T02:50:15.0678614Z
-UTC finish: 2026-10-23T02:53:00.1652245Z
-Run ID: 39891717531
+UTC start: 2026-10-23T02:53:23.3601376Z
+UTC finish: 2026-10-23T02:56:12.3409134Z
+Run ID: 39891886398
 Attempt: 1
-Commit: f372b544d1ccb58f2ef76b483d50d2e81c0405ba
+Commit: d57982ade70ed039260c6791cbcb820296a2325c
 Branch/ref: refs/heads/main
 Godot version: 4.3.stable.official.77dcf97d8
 OS: Microsoft Windows Server 2025 Datacenter
-CPU: AMD EPYC 9V45 96-Core Processor                
+CPU: Intel(R) Xeon(R) Platinum 8370C CPU @ 2.80GHz
 Installed RAM: 16 GB
-Observed runtime: 162.89 seconds
+Observed runtime: 166.57 seconds
 Timed out: False
 Game process exit code: 0
 Stress suite completed: True
@@ -17,4 +17,4 @@ Completed scenarios: 19
 Interpretation: engine FPS, frame interval percentiles, maximum frame work, stress action duration, entity counts and process CPU/memory are measured separately.
 Rendered screenshots captured: 19
 Latest screenshot: logs/civiterra-latest.png
-One-second FPS sample windows: 134
+One-second FPS sample windows: 127

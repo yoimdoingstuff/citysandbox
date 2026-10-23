@@ -6,180 +6,44 @@ ERROR: WASAPI: init_output_device error.
    at: (drivers/wasapi/audio_driver_wasapi.cpp:542)
 WARNING: All audio drivers failed, falling back to the dummy driver.
      at: initialize (servers/audio_server.cpp:247)
-SCRIPT ERROR: Trying to cast a freed object.
-          at: _update_construction_sites (res://main.gd:3208)
-SCRIPT ERROR: Trying to cast a freed object.
-          at: _update_construction_sites (res://main.gd:3208)
-SCRIPT ERROR: Trying to cast a freed object.
-          at: _update_construction_sites (res://main.gd:3208)
+ERROR: Condition "!is_inside_tree()" is true. Returning: Transform3D()
+   at: get_global_transform (scene/3d/node_3d.cpp:345)
+ERROR: Condition "!is_inside_tree()" is true. Returning: Transform3D()
+   at: get_global_transform (scene/3d/node_3d.cpp:345)
+ERROR: Condition "!is_inside_tree()" is true. Returning: Transform3D()
+   at: get_global_transform (scene/3d/node_3d.cpp:345)
+ERROR: Condition "!is_inside_tree()" is true. Returning: Transform3D()
+   at: get_global_transform (scene/3d/node_3d.cpp:345)
+ERROR: Condition "!is_inside_tree()" is true. Returning: Transform3D()
+   at: get_global_transform (scene/3d/node_3d.cpp:345)
 SCRIPT ERROR: Invalid assignment of property or key 'modulate' with value of type 'Color' on a base object of type 'Node3D'.
-          at: _capture_city (res://main.gd:7296)
+          at: _capture_city (res://main.gd:7373)
 SCRIPT ERROR: Trying to cast a freed object.
-          at: _update_construction_sites (res://main.gd:3208)
+          at: _update_construction_sites (res://main.gd:3263)
 SCRIPT ERROR: Trying to cast a freed object.
-          at: _update_construction_sites (res://main.gd:3208)
-SCRIPT ERROR: Trying to cast a freed object.
-          at: _update_construction_sites (res://main.gd:3208)
-ERROR: Condition "!is_inside_tree()" is true. Returning: Transform3D()
-   at: get_global_transform (scene/3d/node_3d.cpp:345)
+          at: _update_construction_sites (res://main.gd:3263)
 ERROR: Condition "!is_inside_tree()" is true. Returning: Transform3D()
    at: get_global_transform (scene/3d/node_3d.cpp:345)
 ERROR: Condition "!is_inside_tree()" is true. Returning: Transform3D()
    at: get_global_transform (scene/3d/node_3d.cpp:345)
 ERROR: Condition "!is_inside_tree()" is true. Returning: Transform3D()
    at: get_global_transform (scene/3d/node_3d.cpp:345)
-ERROR: Condition "!is_inside_tree()" is true. Returning: Transform3D()
-   at: get_global_transform (scene/3d/node_3d.cpp:345)
-SCRIPT ERROR: Trying to cast a freed object.
-          at: _update_construction_sites (res://main.gd:3208)
-SCRIPT ERROR: Trying to cast a freed object.
-          at: _update_construction_sites (res://main.gd:3208)
-SCRIPT ERROR: Trying to cast a freed object.
-          at: _update_construction_sites (res://main.gd:3208)
-SCRIPT ERROR: Trying to cast a freed object.
-          at: _update_construction_sites (res://main.gd:3208)
-SCRIPT ERROR: Trying to cast a freed object.
-          at: _update_construction_sites (res://main.gd:3208)
-SCRIPT ERROR: Trying to cast a freed object.
-          at: _update_construction_sites (res://main.gd:3208)
-SCRIPT ERROR: Trying to cast a freed object.
-          at: _update_construction_sites (res://main.gd:3208)
-SCRIPT ERROR: Trying to cast a freed object.
-          at: _update_construction_sites (res://main.gd:3208)
-SCRIPT ERROR: Trying to cast a freed object.
-          at: _update_construction_sites (res://main.gd:3208)
-SCRIPT ERROR: Trying to cast a freed object.
-          at: _update_construction_sites (res://main.gd:3208)
-SCRIPT ERROR: Trying to cast a freed object.
-          at: _update_construction_sites (res://main.gd:3208)
-SCRIPT ERROR: Trying to cast a freed object.
-          at: _update_construction_sites (res://main.gd:3208)
-SCRIPT ERROR: Trying to cast a freed object.
-          at: _update_construction_sites (res://main.gd:3208)
-SCRIPT ERROR: Trying to cast a freed object.
-          at: _update_construction_sites (res://main.gd:3208)
-SCRIPT ERROR: Trying to cast a freed object.
-          at: _update_construction_sites (res://main.gd:3208)
-SCRIPT ERROR: Trying to cast a freed object.
-          at: _update_construction_sites (res://main.gd:3208)
-SCRIPT ERROR: Trying to cast a freed object.
-          at: _update_construction_sites (res://main.gd:3208)
-SCRIPT ERROR: Trying to cast a freed object.
-          at: _update_construction_sites (res://main.gd:3208)
-SCRIPT ERROR: Trying to cast a freed object.
-          at: _update_construction_sites (res://main.gd:3208)
-SCRIPT ERROR: Trying to cast a freed object.
-          at: _update_construction_sites (res://main.gd:3208)
-SCRIPT ERROR: Trying to cast a freed object.
-          at: _update_construction_sites (res://main.gd:3208)
 ERROR: Condition "!is_inside_tree()" is true. Returning: Transform3D()
    at: get_global_transform (scene/3d/node_3d.cpp:345)
 ERROR: Condition "!is_inside_tree()" is true. Returning: Transform3D()
    at: get_global_transform (scene/3d/node_3d.cpp:345)
-SCRIPT ERROR: Trying to cast a freed object.
-          at: _update_construction_sites (res://main.gd:3208)
-SCRIPT ERROR: Trying to cast a freed object.
-          at: _update_construction_sites (res://main.gd:3208)
-SCRIPT ERROR: Trying to cast a freed object.
-          at: _update_construction_sites (res://main.gd:3208)
-SCRIPT ERROR: Trying to cast a freed object.
-          at: _update_construction_sites (res://main.gd:3208)
-SCRIPT ERROR: Trying to cast a freed object.
-          at: _update_construction_sites (res://main.gd:3208)
-SCRIPT ERROR: Trying to cast a freed object.
-          at: _update_construction_sites (res://main.gd:3208)
-SCRIPT ERROR: Trying to cast a freed object.
-          at: _update_construction_sites (res://main.gd:3208)
-SCRIPT ERROR: Trying to cast a freed object.
-          at: _update_construction_sites (res://main.gd:3208)
-SCRIPT ERROR: Trying to cast a freed object.
-          at: _update_construction_sites (res://main.gd:3208)
-SCRIPT ERROR: Trying to cast a freed object.
-          at: _update_construction_sites (res://main.gd:3208)
-SCRIPT ERROR: Trying to cast a freed object.
-          at: _update_construction_sites (res://main.gd:3208)
-SCRIPT ERROR: Trying to cast a freed object.
-          at: _update_construction_sites (res://main.gd:3208)
-SCRIPT ERROR: Trying to cast a freed object.
-          at: _update_construction_sites (res://main.gd:3208)
-SCRIPT ERROR: Trying to cast a freed object.
-          at: _update_construction_sites (res://main.gd:3208)
-SCRIPT ERROR: Trying to cast a freed object.
-          at: _update_construction_sites (res://main.gd:3208)
-SCRIPT ERROR: Trying to cast a freed object.
-          at: _update_construction_sites (res://main.gd:3208)
-SCRIPT ERROR: Trying to cast a freed object.
-          at: _update_construction_sites (res://main.gd:3208)
-SCRIPT ERROR: Trying to cast a freed object.
-          at: _update_construction_sites (res://main.gd:3208)
-SCRIPT ERROR: Trying to cast a freed object.
-          at: _update_construction_sites (res://main.gd:3208)
-SCRIPT ERROR: Trying to cast a freed object.
-          at: _update_construction_sites (res://main.gd:3208)
-SCRIPT ERROR: Trying to cast a freed object.
-          at: _update_construction_sites (res://main.gd:3208)
-SCRIPT ERROR: Trying to cast a freed object.
-          at: _update_construction_sites (res://main.gd:3208)
-SCRIPT ERROR: Trying to cast a freed object.
-          at: _update_construction_sites (res://main.gd:3208)
-SCRIPT ERROR: Trying to cast a freed object.
-          at: _update_construction_sites (res://main.gd:3208)
-SCRIPT ERROR: Trying to cast a freed object.
-          at: _update_construction_sites (res://main.gd:3208)
 SCRIPT ERROR: Trying to cast a freed object.
-          at: _update_construction_sites (res://main.gd:3208)
+          at: _update_construction_sites (res://main.gd:3263)
 SCRIPT ERROR: Trying to cast a freed object.
-          at: _update_construction_sites (res://main.gd:3208)
+          at: _update_construction_sites (res://main.gd:3263)
 SCRIPT ERROR: Trying to cast a freed object.
-          at: _update_construction_sites (res://main.gd:3208)
+          at: _update_construction_sites (res://main.gd:3263)
 SCRIPT ERROR: Trying to cast a freed object.
-          at: _update_construction_sites (res://main.gd:3208)
+          at: _update_construction_sites (res://main.gd:3263)
 SCRIPT ERROR: Trying to cast a freed object.
-          at: _update_construction_sites (res://main.gd:3208)
+          at: _update_construction_sites (res://main.gd:3263)
 SCRIPT ERROR: Trying to cast a freed object.
-          at: _update_construction_sites (res://main.gd:3208)
-SCRIPT ERROR: Trying to cast a freed object.
-          at: _update_construction_sites (res://main.gd:3208)
-SCRIPT ERROR: Trying to cast a freed object.
-          at: _update_construction_sites (res://main.gd:3208)
-SCRIPT ERROR: Trying to cast a freed object.
-          at: _update_construction_sites (res://main.gd:3208)
-SCRIPT ERROR: Trying to cast a freed object.
-          at: _update_construction_sites (res://main.gd:3208)
-SCRIPT ERROR: Trying to cast a freed object.
-          at: _update_construction_sites (res://main.gd:3208)
-SCRIPT ERROR: Trying to cast a freed object.
-          at: _update_construction_sites (res://main.gd:3208)
-SCRIPT ERROR: Trying to cast a freed object.
-          at: _update_construction_sites (res://main.gd:3208)
-SCRIPT ERROR: Trying to cast a freed object.
-          at: _update_construction_sites (res://main.gd:3208)
-SCRIPT ERROR: Trying to cast a freed object.
-          at: _update_construction_sites (res://main.gd:3208)
-SCRIPT ERROR: Trying to cast a freed object.
-          at: _update_construction_sites (res://main.gd:3208)
-SCRIPT ERROR: Trying to cast a freed object.
-          at: _update_construction_sites (res://main.gd:3208)
-SCRIPT ERROR: Trying to cast a freed object.
-          at: _update_construction_sites (res://main.gd:3208)
-SCRIPT ERROR: Trying to cast a freed object.
-          at: _update_construction_sites (res://main.gd:3208)
-SCRIPT ERROR: Trying to cast a freed object.
-          at: _update_construction_sites (res://main.gd:3208)
-SCRIPT ERROR: Trying to cast a freed object.
-          at: _update_construction_sites (res://main.gd:3208)
-SCRIPT ERROR: Trying to cast a freed object.
-          at: _update_construction_sites (res://main.gd:3208)
-SCRIPT ERROR: Trying to cast a freed object.
-          at: _update_construction_sites (res://main.gd:3208)
-SCRIPT ERROR: Trying to cast a freed object.
-          at: _update_construction_sites (res://main.gd:3208)
-SCRIPT ERROR: Trying to cast a freed object.
-          at: _update_construction_sites (res://main.gd:3208)
-SCRIPT ERROR: Trying to cast a freed object.
-          at: _update_construction_sites (res://main.gd:3208)
-SCRIPT ERROR: Trying to cast a freed object.
-          at: _update_construction_sites (res://main.gd:3208)
+          at: _update_construction_sites (res://main.gd:3263)
 ERROR: Condition "!is_inside_tree()" is true. Returning: Transform3D()
    at: get_global_transform (scene/3d/node_3d.cpp:345)
 ERROR: Condition "!is_inside_tree()" is true. Returning: Transform3D()
@@ -196,34 +60,20 @@ ERROR: Condition "!is_inside_tree()" is true. Returning: Transform3D()
    at: get_global_transform (scene/3d/node_3d.cpp:345)
 ERROR: Condition "!is_inside_tree()" is true. Returning: Transform3D()
    at: get_global_transform (scene/3d/node_3d.cpp:345)
-SCRIPT ERROR: Trying to cast a freed object.
-          at: _update_construction_sites (res://main.gd:3208)
-SCRIPT ERROR: Trying to cast a freed object.
-          at: _update_construction_sites (res://main.gd:3208)
-SCRIPT ERROR: Trying to cast a freed object.
-          at: _update_construction_sites (res://main.gd:3208)
 ERROR: Condition "!is_inside_tree()" is true. Returning: Transform3D()
    at: get_global_transform (scene/3d/node_3d.cpp:345)
 ERROR: Condition "!is_inside_tree()" is true. Returning: Transform3D()
    at: get_global_transform (scene/3d/node_3d.cpp:345)
 ERROR: Condition "!is_inside_tree()" is true. Returning: Transform3D()
    at: get_global_transform (scene/3d/node_3d.cpp:345)
-SCRIPT ERROR: Trying to cast a freed object.
-          at: _update_construction_sites (res://main.gd:3208)
 SCRIPT ERROR: Trying to cast a freed object.
-          at: _update_construction_sites (res://main.gd:3208)
+          at: _update_construction_sites (res://main.gd:3263)
 SCRIPT ERROR: Trying to cast a freed object.
-          at: _update_construction_sites (res://main.gd:3208)
+          at: _update_construction_sites (res://main.gd:3263)
 SCRIPT ERROR: Trying to cast a freed object.
-          at: _update_construction_sites (res://main.gd:3208)
+          at: _update_construction_sites (res://main.gd:3263)
 SCRIPT ERROR: Trying to cast a freed object.
-          at: _update_construction_sites (res://main.gd:3208)
-SCRIPT ERROR: Trying to cast a freed object.
-          at: _update_construction_sites (res://main.gd:3208)
-SCRIPT ERROR: Trying to cast a freed object.
-          at: _update_construction_sites (res://main.gd:3208)
-SCRIPT ERROR: Trying to cast a freed object.
-          at: _update_construction_sites (res://main.gd:3208)
+          at: _update_construction_sites (res://main.gd:3263)
 ERROR: Condition "!is_inside_tree()" is true. Returning: Transform3D()
    at: get_global_transform (scene/3d/node_3d.cpp:345)
 ERROR: Condition "!is_inside_tree()" is true. Returning: Transform3D()
@@ -234,8 +84,6 @@ ERROR: Condition "!is_inside_tree()" is true. Returning: Transform3D()
    at: get_global_transform (scene/3d/node_3d.cpp:345)
 ERROR: Condition "!is_inside_tree()" is true. Returning: Transform3D()
    at: get_global_transform (scene/3d/node_3d.cpp:345)
-SCRIPT ERROR: Trying to cast a freed object.
-          at: _update_construction_sites (res://main.gd:3208)
 ERROR: Condition "!is_inside_tree()" is true. Returning: Transform3D()
    at: get_global_transform (scene/3d/node_3d.cpp:345)
 ERROR: Condition "!is_inside_tree()" is true. Returning: Transform3D()
@@ -246,16 +94,14 @@ ERROR: Condition "!is_inside_tree()" is true. Returning: Transform3D()
    at: get_global_transform (scene/3d/node_3d.cpp:345)
 ERROR: Condition "!is_inside_tree()" is true. Returning: Transform3D()
    at: get_global_transform (scene/3d/node_3d.cpp:345)
-SCRIPT ERROR: Trying to cast a freed object.
-          at: _update_construction_sites (res://main.gd:3208)
-SCRIPT ERROR: Trying to cast a freed object.
-          at: _update_construction_sites (res://main.gd:3208)
 ERROR: Condition "!is_inside_tree()" is true. Returning: Transform3D()
    at: get_global_transform (scene/3d/node_3d.cpp:345)
 ERROR: Condition "!is_inside_tree()" is true. Returning: Transform3D()
    at: get_global_transform (scene/3d/node_3d.cpp:345)
 ERROR: Condition "!is_inside_tree()" is true. Returning: Transform3D()
    at: get_global_transform (scene/3d/node_3d.cpp:345)
+SCRIPT ERROR: Trying to cast a freed object.
+          at: _update_construction_sites (res://main.gd:3263)
 ERROR: Condition "!is_inside_tree()" is true. Returning: Transform3D()
    at: get_global_transform (scene/3d/node_3d.cpp:345)
 ERROR: Condition "!is_inside_tree()" is true. Returning: Transform3D()
@@ -264,10 +110,12 @@ ERROR: Condition "!is_inside_tree()" is true. Returning: Transform3D()
    at: get_global_transform (scene/3d/node_3d.cpp:345)
 ERROR: Condition "!is_inside_tree()" is true. Returning: Transform3D()
    at: get_global_transform (scene/3d/node_3d.cpp:345)
-SCRIPT ERROR: Trying to cast a freed object.
-          at: _update_construction_sites (res://main.gd:3208)
 ERROR: Condition "!is_inside_tree()" is true. Returning: Transform3D()
    at: get_global_transform (scene/3d/node_3d.cpp:345)
+SCRIPT ERROR: Trying to cast a freed object.
+          at: _update_construction_sites (res://main.gd:3263)
+SCRIPT ERROR: Trying to cast a freed object.
+          at: _update_construction_sites (res://main.gd:3263)
 ERROR: Condition "!is_inside_tree()" is true. Returning: Transform3D()
    at: get_global_transform (scene/3d/node_3d.cpp:345)
 ERROR: Condition "!is_inside_tree()" is true. Returning: Transform3D()
@@ -280,40 +128,16 @@ ERROR: Condition "!is_inside_tree()" is true. Returning: Transform3D()
    at: get_global_transform (scene/3d/node_3d.cpp:345)
 ERROR: Condition "!is_inside_tree()" is true. Returning: Transform3D()
    at: get_global_transform (scene/3d/node_3d.cpp:345)
-SCRIPT ERROR: Trying to cast a freed object.
-          at: _update_construction_sites (res://main.gd:3208)
 ERROR: Condition "!is_inside_tree()" is true. Returning: Transform3D()
    at: get_global_transform (scene/3d/node_3d.cpp:345)
 ERROR: Condition "!is_inside_tree()" is true. Returning: Transform3D()
    at: get_global_transform (scene/3d/node_3d.cpp:345)
-SCRIPT ERROR: Trying to cast a freed object.
-          at: _update_construction_sites (res://main.gd:3208)
 ERROR: Condition "!is_inside_tree()" is true. Returning: Transform3D()
    at: get_global_transform (scene/3d/node_3d.cpp:345)
 ERROR: Condition "!is_inside_tree()" is true. Returning: Transform3D()
    at: get_global_transform (scene/3d/node_3d.cpp:345)
-SCRIPT ERROR: Trying to cast a freed object.
-          at: _update_construction_sites (res://main.gd:3208)
 SCRIPT ERROR: Trying to cast a freed object.
-          at: _update_construction_sites (res://main.gd:3208)
-SCRIPT ERROR: Trying to cast a freed object.
-          at: _update_construction_sites (res://main.gd:3208)
-SCRIPT ERROR: Trying to cast a freed object.
-          at: _update_construction_sites (res://main.gd:3208)
-SCRIPT ERROR: Trying to cast a freed object.
-          at: _update_construction_sites (res://main.gd:3208)
-SCRIPT ERROR: Trying to cast a freed object.
-          at: _update_construction_sites (res://main.gd:3208)
-SCRIPT ERROR: Trying to cast a freed object.
-          at: _update_construction_sites (res://main.gd:3208)
-SCRIPT ERROR: Trying to cast a freed object.
-          at: _update_construction_sites (res://main.gd:3208)
-SCRIPT ERROR: Trying to cast a freed object.
-          at: _update_construction_sites (res://main.gd:3208)
-SCRIPT ERROR: Trying to cast a freed object.
-          at: _update_construction_sites (res://main.gd:3208)
-SCRIPT ERROR: Trying to cast a freed object.
-          at: _update_construction_sites (res://main.gd:3208)
+          at: _update_construction_sites (res://main.gd:3263)
 ERROR: Condition "!is_inside_tree()" is true. Returning: Transform3D()
    at: get_global_transform (scene/3d/node_3d.cpp:345)
 ERROR: Condition "!is_inside_tree()" is true. Returning: Transform3D()
@@ -324,24 +148,40 @@ ERROR: Condition "!is_inside_tree()" is true. Returning: Transform3D()
    at: get_global_transform (scene/3d/node_3d.cpp:345)
 ERROR: Condition "!is_inside_tree()" is true. Returning: Transform3D()
    at: get_global_transform (scene/3d/node_3d.cpp:345)
-SCRIPT ERROR: Trying to cast a freed object.
-          at: _update_construction_sites (res://main.gd:3208)
 ERROR: Condition "!is_inside_tree()" is true. Returning: Transform3D()
    at: get_global_transform (scene/3d/node_3d.cpp:345)
 ERROR: Condition "!is_inside_tree()" is true. Returning: Transform3D()
    at: get_global_transform (scene/3d/node_3d.cpp:345)
 SCRIPT ERROR: Trying to cast a freed object.
-          at: _update_construction_sites (res://main.gd:3208)
-ERROR: Condition "!is_inside_tree()" is true. Returning: Transform3D()
-   at: get_global_transform (scene/3d/node_3d.cpp:345)
+          at: _update_construction_sites (res://main.gd:3263)
 ERROR: Condition "!is_inside_tree()" is true. Returning: Transform3D()
    at: get_global_transform (scene/3d/node_3d.cpp:345)
 ERROR: Condition "!is_inside_tree()" is true. Returning: Transform3D()
    at: get_global_transform (scene/3d/node_3d.cpp:345)
+SCRIPT ERROR: Trying to cast a freed object.
+          at: _update_construction_sites (res://main.gd:3263)
 ERROR: Condition "!is_inside_tree()" is true. Returning: Transform3D()
    at: get_global_transform (scene/3d/node_3d.cpp:345)
 ERROR: Condition "!is_inside_tree()" is true. Returning: Transform3D()
    at: get_global_transform (scene/3d/node_3d.cpp:345)
+SCRIPT ERROR: Trying to cast a freed object.
+          at: _update_construction_sites (res://main.gd:3263)
+SCRIPT ERROR: Trying to cast a freed object.
+          at: _update_construction_sites (res://main.gd:3263)
+SCRIPT ERROR: Trying to cast a freed object.
+          at: _update_construction_sites (res://main.gd:3263)
+SCRIPT ERROR: Trying to cast a freed object.
+          at: _update_construction_sites (res://main.gd:3263)
+SCRIPT ERROR: Trying to cast a freed object.
+          at: _update_construction_sites (res://main.gd:3263)
+SCRIPT ERROR: Trying to cast a freed object.
+          at: _update_construction_sites (res://main.gd:3263)
+SCRIPT ERROR: Trying to cast a freed object.
+          at: _update_construction_sites (res://main.gd:3263)
+SCRIPT ERROR: Trying to cast a freed object.
+          at: _update_construction_sites (res://main.gd:3263)
+SCRIPT ERROR: Trying to cast a freed object.
+          at: _update_construction_sites (res://main.gd:3263)
 ERROR: Condition "!is_inside_tree()" is true. Returning: Transform3D()
    at: get_global_transform (scene/3d/node_3d.cpp:345)
 ERROR: Condition "!is_inside_tree()" is true. Returning: Transform3D()
@@ -352,6 +192,8 @@ ERROR: Condition "!is_inside_tree()" is true. Returning: Transform3D()
    at: get_global_transform (scene/3d/node_3d.cpp:345)
 ERROR: Condition "!is_inside_tree()" is true. Returning: Transform3D()
    at: get_global_transform (scene/3d/node_3d.cpp:345)
+SCRIPT ERROR: Trying to cast a freed object.
+          at: _update_construction_sites (res://main.gd:3263)
 ERROR: Condition "!is_inside_tree()" is true. Returning: Transform3D()
    at: get_global_transform (scene/3d/node_3d.cpp:345)
 ERROR: Condition "!is_inside_tree()" is true. Returning: Transform3D()
@@ -363,23 +205,39 @@ ERROR: Condition "!is_inside_tree()" is true. Returning: Transform3D()
 ERROR: Condition "!is_inside_tree()" is true. Returning: Transform3D()
    at: get_global_transform (scene/3d/node_3d.cpp:345)
 SCRIPT ERROR: Trying to cast a freed object.
-          at: _update_construction_sites (res://main.gd:3208)
-ERROR: Condition "!is_inside_tree()" is true. Returning: Transform3D()
-   at: get_global_transform (scene/3d/node_3d.cpp:345)
+          at: _update_construction_sites (res://main.gd:3263)
 ERROR: Condition "!is_inside_tree()" is true. Returning: Transform3D()
    at: get_global_transform (scene/3d/node_3d.cpp:345)
 ERROR: Condition "!is_inside_tree()" is true. Returning: Transform3D()
    at: get_global_transform (scene/3d/node_3d.cpp:345)
-ERROR: Condition "!is_inside_tree()" is true. Returning: Transform3D()
-   at: get_global_transform (scene/3d/node_3d.cpp:345)
-ERROR: Condition "!is_inside_tree()" is true. Returning: Transform3D()
-   at: get_global_transform (scene/3d/node_3d.cpp:345)
-ERROR: Condition "!is_inside_tree()" is true. Returning: Transform3D()
-   at: get_global_transform (scene/3d/node_3d.cpp:345)
+SCRIPT ERROR: Left operand of 'is' is a previously freed instance.
+          at: _update_people (res://main.gd:4269)
+SCRIPT ERROR: Left operand of 'is' is a previously freed instance.
+          at: _update_people (res://main.gd:4269)
+SCRIPT ERROR: Left operand of 'is' is a previously freed instance.
+          at: _update_people (res://main.gd:4269)
+SCRIPT ERROR: Left operand of 'is' is a previously freed instance.
+          at: _update_people (res://main.gd:4269)
+SCRIPT ERROR: Left operand of 'is' is a previously freed instance.
+          at: _update_people (res://main.gd:4269)
 ERROR: Condition "!is_inside_tree()" is true. Returning: Transform3D()
    at: get_global_transform (scene/3d/node_3d.cpp:345)
 ERROR: Condition "!is_inside_tree()" is true. Returning: Transform3D()
    at: get_global_transform (scene/3d/node_3d.cpp:345)
+SCRIPT ERROR: Left operand of 'is' is a previously freed instance.
+          at: _update_people (res://main.gd:4269)
+SCRIPT ERROR: Trying to cast a freed object.
+          at: _update_construction_sites (res://main.gd:3263)
+SCRIPT ERROR: Left operand of 'is' is a previously freed instance.
+          at: _update_people (res://main.gd:4269)
+SCRIPT ERROR: Left operand of 'is' is a previously freed instance.
+          at: _update_people (res://main.gd:4269)
+SCRIPT ERROR: Trying to cast a freed object.
+          at: _update_construction_sites (res://main.gd:3263)
+SCRIPT ERROR: Left operand of 'is' is a previously freed instance.
+          at: _update_people (res://main.gd:4269)
+SCRIPT ERROR: Left operand of 'is' is a previously freed instance.
+          at: _update_people (res://main.gd:4269)
 ERROR: Condition "!is_inside_tree()" is true. Returning: Transform3D()
    at: get_global_transform (scene/3d/node_3d.cpp:345)
 ERROR: Condition "!is_inside_tree()" is true. Returning: Transform3D()
@@ -394,32 +252,50 @@ ERROR: Condition "!is_inside_tree()" is true. Returning: Transform3D()
    at: get_global_transform (scene/3d/node_3d.cpp:345)
 ERROR: Condition "!is_inside_tree()" is true. Returning: Transform3D()
    at: get_global_transform (scene/3d/node_3d.cpp:345)
-SCRIPT ERROR: Trying to cast a freed object.
-          at: _update_construction_sites (res://main.gd:3208)
+SCRIPT ERROR: Left operand of 'is' is a previously freed instance.
+          at: _update_people (res://main.gd:4269)
+SCRIPT ERROR: Left operand of 'is' is a previously freed instance.
+          at: _update_people (res://main.gd:4269)
 SCRIPT ERROR: Trying to cast a freed object.
-          at: _update_construction_sites (res://main.gd:3208)
+          at: _update_construction_sites (res://main.gd:3263)
+SCRIPT ERROR: Left operand of 'is' is a previously freed instance.
+          at: _update_people (res://main.gd:4269)
+SCRIPT ERROR: Left operand of 'is' is a previously freed instance.
+          at: _update_people (res://main.gd:4269)
+SCRIPT ERROR: Left operand of 'is' is a previously freed instance.
+          at: _update_people (res://main.gd:4269)
+SCRIPT ERROR: Left operand of 'is' is a previously freed instance.
+          at: _update_people (res://main.gd:4269)
+SCRIPT ERROR: Left operand of 'is' is a previously freed instance.
+          at: _update_people (res://main.gd:4269)
+SCRIPT ERROR: Left operand of 'is' is a previously freed instance.
+          at: _update_people (res://main.gd:4269)
 SCRIPT ERROR: Trying to cast a freed object.
-          at: _update_construction_sites (res://main.gd:3208)
-ERROR: Condition "!is_inside_tree()" is true. Returning: Transform3D()
-   at: get_global_transform (scene/3d/node_3d.cpp:345)
-ERROR: Condition "!is_inside_tree()" is true. Returning: Transform3D()
-   at: get_global_transform (scene/3d/node_3d.cpp:345)
-ERROR: Condition "!is_inside_tree()" is true. Returning: Transform3D()
-   at: get_global_transform (scene/3d/node_3d.cpp:345)
-ERROR: Condition "!is_inside_tree()" is true. Returning: Transform3D()
-   at: get_global_transform (scene/3d/node_3d.cpp:345)
-ERROR: Condition "!is_inside_tree()" is true. Returning: Transform3D()
-   at: get_global_transform (scene/3d/node_3d.cpp:345)
-ERROR: Condition "!is_inside_tree()" is true. Returning: Transform3D()
-   at: get_global_transform (scene/3d/node_3d.cpp:345)
+          at: _update_construction_sites (res://main.gd:3263)
 ERROR: Condition "!is_inside_tree()" is true. Returning: Transform3D()
    at: get_global_transform (scene/3d/node_3d.cpp:345)
 ERROR: Condition "!is_inside_tree()" is true. Returning: Transform3D()
    at: get_global_transform (scene/3d/node_3d.cpp:345)
+SCRIPT ERROR: Left operand of 'is' is a previously freed instance.
+          at: _update_people (res://main.gd:4269)
+SCRIPT ERROR: Left operand of 'is' is a previously freed instance.
+          at: _update_people (res://main.gd:4269)
 SCRIPT ERROR: Trying to cast a freed object.
-          at: _update_construction_sites (res://main.gd:3208)
+          at: _update_construction_sites (res://main.gd:3263)
+SCRIPT ERROR: Left operand of 'is' is a previously freed instance.
+          at: _update_people (res://main.gd:4269)
+SCRIPT ERROR: Left operand of 'is' is a previously freed instance.
+          at: _update_people (res://main.gd:4269)
+SCRIPT ERROR: Left operand of 'is' is a previously freed instance.
+          at: _update_people (res://main.gd:4269)
+SCRIPT ERROR: Left operand of 'is' is a previously freed instance.
+          at: _update_people (res://main.gd:4269)
+SCRIPT ERROR: Left operand of 'is' is a previously freed instance.
+          at: _update_people (res://main.gd:4269)
 SCRIPT ERROR: Trying to cast a freed object.
-          at: _update_construction_sites (res://main.gd:3208)
+          at: _update_construction_sites (res://main.gd:3263)
+SCRIPT ERROR: Left operand of 'is' is a previously freed instance.
+          at: _update_people (res://main.gd:4269)
 ERROR: Condition "!is_inside_tree()" is true. Returning: Transform3D()
    at: get_global_transform (scene/3d/node_3d.cpp:345)
 ERROR: Condition "!is_inside_tree()" is true. Returning: Transform3D()
@@ -428,14 +304,10 @@ ERROR: Condition "!is_inside_tree()" is true. Returning: Transform3D()
    at: get_global_transform (scene/3d/node_3d.cpp:345)
 ERROR: Condition "!is_inside_tree()" is true. Returning: Transform3D()
    at: get_global_transform (scene/3d/node_3d.cpp:345)
-SCRIPT ERROR: Trying to cast a freed object.
-          at: _update_construction_sites (res://main.gd:3208)
-SCRIPT ERROR: Trying to cast a freed object.
-          at: _update_construction_sites (res://main.gd:3208)
-SCRIPT ERROR: Trying to cast a freed object.
-          at: _update_construction_sites (res://main.gd:3208)
 ERROR: Condition "!is_inside_tree()" is true. Returning: Transform3D()
    at: get_global_transform (scene/3d/node_3d.cpp:345)
+SCRIPT ERROR: Left operand of 'is' is a previously freed instance.
+          at: _update_people (res://main.gd:4269)
 ERROR: Condition "!is_inside_tree()" is true. Returning: Transform3D()
    at: get_global_transform (scene/3d/node_3d.cpp:345)
 ERROR: Condition "!is_inside_tree()" is true. Returning: Transform3D()
@@ -446,12 +318,12 @@ ERROR: Condition "!is_inside_tree()" is true. Returning: Transform3D()
    at: get_global_transform (scene/3d/node_3d.cpp:345)
 ERROR: Condition "!is_inside_tree()" is true. Returning: Transform3D()
    at: get_global_transform (scene/3d/node_3d.cpp:345)
+SCRIPT ERROR: Left operand of 'is' is a previously freed instance.
+          at: _update_people (res://main.gd:4269)
 ERROR: Condition "!is_inside_tree()" is true. Returning: Transform3D()
    at: get_global_transform (scene/3d/node_3d.cpp:345)
 ERROR: Condition "!is_inside_tree()" is true. Returning: Transform3D()
    at: get_global_transform (scene/3d/node_3d.cpp:345)
-SCRIPT ERROR: Trying to cast a freed object.
-          at: _update_construction_sites (res://main.gd:3208)
 ERROR: Condition "!is_inside_tree()" is true. Returning: Transform3D()
    at: get_global_transform (scene/3d/node_3d.cpp:345)
 ERROR: Condition "!is_inside_tree()" is true. Returning: Transform3D()
@@ -472,8 +344,6 @@ ERROR: Condition "!is_inside_tree()" is true. Returning: Transform3D()
    at: get_global_transform (scene/3d/node_3d.cpp:345)
 ERROR: Condition "!is_inside_tree()" is true. Returning: Transform3D()
    at: get_global_transform (scene/3d/node_3d.cpp:345)
-SCRIPT ERROR: Left operand of 'is' is a previously freed instance.
-          at: _update_people (res://main.gd:4192)
 ERROR: Condition "!is_inside_tree()" is true. Returning: Transform3D()
    at: get_global_transform (scene/3d/node_3d.cpp:345)
 ERROR: Condition "!is_inside_tree()" is true. Returning: Transform3D()
@@ -490,6 +360,10 @@ ERROR: Condition "!is_inside_tree()" is true. Returning: Transform3D()
    at: get_global_transform (scene/3d/node_3d.cpp:345)
 ERROR: Condition "!is_inside_tree()" is true. Returning: Transform3D()
    at: get_global_transform (scene/3d/node_3d.cpp:345)
+SCRIPT ERROR: Left operand of 'is' is a previously freed instance.
+          at: _update_people (res://main.gd:4269)
+SCRIPT ERROR: Left operand of 'is' is a previously freed instance.
+          at: _update_people (res://main.gd:4269)
 ERROR: Condition "!is_inside_tree()" is true. Returning: Transform3D()
    at: get_global_transform (scene/3d/node_3d.cpp:345)
 ERROR: Condition "!is_inside_tree()" is true. Returning: Transform3D()
@@ -506,56 +380,66 @@ ERROR: Condition "!is_inside_tree()" is true. Returning: Transform3D()
    at: get_global_transform (scene/3d/node_3d.cpp:345)
 ERROR: Condition "!is_inside_tree()" is true. Returning: Transform3D()
    at: get_global_transform (scene/3d/node_3d.cpp:345)
+SCRIPT ERROR: Left operand of 'is' is a previously freed instance.
+          at: _update_people (res://main.gd:4269)
 ERROR: Condition "!is_inside_tree()" is true. Returning: Transform3D()
    at: get_global_transform (scene/3d/node_3d.cpp:345)
 ERROR: Condition "!is_inside_tree()" is true. Returning: Transform3D()
    at: get_global_transform (scene/3d/node_3d.cpp:345)
-SCRIPT ERROR: Left operand of 'is' is a previously freed instance.
-          at: _update_people (res://main.gd:4192)
 SCRIPT ERROR: Left operand of 'is' is a previously freed instance.
-          at: _update_people (res://main.gd:4192)
+          at: _update_people (res://main.gd:4269)
 SCRIPT ERROR: Trying to cast a freed object.
-          at: _update_construction_sites (res://main.gd:3208)
+          at: _update_construction_sites (res://main.gd:3263)
 SCRIPT ERROR: Left operand of 'is' is a previously freed instance.
-          at: _update_people (res://main.gd:4192)
-SCRIPT ERROR: Left operand of 'is' is a previously freed instance.
-          at: _update_people (res://main.gd:4192)
-SCRIPT ERROR: Left operand of 'is' is a previously freed instance.
-          at: _update_people (res://main.gd:4192)
+          at: _update_people (res://main.gd:4269)
+SCRIPT ERROR: Trying to cast a freed object.
+          at: _update_construction_sites (res://main.gd:3263)
 SCRIPT ERROR: Left operand of 'is' is a previously freed instance.
-          at: _update_people (res://main.gd:4192)
+          at: _update_people (res://main.gd:4269)
+SCRIPT ERROR: Trying to cast a freed object.
+          at: _update_construction_sites (res://main.gd:3263)
 SCRIPT ERROR: Left operand of 'is' is a previously freed instance.
-          at: _update_people (res://main.gd:4192)
+          at: _update_people (res://main.gd:4269)
+SCRIPT ERROR: Trying to cast a freed object.
+          at: _update_construction_sites (res://main.gd:3263)
 SCRIPT ERROR: Left operand of 'is' is a previously freed instance.
-          at: _update_people (res://main.gd:4192)
+          at: _update_people (res://main.gd:4269)
 SCRIPT ERROR: Left operand of 'is' is a previously freed instance.
-          at: _update_people (res://main.gd:4192)
+          at: _update_people (res://main.gd:4269)
 SCRIPT ERROR: Trying to cast a freed object.
-          at: _update_construction_sites (res://main.gd:3208)
+          at: _update_construction_sites (res://main.gd:3263)
 SCRIPT ERROR: Left operand of 'is' is a previously freed instance.
-          at: _update_people (res://main.gd:4192)
+          at: _update_people (res://main.gd:4269)
 SCRIPT ERROR: Left operand of 'is' is a previously freed instance.
-          at: _update_people (res://main.gd:4192)
+          at: _update_people (res://main.gd:4269)
+SCRIPT ERROR: Trying to cast a freed object.
+          at: _update_construction_sites (res://main.gd:3263)
 SCRIPT ERROR: Left operand of 'is' is a previously freed instance.
-          at: _update_people (res://main.gd:4192)
+          at: _update_people (res://main.gd:4269)
 SCRIPT ERROR: Left operand of 'is' is a previously freed instance.
-          at: _update_people (res://main.gd:4192)
+          at: _update_people (res://main.gd:4269)
 SCRIPT ERROR: Left operand of 'is' is a previously freed instance.
-          at: _update_people (res://main.gd:4192)
-SCRIPT ERROR: Trying to cast a freed object.
-          at: _update_construction_sites (res://main.gd:3208)
+          at: _update_people (res://main.gd:4269)
 SCRIPT ERROR: Left operand of 'is' is a previously freed instance.
-          at: _update_people (res://main.gd:4192)
+          at: _update_people (res://main.gd:4269)
 SCRIPT ERROR: Left operand of 'is' is a previously freed instance.
-          at: _update_people (res://main.gd:4192)
+          at: _update_people (res://main.gd:4269)
 SCRIPT ERROR: Left operand of 'is' is a previously freed instance.
-          at: _update_people (res://main.gd:4192)
+          at: _update_people (res://main.gd:4269)
+SCRIPT ERROR: Trying to cast a freed object.
+          at: _update_construction_sites (res://main.gd:3263)
 SCRIPT ERROR: Left operand of 'is' is a previously freed instance.
-          at: _update_people (res://main.gd:4192)
+          at: _update_people (res://main.gd:4269)
 SCRIPT ERROR: Trying to cast a freed object.
-          at: _update_construction_sites (res://main.gd:3208)
+          at: _update_construction_sites (res://main.gd:3263)
+ERROR: Condition "!is_inside_tree()" is true. Returning: Transform3D()
+   at: get_global_transform (scene/3d/node_3d.cpp:345)
+ERROR: Condition "!is_inside_tree()" is true. Returning: Transform3D()
+   at: get_global_transform (scene/3d/node_3d.cpp:345)
 SCRIPT ERROR: Left operand of 'is' is a previously freed instance.
-          at: _update_people (res://main.gd:4192)
+          at: _update_people (res://main.gd:4269)
+SCRIPT ERROR: Trying to cast a freed object.
+          at: _update_construction_sites (res://main.gd:3263)
 ERROR: Condition "!is_inside_tree()" is true. Returning: Transform3D()
    at: get_global_transform (scene/3d/node_3d.cpp:345)
 ERROR: Condition "!is_inside_tree()" is true. Returning: Transform3D()
@@ -564,8 +448,8 @@ ERROR: Condition "!is_inside_tree()" is true. Returning: Transform3D()
    at: get_global_transform (scene/3d/node_3d.cpp:345)
 ERROR: Condition "!is_inside_tree()" is true. Returning: Transform3D()
    at: get_global_transform (scene/3d/node_3d.cpp:345)
-SCRIPT ERROR: Left operand of 'is' is a previously freed instance.
-          at: _update_people (res://main.gd:4192)
+ERROR: Condition "!is_inside_tree()" is true. Returning: Transform3D()
+   at: get_global_transform (scene/3d/node_3d.cpp:345)
 ERROR: Condition "!is_inside_tree()" is true. Returning: Transform3D()
    at: get_global_transform (scene/3d/node_3d.cpp:345)
 ERROR: Condition "!is_inside_tree()" is true. Returning: Transform3D()
@@ -574,16 +458,34 @@ ERROR: Condition "!is_inside_tree()" is true. Returning: Transform3D()
    at: get_global_transform (scene/3d/node_3d.cpp:345)
 ERROR: Condition "!is_inside_tree()" is true. Returning: Transform3D()
    at: get_global_transform (scene/3d/node_3d.cpp:345)
+ERROR: Condition "!is_inside_tree()" is true. Returning: Transform3D()
+   at: get_global_transform (scene/3d/node_3d.cpp:345)
+SCRIPT ERROR: Left operand of 'is' is a previously freed instance.
+          at: _update_people (res://main.gd:4269)
+SCRIPT ERROR: Trying to cast a freed object.
+          at: _update_construction_sites (res://main.gd:3263)
 SCRIPT ERROR: Left operand of 'is' is a previously freed instance.
-          at: _update_people (res://main.gd:4192)
+          at: _update_people (res://main.gd:4269)
 SCRIPT ERROR: Left operand of 'is' is a previously freed instance.
-          at: _update_people (res://main.gd:4192)
+          at: _update_people (res://main.gd:4269)
 SCRIPT ERROR: Left operand of 'is' is a previously freed instance.
-          at: _update_people (res://main.gd:4192)
+          at: _update_people (res://main.gd:4269)
+SCRIPT ERROR: Trying to cast a freed object.
+          at: _update_construction_sites (res://main.gd:3263)
+SCRIPT ERROR: Left operand of 'is' is a previously freed instance.
+          at: _update_people (res://main.gd:4269)
+SCRIPT ERROR: Trying to cast a freed object.
+          at: _update_construction_sites (res://main.gd:3263)
+SCRIPT ERROR: Left operand of 'is' is a previously freed instance.
+          at: _update_people (res://main.gd:4269)
+SCRIPT ERROR: Left operand of 'is' is a previously freed instance.
+          at: _update_people (res://main.gd:4269)
+SCRIPT ERROR: Left operand of 'is' is a previously freed instance.
+          at: _update_people (res://main.gd:4269)
 SCRIPT ERROR: Left operand of 'is' is a previously freed instance.
-          at: _update_people (res://main.gd:4192)
+          at: _update_people (res://main.gd:4269)
 SCRIPT ERROR: Left operand of 'is' is a previously freed instance.
-          at: _update_people (res://main.gd:4192)
+          at: _update_people (res://main.gd:4269)
 ERROR: Condition "!is_inside_tree()" is true. Returning: Transform3D()
    at: get_global_transform (scene/3d/node_3d.cpp:345)
 ERROR: Condition "!is_inside_tree()" is true. Returning: Transform3D()
@@ -591,13 +493,23 @@ ERROR: Condition "!is_inside_tree()" is true. Returning: Transform3D()
 ERROR: Condition "!is_inside_tree()" is true. Returning: Transform3D()
    at: get_global_transform (scene/3d/node_3d.cpp:345)
 SCRIPT ERROR: Left operand of 'is' is a previously freed instance.
-          at: _update_people (res://main.gd:4192)
+          at: _update_people (res://main.gd:4269)
 SCRIPT ERROR: Trying to cast a freed object.
-          at: _update_construction_sites (res://main.gd:3208)
+          at: _update_construction_sites (res://main.gd:3263)
 SCRIPT ERROR: Left operand of 'is' is a previously freed instance.
-          at: _update_people (res://main.gd:4192)
+          at: _update_people (res://main.gd:4269)
+SCRIPT ERROR: Trying to cast a freed object.
+          at: _update_construction_sites (res://main.gd:3263)
 SCRIPT ERROR: Left operand of 'is' is a previously freed instance.
-          at: _update_people (res://main.gd:4192)
+          at: _update_people (res://main.gd:4269)
+SCRIPT ERROR: Left operand of 'is' is a previously freed instance.
+          at: _update_people (res://main.gd:4269)
+SCRIPT ERROR: Trying to cast a freed object.
+          at: _update_construction_sites (res://main.gd:3263)
+ERROR: Condition "!is_inside_tree()" is true. Returning: Transform3D()
+   at: get_global_transform (scene/3d/node_3d.cpp:345)
+ERROR: Condition "!is_inside_tree()" is true. Returning: Transform3D()
+   at: get_global_transform (scene/3d/node_3d.cpp:345)
 ERROR: Condition "!is_inside_tree()" is true. Returning: Transform3D()
    at: get_global_transform (scene/3d/node_3d.cpp:345)
 ERROR: Condition "!is_inside_tree()" is true. Returning: Transform3D()
@@ -605,45 +517,77 @@ ERROR: Condition "!is_inside_tree()" is true. Returning: Transform3D()
 ERROR: Condition "!is_inside_tree()" is true. Returning: Transform3D()
    at: get_global_transform (scene/3d/node_3d.cpp:345)
 SCRIPT ERROR: Left operand of 'is' is a previously freed instance.
-          at: _update_people (res://main.gd:4192)
+          at: _update_people (res://main.gd:4269)
 SCRIPT ERROR: Left operand of 'is' is a previously freed instance.
-          at: _update_people (res://main.gd:4192)
+          at: _update_people (res://main.gd:4269)
+SCRIPT ERROR: Left operand of 'is' is a previously freed instance.
+          at: _update_people (res://main.gd:4269)
+SCRIPT ERROR: Trying to cast a freed object.
+          at: _update_construction_sites (res://main.gd:3263)
+SCRIPT ERROR: Left operand of 'is' is a previously freed instance.
+          at: _update_people (res://main.gd:4269)
 SCRIPT ERROR: Trying to cast a freed object.
-          at: _update_construction_sites (res://main.gd:3208)
+          at: _update_construction_sites (res://main.gd:3263)
+SCRIPT ERROR: Left operand of 'is' is a previously freed instance.
+          at: _update_people (res://main.gd:4269)
+SCRIPT ERROR: Left operand of 'is' is a previously freed instance.
+          at: _update_people (res://main.gd:4269)
+SCRIPT ERROR: Left operand of 'is' is a previously freed instance.
+          at: _update_people (res://main.gd:4269)
 SCRIPT ERROR: Left operand of 'is' is a previously freed instance.
-          at: _update_people (res://main.gd:4192)
+          at: _update_people (res://main.gd:4269)
 SCRIPT ERROR: Left operand of 'is' is a previously freed instance.
-          at: _update_people (res://main.gd:4192)
+          at: _update_people (res://main.gd:4269)
 SCRIPT ERROR: Left operand of 'is' is a previously freed instance.
-          at: _update_people (res://main.gd:4192)
+          at: _update_people (res://main.gd:4269)
 SCRIPT ERROR: Left operand of 'is' is a previously freed instance.
-          at: _update_people (res://main.gd:4192)
+          at: _update_people (res://main.gd:4269)
 SCRIPT ERROR: Trying to cast a freed object.
-          at: _update_construction_sites (res://main.gd:3208)
+          at: _update_construction_sites (res://main.gd:3263)
 SCRIPT ERROR: Left operand of 'is' is a previously freed instance.
-          at: _update_people (res://main.gd:4192)
+          at: _update_people (res://main.gd:4269)
+SCRIPT ERROR: Trying to cast a freed object.
+          at: _update_construction_sites (res://main.gd:3263)
 SCRIPT ERROR: Left operand of 'is' is a previously freed instance.
-          at: _update_people (res://main.gd:4192)
+          at: _update_people (res://main.gd:4269)
 SCRIPT ERROR: Left operand of 'is' is a previously freed instance.
-          at: _update_people (res://main.gd:4192)
+          at: _update_people (res://main.gd:4269)
+SCRIPT ERROR: Trying to cast a freed object.
+          at: _update_construction_sites (res://main.gd:3263)
 SCRIPT ERROR: Left operand of 'is' is a previously freed instance.
-          at: _update_people (res://main.gd:4192)
+          at: _update_people (res://main.gd:4269)
 SCRIPT ERROR: Left operand of 'is' is a previously freed instance.
-          at: _update_people (res://main.gd:4192)
+          at: _update_people (res://main.gd:4269)
 SCRIPT ERROR: Left operand of 'is' is a previously freed instance.
-          at: _update_people (res://main.gd:4192)
+          at: _update_people (res://main.gd:4269)
+SCRIPT ERROR: Trying to cast a freed object.
+          at: _update_construction_sites (res://main.gd:3263)
 SCRIPT ERROR: Left operand of 'is' is a previously freed instance.
-          at: _update_people (res://main.gd:4192)
+          at: _update_people (res://main.gd:4269)
+SCRIPT ERROR: Trying to cast a freed object.
+          at: _update_construction_sites (res://main.gd:3263)
 SCRIPT ERROR: Left operand of 'is' is a previously freed instance.
-          at: _update_people (res://main.gd:4192)
+          at: _update_people (res://main.gd:4269)
 SCRIPT ERROR: Left operand of 'is' is a previously freed instance.
-          at: _update_people (res://main.gd:4192)
-ERROR: Condition "!is_inside_tree()" is true. Returning: Transform3D()
-   at: get_global_transform (scene/3d/node_3d.cpp:345)
+          at: _update_people (res://main.gd:4269)
 ERROR: Condition "!is_inside_tree()" is true. Returning: Transform3D()
    at: get_global_transform (scene/3d/node_3d.cpp:345)
 ERROR: Condition "!is_inside_tree()" is true. Returning: Transform3D()
    at: get_global_transform (scene/3d/node_3d.cpp:345)
+SCRIPT ERROR: Left operand of 'is' is a previously freed instance.
+          at: _update_people (res://main.gd:4269)
+SCRIPT ERROR: Left operand of 'is' is a previously freed instance.
+          at: _update_people (res://main.gd:4269)
+SCRIPT ERROR: Left operand of 'is' is a previously freed instance.
+          at: _update_people (res://main.gd:4269)
+SCRIPT ERROR: Left operand of 'is' is a previously freed instance.
+          at: _update_people (res://main.gd:4269)
+SCRIPT ERROR: Left operand of 'is' is a previously freed instance.
+          at: _update_people (res://main.gd:4269)
+SCRIPT ERROR: Trying to cast a freed object.
+          at: _update_construction_sites (res://main.gd:3263)
+SCRIPT ERROR: Left operand of 'is' is a previously freed instance.
+          at: _update_people (res://main.gd:4269)
 ERROR: Condition "!is_inside_tree()" is true. Returning: Transform3D()
    at: get_global_transform (scene/3d/node_3d.cpp:345)
 ERROR: Condition "!is_inside_tree()" is true. Returning: Transform3D()
@@ -655,41 +599,29 @@ ERROR: Condition "!is_inside_tree()" is true. Returning: Transform3D()
 ERROR: Condition "!is_inside_tree()" is true. Returning: Transform3D()
    at: get_global_transform (scene/3d/node_3d.cpp:345)
 SCRIPT ERROR: Trying to cast a freed object.
-          at: _update_construction_sites (res://main.gd:3208)
+          at: _update_construction_sites (res://main.gd:3263)
+SCRIPT ERROR: Left operand of 'is' is a previously freed instance.
+          at: _update_people (res://main.gd:4269)
+SCRIPT ERROR: Left operand of 'is' is a previously freed instance.
+          at: _update_people (res://main.gd:4269)
 SCRIPT ERROR: Left operand of 'is' is a previously freed instance.
-          at: _update_people (res://main.gd:4192)
+          at: _update_people (res://main.gd:4269)
+SCRIPT ERROR: Trying to cast a freed object.
+          at: _update_construction_sites (res://main.gd:3263)
 SCRIPT ERROR: Left operand of 'is' is a previously freed instance.
-          at: _update_people (res://main.gd:4192)
+          at: _update_people (res://main.gd:4269)
 SCRIPT ERROR: Left operand of 'is' is a previously freed instance.
-          at: _update_people (res://main.gd:4192)
+          at: _update_people (res://main.gd:4269)
 SCRIPT ERROR: Left operand of 'is' is a previously freed instance.
-          at: _update_people (res://main.gd:4192)
+          at: _update_people (res://main.gd:4269)
 SCRIPT ERROR: Trying to cast a freed object.
-          at: _update_construction_sites (res://main.gd:3208)
+          at: _update_construction_sites (res://main.gd:3263)
 SCRIPT ERROR: Left operand of 'is' is a previously freed instance.
-          at: _update_people (res://main.gd:4192)
+          at: _update_people (res://main.gd:4269)
 SCRIPT ERROR: Trying to cast a freed object.
-          at: _update_construction_sites (res://main.gd:3208)
-ERROR: Condition "!is_inside_tree()" is true. Returning: Transform3D()
-   at: get_global_transform (scene/3d/node_3d.cpp:345)
-ERROR: Condition "!is_inside_tree()" is true. Returning: Transform3D()
-   at: get_global_transform (scene/3d/node_3d.cpp:345)
-ERROR: Condition "!is_inside_tree()" is true. Returning: Transform3D()
-   at: get_global_transform (scene/3d/node_3d.cpp:345)
-ERROR: Condition "!is_inside_tree()" is true. Returning: Transform3D()
-   at: get_global_transform (scene/3d/node_3d.cpp:345)
-ERROR: Condition "!is_inside_tree()" is true. Returning: Transform3D()
-   at: get_global_transform (scene/3d/node_3d.cpp:345)
-ERROR: Condition "!is_inside_tree()" is true. Returning: Transform3D()
-   at: get_global_transform (scene/3d/node_3d.cpp:345)
-ERROR: Condition "!is_inside_tree()" is true. Returning: Transform3D()
-   at: get_global_transform (scene/3d/node_3d.cpp:345)
-ERROR: Condition "!is_inside_tree()" is true. Returning: Transform3D()
-   at: get_global_transform (scene/3d/node_3d.cpp:345)
-ERROR: Condition "!is_inside_tree()" is true. Returning: Transform3D()
-   at: get_global_transform (scene/3d/node_3d.cpp:345)
-ERROR: Condition "!is_inside_tree()" is true. Returning: Transform3D()
-   at: get_global_transform (scene/3d/node_3d.cpp:345)
+          at: _update_construction_sites (res://main.gd:3263)
+SCRIPT ERROR: Left operand of 'is' is a previously freed instance.
+          at: _update_people (res://main.gd:4269)
 ERROR: Condition "!is_inside_tree()" is true. Returning: Transform3D()
    at: get_global_transform (scene/3d/node_3d.cpp:345)
 ERROR: Condition "!is_inside_tree()" is true. Returning: Transform3D()
@@ -700,6 +632,16 @@ ERROR: Condition "!is_inside_tree()" is true. Returning: Transform3D()
    at: get_global_transform (scene/3d/node_3d.cpp:345)
 ERROR: Condition "!is_inside_tree()" is true. Returning: Transform3D()
    at: get_global_transform (scene/3d/node_3d.cpp:345)
+SCRIPT ERROR: Left operand of 'is' is a previously freed instance.
+          at: _update_people (res://main.gd:4269)
+SCRIPT ERROR: Left operand of 'is' is a previously freed instance.
+          at: _update_people (res://main.gd:4269)
+SCRIPT ERROR: Left operand of 'is' is a previously freed instance.
+          at: _update_people (res://main.gd:4269)
+SCRIPT ERROR: Left operand of 'is' is a previously freed instance.
+          at: _update_people (res://main.gd:4269)
+SCRIPT ERROR: Left operand of 'is' is a previously freed instance.
+          at: _update_people (res://main.gd:4269)
 ERROR: Condition "!is_inside_tree()" is true. Returning: Transform3D()
    at: get_global_transform (scene/3d/node_3d.cpp:345)
 ERROR: Condition "!is_inside_tree()" is true. Returning: Transform3D()
@@ -711,41 +653,45 @@ ERROR: Condition "!is_inside_tree()" is true. Returning: Transform3D()
 ERROR: Condition "!is_inside_tree()" is true. Returning: Transform3D()
    at: get_global_transform (scene/3d/node_3d.cpp:345)
 SCRIPT ERROR: Trying to cast a freed object.
-          at: _update_construction_sites (res://main.gd:3208)
-ERROR: Condition "!is_inside_tree()" is true. Returning: Transform3D()
-   at: get_global_transform (scene/3d/node_3d.cpp:345)
-ERROR: Condition "!is_inside_tree()" is true. Returning: Transform3D()
-   at: get_global_transform (scene/3d/node_3d.cpp:345)
-ERROR: Condition "!is_inside_tree()" is true. Returning: Transform3D()
-   at: get_global_transform (scene/3d/node_3d.cpp:345)
-ERROR: Condition "!is_inside_tree()" is true. Returning: Transform3D()
-   at: get_global_transform (scene/3d/node_3d.cpp:345)
-ERROR: Condition "!is_inside_tree()" is true. Returning: Transform3D()
-   at: get_global_transform (scene/3d/node_3d.cpp:345)
-ERROR: Condition "!is_inside_tree()" is true. Returning: Transform3D()
-   at: get_global_transform (scene/3d/node_3d.cpp:345)
-ERROR: Condition "!is_inside_tree()" is true. Returning: Transform3D()
-   at: get_global_transform (scene/3d/node_3d.cpp:345)
-ERROR: Condition "!is_inside_tree()" is true. Returning: Transform3D()
-   at: get_global_transform (scene/3d/node_3d.cpp:345)
+          at: _update_construction_sites (res://main.gd:3263)
+SCRIPT ERROR: Left operand of 'is' is a previously freed instance.
+          at: _update_people (res://main.gd:4269)
+SCRIPT ERROR: Trying to cast a freed object.
+          at: _update_construction_sites (res://main.gd:3263)
 ERROR: Condition "!is_inside_tree()" is true. Returning: Transform3D()
    at: get_global_transform (scene/3d/node_3d.cpp:345)
 ERROR: Condition "!is_inside_tree()" is true. Returning: Transform3D()
    at: get_global_transform (scene/3d/node_3d.cpp:345)
+SCRIPT ERROR: Left operand of 'is' is a previously freed instance.
+          at: _update_people (res://main.gd:4269)
+SCRIPT ERROR: Left operand of 'is' is a previously freed instance.
+          at: _update_people (res://main.gd:4269)
+SCRIPT ERROR: Left operand of 'is' is a previously freed instance.
+          at: _update_people (res://main.gd:4269)
+SCRIPT ERROR: Left operand of 'is' is a previously freed instance.
+          at: _update_people (res://main.gd:4269)
 SCRIPT ERROR: Trying to cast a freed object.
-          at: _update_construction_sites (res://main.gd:3208)
+          at: _update_construction_sites (res://main.gd:3263)
+SCRIPT ERROR: Left operand of 'is' is a previously freed instance.
+          at: _update_people (res://main.gd:4269)
+SCRIPT ERROR: Left operand of 'is' is a previously freed instance.
+          at: _update_people (res://main.gd:4269)
 SCRIPT ERROR: Trying to cast a freed object.
-          at: _update_construction_sites (res://main.gd:3208)
-ERROR: Condition "!is_inside_tree()" is true. Returning: Transform3D()
-   at: get_global_transform (scene/3d/node_3d.cpp:345)
-ERROR: Condition "!is_inside_tree()" is true. Returning: Transform3D()
-   at: get_global_transform (scene/3d/node_3d.cpp:345)
-ERROR: Condition "!is_inside_tree()" is true. Returning: Transform3D()
-   at: get_global_transform (scene/3d/node_3d.cpp:345)
-ERROR: Condition "!is_inside_tree()" is true. Returning: Transform3D()
-   at: get_global_transform (scene/3d/node_3d.cpp:345)
+          at: _update_construction_sites (res://main.gd:3263)
+SCRIPT ERROR: Left operand of 'is' is a previously freed instance.
+          at: _update_people (res://main.gd:4269)
 SCRIPT ERROR: Trying to cast a freed object.
-          at: _update_construction_sites (res://main.gd:3208)
+          at: _update_construction_sites (res://main.gd:3263)
+SCRIPT ERROR: Left operand of 'is' is a previously freed instance.
+          at: _update_people (res://main.gd:4269)
+SCRIPT ERROR: Left operand of 'is' is a previously freed instance.
+          at: _update_people (res://main.gd:4269)
+SCRIPT ERROR: Left operand of 'is' is a previously freed instance.
+          at: _update_people (res://main.gd:4269)
+SCRIPT ERROR: Left operand of 'is' is a previously freed instance.
+          at: _update_people (res://main.gd:4269)
+SCRIPT ERROR: Left operand of 'is' is a previously freed instance.
+          at: _update_people (res://main.gd:4269)
 ERROR: Condition "!is_inside_tree()" is true. Returning: Transform3D()
    at: get_global_transform (scene/3d/node_3d.cpp:345)
 ERROR: Condition "!is_inside_tree()" is true. Returning: Transform3D()
@@ -756,190 +702,242 @@ ERROR: Condition "!is_inside_tree()" is true. Returning: Transform3D()
    at: get_global_transform (scene/3d/node_3d.cpp:345)
 ERROR: Condition "!is_inside_tree()" is true. Returning: Transform3D()
    at: get_global_transform (scene/3d/node_3d.cpp:345)
-SCRIPT ERROR: Trying to cast a freed object.
-          at: _update_construction_sites (res://main.gd:3208)
-SCRIPT ERROR: Trying to cast a freed object.
-          at: _update_construction_sites (res://main.gd:3208)
-SCRIPT ERROR: Trying to cast a freed object.
-          at: _update_construction_sites (res://main.gd:3208)
-SCRIPT ERROR: Trying to cast a freed object.
-          at: _update_construction_sites (res://main.gd:3208)
-SCRIPT ERROR: Trying to cast a freed object.
-          at: _update_construction_sites (res://main.gd:3208)
-SCRIPT ERROR: Trying to cast a freed object.
-          at: _update_construction_sites (res://main.gd:3208)
-SCRIPT ERROR: Trying to cast a freed object.
-          at: _update_construction_sites (res://main.gd:3208)
+SCRIPT ERROR: Left operand of 'is' is a previously freed instance.
+          at: _update_people (res://main.gd:4269)
+SCRIPT ERROR: Left operand of 'is' is a previously freed instance.
+          at: _update_people (res://main.gd:4269)
 SCRIPT ERROR: Trying to cast a freed object.
-          at: _update_construction_sites (res://main.gd:3208)
+          at: _update_construction_sites (res://main.gd:3263)
+SCRIPT ERROR: Left operand of 'is' is a previously freed instance.
+          at: _update_people (res://main.gd:4269)
 SCRIPT ERROR: Trying to cast a freed object.
-          at: _update_construction_sites (res://main.gd:3208)
+          at: _update_construction_sites (res://main.gd:3263)
+SCRIPT ERROR: Left operand of 'is' is a previously freed instance.
+          at: _update_people (res://main.gd:4269)
 SCRIPT ERROR: Trying to cast a freed object.
-          at: _update_construction_sites (res://main.gd:3208)
+          at: _update_construction_sites (res://main.gd:3263)
+SCRIPT ERROR: Left operand of 'is' is a previously freed instance.
+          at: _update_people (res://main.gd:4269)
 SCRIPT ERROR: Trying to cast a freed object.
-          at: _update_construction_sites (res://main.gd:3208)
+          at: _update_construction_sites (res://main.gd:3263)
+SCRIPT ERROR: Left operand of 'is' is a previously freed instance.
+          at: _update_people (res://main.gd:4269)
 SCRIPT ERROR: Trying to cast a freed object.
-          at: _update_construction_sites (res://main.gd:3208)
-ERROR: Condition "!is_inside_tree()" is true. Returning: Transform3D()
-   at: get_global_transform (scene/3d/node_3d.cpp:345)
-ERROR: Condition "!is_inside_tree()" is true. Returning: Transform3D()
-   at: get_global_transform (scene/3d/node_3d.cpp:345)
-ERROR: Condition "!is_inside_tree()" is true. Returning: Transform3D()
-   at: get_global_transform (scene/3d/node_3d.cpp:345)
+          at: _update_construction_sites (res://main.gd:3263)
 ERROR: Condition "!is_inside_tree()" is true. Returning: Transform3D()
    at: get_global_transform (scene/3d/node_3d.cpp:345)
 ERROR: Condition "!is_inside_tree()" is true. Returning: Transform3D()
    at: get_global_transform (scene/3d/node_3d.cpp:345)
-ERROR: Condition "!is_inside_tree()" is true. Returning: Transform3D()
-   at: get_global_transform (scene/3d/node_3d.cpp:345)
+SCRIPT ERROR: Left operand of 'is' is a previously freed instance.
+          at: _update_people (res://main.gd:4269)
+SCRIPT ERROR: Left operand of 'is' is a previously freed instance.
+          at: _update_people (res://main.gd:4269)
+SCRIPT ERROR: Trying to cast a freed object.
+          at: _update_construction_sites (res://main.gd:3263)
+SCRIPT ERROR: Left operand of 'is' is a previously freed instance.
+          at: _update_people (res://main.gd:4269)
+SCRIPT ERROR: Trying to cast a freed object.
+          at: _update_construction_sites (res://main.gd:3263)
+SCRIPT ERROR: Left operand of 'is' is a previously freed instance.
+          at: _update_people (res://main.gd:4269)
+SCRIPT ERROR: Left operand of 'is' is a previously freed instance.
+          at: _update_people (res://main.gd:4269)
+SCRIPT ERROR: Left operand of 'is' is a previously freed instance.
+          at: _update_people (res://main.gd:4269)
+SCRIPT ERROR: Left operand of 'is' is a previously freed instance.
+          at: _update_people (res://main.gd:4269)
 ERROR: Condition "!is_inside_tree()" is true. Returning: Transform3D()
    at: get_global_transform (scene/3d/node_3d.cpp:345)
 ERROR: Condition "!is_inside_tree()" is true. Returning: Transform3D()
    at: get_global_transform (scene/3d/node_3d.cpp:345)
+SCRIPT ERROR: Left operand of 'is' is a previously freed instance.
+          at: _update_people (res://main.gd:4269)
 SCRIPT ERROR: Trying to cast a freed object.
-          at: _update_construction_sites (res://main.gd:3208)
+          at: _update_construction_sites (res://main.gd:3263)
+SCRIPT ERROR: Left operand of 'is' is a previously freed instance.
+          at: _update_people (res://main.gd:4269)
+SCRIPT ERROR: Trying to cast a freed object.
+          at: _update_construction_sites (res://main.gd:3263)
+SCRIPT ERROR: Left operand of 'is' is a previously freed instance.
+          at: _update_people (res://main.gd:4269)
 SCRIPT ERROR: Trying to cast a freed object.
-          at: _update_construction_sites (res://main.gd:3208)
+          at: _update_construction_sites (res://main.gd:3263)
 SCRIPT ERROR: Trying to cast a freed object.
-          at: _update_construction_sites (res://main.gd:3208)
+          at: _update_construction_sites (res://main.gd:3263)
+SCRIPT ERROR: Left operand of 'is' is a previously freed instance.
+          at: _update_people (res://main.gd:4269)
+SCRIPT ERROR: Left operand of 'is' is a previously freed instance.
+          at: _update_people (res://main.gd:4269)
 SCRIPT ERROR: Trying to cast a freed object.
-          at: _update_construction_sites (res://main.gd:3208)
+          at: _update_construction_sites (res://main.gd:3263)
+SCRIPT ERROR: Left operand of 'is' is a previously freed instance.
+          at: _update_people (res://main.gd:4269)
+SCRIPT ERROR: Left operand of 'is' is a previously freed instance.
+          at: _update_people (res://main.gd:4269)
+SCRIPT ERROR: Left operand of 'is' is a previously freed instance.
+          at: _update_people (res://main.gd:4269)
 SCRIPT ERROR: Trying to cast a freed object.
-          at: _update_construction_sites (res://main.gd:3208)
-ERROR: Condition "!is_inside_tree()" is true. Returning: Transform3D()
-   at: get_global_transform (scene/3d/node_3d.cpp:345)
+          at: _update_construction_sites (res://main.gd:3263)
+SCRIPT ERROR: Trying to cast a freed object.
+          at: _update_construction_sites (res://main.gd:3263)
+SCRIPT ERROR: Left operand of 'is' is a previously freed instance.
+          at: _update_people (res://main.gd:4269)
+SCRIPT ERROR: Left operand of 'is' is a previously freed instance.
+          at: _update_people (res://main.gd:4269)
+SCRIPT ERROR: Left operand of 'is' is a previously freed instance.
+          at: _update_people (res://main.gd:4269)
+SCRIPT ERROR: Left operand of 'is' is a previously freed instance.
+          at: _update_people (res://main.gd:4269)
 ERROR: Condition "!is_inside_tree()" is true. Returning: Transform3D()
    at: get_global_transform (scene/3d/node_3d.cpp:345)
 ERROR: Condition "!is_inside_tree()" is true. Returning: Transform3D()
    at: get_global_transform (scene/3d/node_3d.cpp:345)
+SCRIPT ERROR: Left operand of 'is' is a previously freed instance.
+          at: _update_people (res://main.gd:4269)
 SCRIPT ERROR: Trying to cast a freed object.
-          at: _update_construction_sites (res://main.gd:3208)
+          at: _update_construction_sites (res://main.gd:3263)
+SCRIPT ERROR: Left operand of 'is' is a previously freed instance.
+          at: _update_people (res://main.gd:4269)
 SCRIPT ERROR: Trying to cast a freed object.
-          at: _update_construction_sites (res://main.gd:3208)
+          at: _update_construction_sites (res://main.gd:3263)
+SCRIPT ERROR: Left operand of 'is' is a previously freed instance.
+          at: _update_people (res://main.gd:4269)
 SCRIPT ERROR: Trying to cast a freed object.
-          at: _update_construction_sites (res://main.gd:3208)
+          at: _update_construction_sites (res://main.gd:3263)
+SCRIPT ERROR: Left operand of 'is' is a previously freed instance.
+          at: _update_people (res://main.gd:4269)
 SCRIPT ERROR: Trying to cast a freed object.
-          at: _update_construction_sites (res://main.gd:3208)
+          at: _update_construction_sites (res://main.gd:3263)
+SCRIPT ERROR: Left operand of 'is' is a previously freed instance.
+          at: _update_people (res://main.gd:4269)
+SCRIPT ERROR: Left operand of 'is' is a previously freed instance.
+          at: _update_people (res://main.gd:4269)
 SCRIPT ERROR: Trying to cast a freed object.
-          at: _update_construction_sites (res://main.gd:3208)
+          at: _update_construction_sites (res://main.gd:3263)
+SCRIPT ERROR: Left operand of 'is' is a previously freed instance.
+          at: _update_people (res://main.gd:4269)
+SCRIPT ERROR: Left operand of 'is' is a previously freed instance.
+          at: _update_people (res://main.gd:4269)
+SCRIPT ERROR: Left operand of 'is' is a previously freed instance.
+          at: _update_people (res://main.gd:4269)
 SCRIPT ERROR: Trying to cast a freed object.
-          at: _update_construction_sites (res://main.gd:3208)
-ERROR: Condition "!is_inside_tree()" is true. Returning: Transform3D()
-   at: get_global_transform (scene/3d/node_3d.cpp:345)
-ERROR: Condition "!is_inside_tree()" is true. Returning: Transform3D()
-   at: get_global_transform (scene/3d/node_3d.cpp:345)
-ERROR: Condition "!is_inside_tree()" is true. Returning: Transform3D()
-   at: get_global_transform (scene/3d/node_3d.cpp:345)
-ERROR: Condition "!is_inside_tree()" is true. Returning: Transform3D()
-   at: get_global_transform (scene/3d/node_3d.cpp:345)
-ERROR: Condition "!is_inside_tree()" is true. Returning: Transform3D()
-   at: get_global_transform (scene/3d/node_3d.cpp:345)
-ERROR: Condition "!is_inside_tree()" is true. Returning: Transform3D()
-   at: get_global_transform (scene/3d/node_3d.cpp:345)
-ERROR: Condition "!is_inside_tree()" is true. Returning: Transform3D()
-   at: get_global_transform (scene/3d/node_3d.cpp:345)
-ERROR: Condition "!is_inside_tree()" is true. Returning: Transform3D()
-   at: get_global_transform (scene/3d/node_3d.cpp:345)
-ERROR: Condition "!is_inside_tree()" is true. Returning: Transform3D()
-   at: get_global_transform (scene/3d/node_3d.cpp:345)
-ERROR: Condition "!is_inside_tree()" is true. Returning: Transform3D()
-   at: get_global_transform (scene/3d/node_3d.cpp:345)
-ERROR: Condition "!is_inside_tree()" is true. Returning: Transform3D()
-   at: get_global_transform (scene/3d/node_3d.cpp:345)
-ERROR: Condition "!is_inside_tree()" is true. Returning: Transform3D()
-   at: get_global_transform (scene/3d/node_3d.cpp:345)
-ERROR: Condition "!is_inside_tree()" is true. Returning: Transform3D()
-   at: get_global_transform (scene/3d/node_3d.cpp:345)
-ERROR: Condition "!is_inside_tree()" is true. Returning: Transform3D()
-   at: get_global_transform (scene/3d/node_3d.cpp:345)
-ERROR: Condition "!is_inside_tree()" is true. Returning: Transform3D()
-   at: get_global_transform (scene/3d/node_3d.cpp:345)
-ERROR: Condition "!is_inside_tree()" is true. Returning: Transform3D()
-   at: get_global_transform (scene/3d/node_3d.cpp:345)
-ERROR: Condition "!is_inside_tree()" is true. Returning: Transform3D()
-   at: get_global_transform (scene/3d/node_3d.cpp:345)
-ERROR: Condition "!is_inside_tree()" is true. Returning: Transform3D()
-   at: get_global_transform (scene/3d/node_3d.cpp:345)
-ERROR: Condition "!is_inside_tree()" is true. Returning: Transform3D()
-   at: get_global_transform (scene/3d/node_3d.cpp:345)
-ERROR: Condition "!is_inside_tree()" is true. Returning: Transform3D()
-   at: get_global_transform (scene/3d/node_3d.cpp:345)
-ERROR: Condition "!is_inside_tree()" is true. Returning: Transform3D()
-   at: get_global_transform (scene/3d/node_3d.cpp:345)
-ERROR: Condition "!is_inside_tree()" is true. Returning: Transform3D()
-   at: get_global_transform (scene/3d/node_3d.cpp:345)
-ERROR: Condition "!is_inside_tree()" is true. Returning: Transform3D()
-   at: get_global_transform (scene/3d/node_3d.cpp:345)
-ERROR: Condition "!is_inside_tree()" is true. Returning: Transform3D()
-   at: get_global_transform (scene/3d/node_3d.cpp:345)
-ERROR: Condition "!is_inside_tree()" is true. Returning: Transform3D()
-   at: get_global_transform (scene/3d/node_3d.cpp:345)
-ERROR: Condition "!is_inside_tree()" is true. Returning: Transform3D()
-   at: get_global_transform (scene/3d/node_3d.cpp:345)
-ERROR: Condition "!is_inside_tree()" is true. Returning: Transform3D()
-   at: get_global_transform (scene/3d/node_3d.cpp:345)
-ERROR: Condition "!is_inside_tree()" is true. Returning: Transform3D()
-   at: get_global_transform (scene/3d/node_3d.cpp:345)
-ERROR: Condition "!is_inside_tree()" is true. Returning: Transform3D()
-   at: get_global_transform (scene/3d/node_3d.cpp:345)
+          at: _update_construction_sites (res://main.gd:3263)
+SCRIPT ERROR: Trying to cast a freed object.
+          at: _update_construction_sites (res://main.gd:3263)
+SCRIPT ERROR: Left operand of 'is' is a previously freed instance.
+          at: _update_people (res://main.gd:4269)
+SCRIPT ERROR: Left operand of 'is' is a previously freed instance.
+          at: _update_people (res://main.gd:4269)
+SCRIPT ERROR: Left operand of 'is' is a previously freed instance.
+          at: _update_people (res://main.gd:4269)
+SCRIPT ERROR: Left operand of 'is' is a previously freed instance.
+          at: _update_people (res://main.gd:4269)
+SCRIPT ERROR: Left operand of 'is' is a previously freed instance.
+          at: _update_people (res://main.gd:4269)
+SCRIPT ERROR: Left operand of 'is' is a previously freed instance.
+          at: _update_people (res://main.gd:4269)
 SCRIPT ERROR: Trying to cast a freed object.
-          at: _update_construction_sites (res://main.gd:3208)
+          at: _update_construction_sites (res://main.gd:3263)
+SCRIPT ERROR: Left operand of 'is' is a previously freed instance.
+          at: _update_people (res://main.gd:4269)
 SCRIPT ERROR: Trying to cast a freed object.
-          at: _update_construction_sites (res://main.gd:3208)
-ERROR: Condition "!is_inside_tree()" is true. Returning: Transform3D()
-   at: get_global_transform (scene/3d/node_3d.cpp:345)
-ERROR: Condition "!is_inside_tree()" is true. Returning: Transform3D()
-   at: get_global_transform (scene/3d/node_3d.cpp:345)
-ERROR: Condition "!is_inside_tree()" is true. Returning: Transform3D()
-   at: get_global_transform (scene/3d/node_3d.cpp:345)
-ERROR: Condition "!is_inside_tree()" is true. Returning: Transform3D()
-   at: get_global_transform (scene/3d/node_3d.cpp:345)
-ERROR: Condition "!is_inside_tree()" is true. Returning: Transform3D()
-   at: get_global_transform (scene/3d/node_3d.cpp:345)
-ERROR: Condition "!is_inside_tree()" is true. Returning: Transform3D()
-   at: get_global_transform (scene/3d/node_3d.cpp:345)
-ERROR: Condition "!is_inside_tree()" is true. Returning: Transform3D()
-   at: get_global_transform (scene/3d/node_3d.cpp:345)
-ERROR: Condition "!is_inside_tree()" is true. Returning: Transform3D()
-   at: get_global_transform (scene/3d/node_3d.cpp:345)
+          at: _update_construction_sites (res://main.gd:3263)
 SCRIPT ERROR: Left operand of 'is' is a previously freed instance.
-          at: _update_people (res://main.gd:4192)
+          at: _update_people (res://main.gd:4269)
+SCRIPT ERROR: Trying to cast a freed object.
+          at: _update_construction_sites (res://main.gd:3263)
 SCRIPT ERROR: Left operand of 'is' is a previously freed instance.
-          at: _update_people (res://main.gd:4192)
+          at: _update_people (res://main.gd:4269)
 SCRIPT ERROR: Trying to cast a freed object.
-          at: _update_construction_sites (res://main.gd:3208)
+          at: _update_construction_sites (res://main.gd:3263)
 SCRIPT ERROR: Left operand of 'is' is a previously freed instance.
-          at: _update_people (res://main.gd:4192)
-ERROR: Condition "!is_inside_tree()" is true. Returning: Transform3D()
-   at: get_global_transform (scene/3d/node_3d.cpp:345)
-ERROR: Condition "!is_inside_tree()" is true. Returning: Transform3D()
-   at: get_global_transform (scene/3d/node_3d.cpp:345)
+          at: _update_people (res://main.gd:4269)
+SCRIPT ERROR: Left operand of 'is' is a previously freed instance.
+          at: _update_people (res://main.gd:4269)
 SCRIPT ERROR: Left operand of 'is' is a previously freed instance.
-          at: _update_people (res://main.gd:4192)
+          at: _update_people (res://main.gd:4269)
 SCRIPT ERROR: Trying to cast a freed object.
-          at: _update_construction_sites (res://main.gd:3208)
+          at: _update_construction_sites (res://main.gd:3263)
 SCRIPT ERROR: Left operand of 'is' is a previously freed instance.
-          at: _update_people (res://main.gd:4192)
+          at: _update_people (res://main.gd:4269)
+SCRIPT ERROR: Trying to cast a freed object.
+          at: _update_construction_sites (res://main.gd:3263)
 SCRIPT ERROR: Left operand of 'is' is a previously freed instance.
-          at: _update_people (res://main.gd:4192)
+          at: _update_people (res://main.gd:4269)
 SCRIPT ERROR: Trying to cast a freed object.
-          at: _update_construction_sites (res://main.gd:3208)
-ERROR: Condition "!is_inside_tree()" is true. Returning: Transform3D()
-   at: get_global_transform (scene/3d/node_3d.cpp:345)
-ERROR: Condition "!is_inside_tree()" is true. Returning: Transform3D()
-   at: get_global_transform (scene/3d/node_3d.cpp:345)
+          at: _update_construction_sites (res://main.gd:3263)
 SCRIPT ERROR: Left operand of 'is' is a previously freed instance.
-          at: _update_people (res://main.gd:4192)
-ERROR: Condition "!is_inside_tree()" is true. Returning: Transform3D()
-   at: get_global_transform (scene/3d/node_3d.cpp:345)
-ERROR: Condition "!is_inside_tree()" is true. Returning: Transform3D()
-   at: get_global_transform (scene/3d/node_3d.cpp:345)
-ERROR: Condition "!is_inside_tree()" is true. Returning: Transform3D()
-   at: get_global_transform (scene/3d/node_3d.cpp:345)
+          at: _update_people (res://main.gd:4269)
+SCRIPT ERROR: Left operand of 'is' is a previously freed instance.
+          at: _update_people (res://main.gd:4269)
+SCRIPT ERROR: Left operand of 'is' is a previously freed instance.
+          at: _update_people (res://main.gd:4269)
+SCRIPT ERROR: Left operand of 'is' is a previously freed instance.
+          at: _update_people (res://main.gd:4269)
+SCRIPT ERROR: Left operand of 'is' is a previously freed instance.
+          at: _update_people (res://main.gd:4269)
+SCRIPT ERROR: Trying to cast a freed object.
+          at: _update_construction_sites (res://main.gd:3263)
+SCRIPT ERROR: Left operand of 'is' is a previously freed instance.
+          at: _update_people (res://main.gd:4269)
+SCRIPT ERROR: Trying to cast a freed object.
+          at: _update_construction_sites (res://main.gd:3263)
+SCRIPT ERROR: Left operand of 'is' is a previously freed instance.
+          at: _update_people (res://main.gd:4269)
+SCRIPT ERROR: Trying to cast a freed object.
+          at: _update_construction_sites (res://main.gd:3263)
+SCRIPT ERROR: Trying to cast a freed object.
+          at: _update_construction_sites (res://main.gd:3263)
+SCRIPT ERROR: Left operand of 'is' is a previously freed instance.
+          at: _update_people (res://main.gd:4269)
+SCRIPT ERROR: Left operand of 'is' is a previously freed instance.
+          at: _update_people (res://main.gd:4269)
+SCRIPT ERROR: Left operand of 'is' is a previously freed instance.
+          at: _update_people (res://main.gd:4269)
+SCRIPT ERROR: Left operand of 'is' is a previously freed instance.
+          at: _update_people (res://main.gd:4269)
+SCRIPT ERROR: Trying to cast a freed object.
+          at: _update_construction_sites (res://main.gd:3263)
+SCRIPT ERROR: Left operand of 'is' is a previously freed instance.
+          at: _update_people (res://main.gd:4269)
+SCRIPT ERROR: Left operand of 'is' is a previously freed instance.
+          at: _update_people (res://main.gd:4269)
+SCRIPT ERROR: Left operand of 'is' is a previously freed instance.
+          at: _update_people (res://main.gd:4269)
+SCRIPT ERROR: Trying to cast a freed object.
+          at: _update_construction_sites (res://main.gd:3263)
+SCRIPT ERROR: Left operand of 'is' is a previously freed instance.
+          at: _update_people (res://main.gd:4269)
+SCRIPT ERROR: Trying to cast a freed object.
+          at: _update_construction_sites (res://main.gd:3263)
+SCRIPT ERROR: Left operand of 'is' is a previously freed instance.
+          at: _update_people (res://main.gd:4269)
+SCRIPT ERROR: Left operand of 'is' is a previously freed instance.
+          at: _update_people (res://main.gd:4269)
+SCRIPT ERROR: Left operand of 'is' is a previously freed instance.
+          at: _update_people (res://main.gd:4269)
+SCRIPT ERROR: Left operand of 'is' is a previously freed instance.
+          at: _update_people (res://main.gd:4269)
+SCRIPT ERROR: Left operand of 'is' is a previously freed instance.
+          at: _update_people (res://main.gd:4269)
+SCRIPT ERROR: Left operand of 'is' is a previously freed instance.
+          at: _update_people (res://main.gd:4269)
+SCRIPT ERROR: Left operand of 'is' is a previously freed instance.
+          at: _update_people (res://main.gd:4269)
+SCRIPT ERROR: Trying to cast a freed object.
+          at: _update_construction_sites (res://main.gd:3263)
 SCRIPT ERROR: Left operand of 'is' is a previously freed instance.
-          at: _update_people (res://main.gd:4192)
+          at: _update_people (res://main.gd:4269)
 SCRIPT ERROR: Trying to cast a freed object.
-          at: _update_construction_sites (res://main.gd:3208)
+          at: _update_construction_sites (res://main.gd:3263)
+SCRIPT ERROR: Left operand of 'is' is a previously freed instance.
+          at: _update_people (res://main.gd:4269)
+SCRIPT ERROR: Trying to cast a freed object.
+          at: _update_construction_sites (res://main.gd:3263)
+SCRIPT ERROR: Left operand of 'is' is a previously freed instance.
+          at: _update_people (res://main.gd:4269)
+ERROR: Condition "!is_inside_tree()" is true. Returning: Transform3D()
+   at: get_global_transform (scene/3d/node_3d.cpp:345)
 ERROR: Condition "!is_inside_tree()" is true. Returning: Transform3D()
    at: get_global_transform (scene/3d/node_3d.cpp:345)
 ERROR: Condition "!is_inside_tree()" is true. Returning: Transform3D()
@@ -954,44 +952,60 @@ ERROR: Condition "!is_inside_tree()" is true. Returning: Transform3D()
    at: get_global_transform (scene/3d/node_3d.cpp:345)
 ERROR: Condition "!is_inside_tree()" is true. Returning: Transform3D()
    at: get_global_transform (scene/3d/node_3d.cpp:345)
+SCRIPT ERROR: Trying to cast a freed object.
+          at: _update_construction_sites (res://main.gd:3263)
+SCRIPT ERROR: Left operand of 'is' is a previously freed instance.
+          at: _update_people (res://main.gd:4269)
+SCRIPT ERROR: Left operand of 'is' is a previously freed instance.
+          at: _update_people (res://main.gd:4269)
 SCRIPT ERROR: Left operand of 'is' is a previously freed instance.
-          at: _update_people (res://main.gd:4192)
+          at: _update_people (res://main.gd:4269)
+SCRIPT ERROR: Left operand of 'is' is a previously freed instance.
+          at: _update_people (res://main.gd:4269)
 SCRIPT ERROR: Trying to cast a freed object.
-          at: _update_construction_sites (res://main.gd:3208)
+          at: _update_construction_sites (res://main.gd:3263)
+SCRIPT ERROR: Left operand of 'is' is a previously freed instance.
+          at: _update_people (res://main.gd:4269)
 SCRIPT ERROR: Left operand of 'is' is a previously freed instance.
-          at: _update_people (res://main.gd:4192)
+          at: _update_people (res://main.gd:4269)
+SCRIPT ERROR: Left operand of 'is' is a previously freed instance.
+          at: _update_people (res://main.gd:4269)
 SCRIPT ERROR: Trying to cast a freed object.
-          at: _update_construction_sites (res://main.gd:3208)
-ERROR: Condition "!is_inside_tree()" is true. Returning: Transform3D()
-   at: get_global_transform (scene/3d/node_3d.cpp:345)
-ERROR: Condition "!is_inside_tree()" is true. Returning: Transform3D()
-   at: get_global_transform (scene/3d/node_3d.cpp:345)
-ERROR: Condition "!is_inside_tree()" is true. Returning: Transform3D()
-   at: get_global_transform (scene/3d/node_3d.cpp:345)
+          at: _update_construction_sites (res://main.gd:3263)
 SCRIPT ERROR: Left operand of 'is' is a previously freed instance.
-          at: _update_people (res://main.gd:4192)
+          at: _update_people (res://main.gd:4269)
 SCRIPT ERROR: Trying to cast a freed object.
-          at: _update_construction_sites (res://main.gd:3208)
+          at: _update_construction_sites (res://main.gd:3263)
+SCRIPT ERROR: Left operand of 'is' is a previously freed instance.
+          at: _update_people (res://main.gd:4269)
+SCRIPT ERROR: Left operand of 'is' is a previously freed instance.
+          at: _update_people (res://main.gd:4269)
+SCRIPT ERROR: Left operand of 'is' is a previously freed instance.
+          at: _update_people (res://main.gd:4269)
 SCRIPT ERROR: Left operand of 'is' is a previously freed instance.
-          at: _update_people (res://main.gd:4192)
+          at: _update_people (res://main.gd:4269)
+SCRIPT ERROR: Left operand of 'is' is a previously freed instance.
+          at: _update_people (res://main.gd:4269)
+SCRIPT ERROR: Left operand of 'is' is a previously freed instance.
+          at: _update_people (res://main.gd:4269)
 SCRIPT ERROR: Trying to cast a freed object.
-          at: _update_construction_sites (res://main.gd:3208)
+          at: _update_construction_sites (res://main.gd:3263)
 SCRIPT ERROR: Left operand of 'is' is a previously freed instance.
-          at: _update_people (res://main.gd:4192)
-ERROR: Condition "!is_inside_tree()" is true. Returning: Transform3D()
-   at: get_global_transform (scene/3d/node_3d.cpp:345)
-ERROR: Condition "!is_inside_tree()" is true. Returning: Transform3D()
-   at: get_global_transform (scene/3d/node_3d.cpp:345)
-ERROR: Condition "!is_inside_tree()" is true. Returning: Transform3D()
-   at: get_global_transform (scene/3d/node_3d.cpp:345)
+          at: _update_people (res://main.gd:4269)
+SCRIPT ERROR: Trying to cast a freed object.
+          at: _update_construction_sites (res://main.gd:3263)
 SCRIPT ERROR: Left operand of 'is' is a previously freed instance.
-          at: _update_people (res://main.gd:4192)
+          at: _update_people (res://main.gd:4269)
+SCRIPT ERROR: Trying to cast a freed object.
+          at: _update_construction_sites (res://main.gd:3263)
 SCRIPT ERROR: Left operand of 'is' is a previously freed instance.
-          at: _update_people (res://main.gd:4192)
+          at: _update_people (res://main.gd:4269)
+SCRIPT ERROR: Trying to cast a freed object.
+          at: _update_construction_sites (res://main.gd:3263)
 SCRIPT ERROR: Left operand of 'is' is a previously freed instance.
-          at: _update_people (res://main.gd:4192)
+          at: _update_people (res://main.gd:4269)
 SCRIPT ERROR: Left operand of 'is' is a previously freed instance.
-          at: _update_people (res://main.gd:4192)
+          at: _update_people (res://main.gd:4269)
 ERROR: Condition "!is_inside_tree()" is true. Returning: Transform3D()
    at: get_global_transform (scene/3d/node_3d.cpp:345)
 ERROR: Condition "!is_inside_tree()" is true. Returning: Transform3D()
@@ -999,45 +1013,35 @@ ERROR: Condition "!is_inside_tree()" is true. Returning: Transform3D()
 ERROR: Condition "!is_inside_tree()" is true. Returning: Transform3D()
    at: get_global_transform (scene/3d/node_3d.cpp:345)
 SCRIPT ERROR: Left operand of 'is' is a previously freed instance.
-          at: _update_people (res://main.gd:4192)
+          at: _update_people (res://main.gd:4269)
 SCRIPT ERROR: Left operand of 'is' is a previously freed instance.
-          at: _update_people (res://main.gd:4192)
+          at: _update_people (res://main.gd:4269)
 SCRIPT ERROR: Left operand of 'is' is a previously freed instance.
-          at: _update_people (res://main.gd:4192)
+          at: _update_people (res://main.gd:4269)
 SCRIPT ERROR: Trying to cast a freed object.
-          at: _update_construction_sites (res://main.gd:3208)
-SCRIPT ERROR: Left operand of 'is' is a previously freed instance.
-          at: _update_people (res://main.gd:4192)
+          at: _update_construction_sites (res://main.gd:3263)
 SCRIPT ERROR: Left operand of 'is' is a previously freed instance.
-          at: _update_people (res://main.gd:4192)
+          at: _update_people (res://main.gd:4269)
 SCRIPT ERROR: Left operand of 'is' is a previously freed instance.
-          at: _update_people (res://main.gd:4192)
+          at: _update_people (res://main.gd:4269)
 SCRIPT ERROR: Left operand of 'is' is a previously freed instance.
-          at: _update_people (res://main.gd:4192)
+          at: _update_people (res://main.gd:4269)
 SCRIPT ERROR: Trying to cast a freed object.
-          at: _update_construction_sites (res://main.gd:3208)
+          at: _update_construction_sites (res://main.gd:3263)
 SCRIPT ERROR: Left operand of 'is' is a previously freed instance.
-          at: _update_people (res://main.gd:4192)
-ERROR: Condition "!is_inside_tree()" is true. Returning: Transform3D()
-   at: get_global_transform (scene/3d/node_3d.cpp:345)
-ERROR: Condition "!is_inside_tree()" is true. Returning: Transform3D()
-   at: get_global_transform (scene/3d/node_3d.cpp:345)
+          at: _update_people (res://main.gd:4269)
+SCRIPT ERROR: Trying to cast a freed object.
+          at: _update_construction_sites (res://main.gd:3263)
 SCRIPT ERROR: Left operand of 'is' is a previously freed instance.
-          at: _update_people (res://main.gd:4192)
+          at: _update_people (res://main.gd:4269)
 SCRIPT ERROR: Left operand of 'is' is a previously freed instance.
-          at: _update_people (res://main.gd:4192)
-SCRIPT ERROR: Trying to cast a freed object.
-          at: _update_construction_sites (res://main.gd:3208)
+          at: _update_people (res://main.gd:4269)
 SCRIPT ERROR: Left operand of 'is' is a previously freed instance.
-          at: _update_people (res://main.gd:4192)
-SCRIPT ERROR: Trying to cast a freed object.
-          at: _update_construction_sites (res://main.gd:3208)
+          at: _update_people (res://main.gd:4269)
 SCRIPT ERROR: Left operand of 'is' is a previously freed instance.
-          at: _update_people (res://main.gd:4192)
+          at: _update_people (res://main.gd:4269)
 SCRIPT ERROR: Left operand of 'is' is a previously freed instance.
-          at: _update_people (res://main.gd:4192)
-ERROR: Condition "!is_inside_tree()" is true. Returning: Transform3D()
-   at: get_global_transform (scene/3d/node_3d.cpp:345)
+          at: _update_people (res://main.gd:4269)
 ERROR: Condition "!is_inside_tree()" is true. Returning: Transform3D()
    at: get_global_transform (scene/3d/node_3d.cpp:345)
 ERROR: Condition "!is_inside_tree()" is true. Returning: Transform3D()
@@ -1048,6 +1052,12 @@ ERROR: Condition "!is_inside_tree()" is true. Returning: Transform3D()
    at: get_global_transform (scene/3d/node_3d.cpp:345)
 ERROR: Condition "!is_inside_tree()" is true. Returning: Transform3D()
    at: get_global_transform (scene/3d/node_3d.cpp:345)
+SCRIPT ERROR: Left operand of 'is' is a previously freed instance.
+          at: _update_people (res://main.gd:4269)
+SCRIPT ERROR: Trying to cast a freed object.
+          at: _update_construction_sites (res://main.gd:3263)
+SCRIPT ERROR: Left operand of 'is' is a previously freed instance.
+          at: _update_people (res://main.gd:4269)
 ERROR: Condition "!is_inside_tree()" is true. Returning: Transform3D()
    at: get_global_transform (scene/3d/node_3d.cpp:345)
 ERROR: Condition "!is_inside_tree()" is true. Returning: Transform3D()
@@ -1058,6 +1068,34 @@ ERROR: Condition "!is_inside_tree()" is true. Returning: Transform3D()
    at: get_global_transform (scene/3d/node_3d.cpp:345)
 ERROR: Condition "!is_inside_tree()" is true. Returning: Transform3D()
    at: get_global_transform (scene/3d/node_3d.cpp:345)
+SCRIPT ERROR: Trying to cast a freed object.
+          at: _update_construction_sites (res://main.gd:3263)
+SCRIPT ERROR: Left operand of 'is' is a previously freed instance.
+          at: _update_people (res://main.gd:4269)
+SCRIPT ERROR: Trying to cast a freed object.
+          at: _update_construction_sites (res://main.gd:3263)
+SCRIPT ERROR: Left operand of 'is' is a previously freed instance.
+          at: _update_people (res://main.gd:4269)
+SCRIPT ERROR: Trying to cast a freed object.
+          at: _update_construction_sites (res://main.gd:3263)
+SCRIPT ERROR: Left operand of 'is' is a previously freed instance.
+          at: _update_people (res://main.gd:4269)
+SCRIPT ERROR: Left operand of 'is' is a previously freed instance.
+          at: _update_people (res://main.gd:4269)
+SCRIPT ERROR: Invalid assignment of property or key 'modulate' with value of type 'Color' on a base object of type 'Node3D'.
+          at: _capture_city (res://main.gd:7373)
+SCRIPT ERROR: Left operand of 'is' is a previously freed instance.
+          at: _update_people (res://main.gd:4269)
+SCRIPT ERROR: Left operand of 'is' is a previously freed instance.
+          at: _update_people (res://main.gd:4269)
+SCRIPT ERROR: Left operand of 'is' is a previously freed instance.
+          at: _update_people (res://main.gd:4269)
+SCRIPT ERROR: Left operand of 'is' is a previously freed instance.
+          at: _update_people (res://main.gd:4269)
+SCRIPT ERROR: Trying to cast a freed object.
+          at: _update_construction_sites (res://main.gd:3263)
+SCRIPT ERROR: Left operand of 'is' is a previously freed instance.
+          at: _update_people (res://main.gd:4269)
 ERROR: Condition "!is_inside_tree()" is true. Returning: Transform3D()
    at: get_global_transform (scene/3d/node_3d.cpp:345)
 ERROR: Condition "!is_inside_tree()" is true. Returning: Transform3D()
@@ -1068,50 +1106,36 @@ ERROR: Condition "!is_inside_tree()" is true. Returning: Transform3D()
    at: get_global_transform (scene/3d/node_3d.cpp:345)
 ERROR: Condition "!is_inside_tree()" is true. Returning: Transform3D()
    at: get_global_transform (scene/3d/node_3d.cpp:345)
-SCRIPT ERROR: Trying to cast a freed object.
-          at: _update_construction_sites (res://main.gd:3208)
-SCRIPT ERROR: Left operand of 'is' is a previously freed instance.
-          at: _update_people (res://main.gd:4192)
-SCRIPT ERROR: Trying to cast a freed object.
-          at: _update_construction_sites (res://main.gd:3208)
-SCRIPT ERROR: Left operand of 'is' is a previously freed instance.
-          at: _update_people (res://main.gd:4192)
 SCRIPT ERROR: Trying to cast a freed object.
-          at: _update_construction_sites (res://main.gd:3208)
+          at: _update_construction_sites (res://main.gd:3263)
 SCRIPT ERROR: Left operand of 'is' is a previously freed instance.
-          at: _update_people (res://main.gd:4192)
-SCRIPT ERROR: Trying to cast a freed object.
-          at: _update_construction_sites (res://main.gd:3208)
+          at: _update_people (res://main.gd:4269)
 SCRIPT ERROR: Left operand of 'is' is a previously freed instance.
-          at: _update_people (res://main.gd:4192)
+          at: _update_people (res://main.gd:4269)
 SCRIPT ERROR: Trying to cast a freed object.
-          at: _update_construction_sites (res://main.gd:3208)
+          at: _update_construction_sites (res://main.gd:3263)
 SCRIPT ERROR: Left operand of 'is' is a previously freed instance.
-          at: _update_people (res://main.gd:4192)
+          at: _update_people (res://main.gd:4269)
 SCRIPT ERROR: Trying to cast a freed object.
-          at: _update_construction_sites (res://main.gd:3208)
+          at: _update_construction_sites (res://main.gd:3263)
+ERROR: Condition "!is_inside_tree()" is true. Returning: Transform3D()
+   at: get_global_transform (scene/3d/node_3d.cpp:345)
+ERROR: Condition "!is_inside_tree()" is true. Returning: Transform3D()
+   at: get_global_transform (scene/3d/node_3d.cpp:345)
 SCRIPT ERROR: Left operand of 'is' is a previously freed instance.
-          at: _update_people (res://main.gd:4192)
-SCRIPT ERROR: Trying to cast a freed object.
-          at: _update_construction_sites (res://main.gd:3208)
+          at: _update_people (res://main.gd:4269)
 SCRIPT ERROR: Left operand of 'is' is a previously freed instance.
-          at: _update_people (res://main.gd:4192)
+          at: _update_people (res://main.gd:4269)
 SCRIPT ERROR: Left operand of 'is' is a previously freed instance.
-          at: _update_people (res://main.gd:4192)
+          at: _update_people (res://main.gd:4269)
 SCRIPT ERROR: Left operand of 'is' is a previously freed instance.
-          at: _update_people (res://main.gd:4192)
+          at: _update_people (res://main.gd:4269)
 SCRIPT ERROR: Left operand of 'is' is a previously freed instance.
-          at: _update_people (res://main.gd:4192)
+          at: _update_people (res://main.gd:4269)
 ERROR: Condition "!is_inside_tree()" is true. Returning: Transform3D()
    at: get_global_transform (scene/3d/node_3d.cpp:345)
 ERROR: Condition "!is_inside_tree()" is true. Returning: Transform3D()
    at: get_global_transform (scene/3d/node_3d.cpp:345)
-SCRIPT ERROR: Left operand of 'is' is a previously freed instance.
-          at: _update_people (res://main.gd:4192)
-SCRIPT ERROR: Left operand of 'is' is a previously freed instance.
-          at: _update_people (res://main.gd:4192)
-SCRIPT ERROR: Left operand of 'is' is a previously freed instance.
-          at: _update_people (res://main.gd:4192)
 ERROR: Condition "!is_inside_tree()" is true. Returning: Transform3D()
    at: get_global_transform (scene/3d/node_3d.cpp:345)
 ERROR: Condition "!is_inside_tree()" is true. Returning: Transform3D()
@@ -1220,80 +1244,68 @@ ERROR: Condition "!is_inside_tree()" is true. Returning: Transform3D()
    at: get_global_transform (scene/3d/node_3d.cpp:345)
 ERROR: Condition "!is_inside_tree()" is true. Returning: Transform3D()
    at: get_global_transform (scene/3d/node_3d.cpp:345)
-SCRIPT ERROR: Left operand of 'is' is a previously freed instance.
-          at: _update_people (res://main.gd:4192)
-SCRIPT ERROR: Trying to cast a freed object.
-          at: _update_construction_sites (res://main.gd:3208)
-SCRIPT ERROR: Left operand of 'is' is a previously freed instance.
-          at: _update_people (res://main.gd:4192)
-SCRIPT ERROR: Left operand of 'is' is a previously freed instance.
-          at: _update_people (res://main.gd:4192)
-SCRIPT ERROR: Left operand of 'is' is a previously freed instance.
-          at: _update_people (res://main.gd:4192)
-SCRIPT ERROR: Left operand of 'is' is a previously freed instance.
-          at: _update_people (res://main.gd:4192)
-SCRIPT ERROR: Trying to cast a freed object.
-          at: _update_construction_sites (res://main.gd:3208)
-SCRIPT ERROR: Left operand of 'is' is a previously freed instance.
-          at: _update_people (res://main.gd:4192)
-SCRIPT ERROR: Trying to cast a freed object.
-          at: _update_construction_sites (res://main.gd:3208)
 ERROR: Condition "!is_inside_tree()" is true. Returning: Transform3D()
    at: get_global_transform (scene/3d/node_3d.cpp:345)
 ERROR: Condition "!is_inside_tree()" is true. Returning: Transform3D()
    at: get_global_transform (scene/3d/node_3d.cpp:345)
-SCRIPT ERROR: Left operand of 'is' is a previously freed instance.
-          at: _update_people (res://main.gd:4192)
-SCRIPT ERROR: Left operand of 'is' is a previously freed instance.
-          at: _update_people (res://main.gd:4192)
-SCRIPT ERROR: Trying to cast a freed object.
-          at: _update_construction_sites (res://main.gd:3208)
+ERROR: Condition "!is_inside_tree()" is true. Returning: Transform3D()
+   at: get_global_transform (scene/3d/node_3d.cpp:345)
 ERROR: Condition "!is_inside_tree()" is true. Returning: Transform3D()
    at: get_global_transform (scene/3d/node_3d.cpp:345)
 ERROR: Condition "!is_inside_tree()" is true. Returning: Transform3D()
    at: get_global_transform (scene/3d/node_3d.cpp:345)
 SCRIPT ERROR: Left operand of 'is' is a previously freed instance.
-          at: _update_people (res://main.gd:4192)
+          at: _update_people (res://main.gd:4269)
 SCRIPT ERROR: Trying to cast a freed object.
-          at: _update_construction_sites (res://main.gd:3208)
+          at: _update_construction_sites (res://main.gd:3263)
 SCRIPT ERROR: Left operand of 'is' is a previously freed instance.
-          at: _update_people (res://main.gd:4192)
+          at: _update_people (res://main.gd:4269)
+ERROR: Condition "!is_inside_tree()" is true. Returning: Transform3D()
+   at: get_global_transform (scene/3d/node_3d.cpp:345)
+ERROR: Condition "!is_inside_tree()" is true. Returning: Transform3D()
+   at: get_global_transform (scene/3d/node_3d.cpp:345)
 SCRIPT ERROR: Trying to cast a freed object.
-          at: _update_construction_sites (res://main.gd:3208)
+          at: _update_construction_sites (res://main.gd:3263)
 SCRIPT ERROR: Left operand of 'is' is a previously freed instance.
-          at: _update_people (res://main.gd:4192)
+          at: _update_people (res://main.gd:4269)
 SCRIPT ERROR: Trying to cast a freed object.
-          at: _update_construction_sites (res://main.gd:3208)
+          at: _update_construction_sites (res://main.gd:3263)
 SCRIPT ERROR: Left operand of 'is' is a previously freed instance.
-          at: _update_people (res://main.gd:4192)
-SCRIPT ERROR: Trying to cast a freed object.
-          at: _update_construction_sites (res://main.gd:3208)
+          at: _update_people (res://main.gd:4269)
 SCRIPT ERROR: Left operand of 'is' is a previously freed instance.
-          at: _update_people (res://main.gd:4192)
-SCRIPT ERROR: Trying to cast a freed object.
-          at: _update_construction_sites (res://main.gd:3208)
+          at: _update_people (res://main.gd:4269)
+SCRIPT ERROR: Left operand of 'is' is a previously freed instance.
+          at: _update_people (res://main.gd:4269)
+SCRIPT ERROR: Left operand of 'is' is a previously freed instance.
+          at: _update_people (res://main.gd:4269)
 SCRIPT ERROR: Left operand of 'is' is a previously freed instance.
-          at: _update_people (res://main.gd:4192)
+          at: _update_people (res://main.gd:4269)
+SCRIPT ERROR: Left operand of 'is' is a previously freed instance.
+          at: _update_people (res://main.gd:4269)
+SCRIPT ERROR: Left operand of 'is' is a previously freed instance.
+          at: _update_people (res://main.gd:4269)
 SCRIPT ERROR: Trying to cast a freed object.
-          at: _update_construction_sites (res://main.gd:3208)
-ERROR: Condition "!is_inside_tree()" is true. Returning: Transform3D()
-   at: get_global_transform (scene/3d/node_3d.cpp:345)
+          at: _update_construction_sites (res://main.gd:3263)
+SCRIPT ERROR: Left operand of 'is' is a previously freed instance.
+          at: _update_people (res://main.gd:4269)
+SCRIPT ERROR: Left operand of 'is' is a previously freed instance.
+          at: _update_people (res://main.gd:4269)
 ERROR: Condition "!is_inside_tree()" is true. Returning: Transform3D()
    at: get_global_transform (scene/3d/node_3d.cpp:345)
 ERROR: Condition "!is_inside_tree()" is true. Returning: Transform3D()
    at: get_global_transform (scene/3d/node_3d.cpp:345)
 SCRIPT ERROR: Left operand of 'is' is a previously freed instance.
-          at: _update_people (res://main.gd:4192)
+          at: _update_people (res://main.gd:4269)
 SCRIPT ERROR: Trying to cast a freed object.
-          at: _update_construction_sites (res://main.gd:3208)
+          at: _update_construction_sites (res://main.gd:3263)
 SCRIPT ERROR: Left operand of 'is' is a previously freed instance.
-          at: _update_people (res://main.gd:4192)
+          at: _update_people (res://main.gd:4269)
 SCRIPT ERROR: Trying to cast a freed object.
-          at: _update_construction_sites (res://main.gd:3208)
-ERROR: Condition "!is_inside_tree()" is true. Returning: Transform3D()
-   at: get_global_transform (scene/3d/node_3d.cpp:345)
-ERROR: Condition "!is_inside_tree()" is true. Returning: Transform3D()
-   at: get_global_transform (scene/3d/node_3d.cpp:345)
+          at: _update_construction_sites (res://main.gd:3263)
+SCRIPT ERROR: Left operand of 'is' is a previously freed instance.
+          at: _update_people (res://main.gd:4269)
+SCRIPT ERROR: Left operand of 'is' is a previously freed instance.
+          at: _update_people (res://main.gd:4269)
 ERROR: Condition "!is_inside_tree()" is true. Returning: Transform3D()
    at: get_global_transform (scene/3d/node_3d.cpp:345)
 ERROR: Condition "!is_inside_tree()" is true. Returning: Transform3D()
@@ -1334,6 +1346,14 @@ ERROR: Condition "!is_inside_tree()" is true. Returning: Transform3D()
    at: get_global_transform (scene/3d/node_3d.cpp:345)
 ERROR: Condition "!is_inside_tree()" is true. Returning: Transform3D()
    at: get_global_transform (scene/3d/node_3d.cpp:345)
+SCRIPT ERROR: Left operand of 'is' is a previously freed instance.
+          at: _update_people (res://main.gd:4269)
+SCRIPT ERROR: Left operand of 'is' is a previously freed instance.
+          at: _update_people (res://main.gd:4269)
+SCRIPT ERROR: Trying to cast a freed object.
+          at: _update_construction_sites (res://main.gd:3263)
+SCRIPT ERROR: Left operand of 'is' is a previously freed instance.
+          at: _update_people (res://main.gd:4269)
 ERROR: Condition "!is_inside_tree()" is true. Returning: Transform3D()
    at: get_global_transform (scene/3d/node_3d.cpp:345)
 ERROR: Condition "!is_inside_tree()" is true. Returning: Transform3D()
@@ -1344,32 +1364,32 @@ ERROR: Condition "!is_inside_tree()" is true. Returning: Transform3D()
    at: get_global_transform (scene/3d/node_3d.cpp:345)
 ERROR: Condition "!is_inside_tree()" is true. Returning: Transform3D()
    at: get_global_transform (scene/3d/node_3d.cpp:345)
+SCRIPT ERROR: Trying to cast a freed object.
+          at: _update_construction_sites (res://main.gd:3263)
 SCRIPT ERROR: Left operand of 'is' is a previously freed instance.
-          at: _update_people (res://main.gd:4192)
+          at: _update_people (res://main.gd:4269)
+SCRIPT ERROR: Trying to cast a freed object.
+          at: _update_construction_sites (res://main.gd:3263)
 SCRIPT ERROR: Left operand of 'is' is a previously freed instance.
-          at: _update_people (res://main.gd:4192)
-ERROR: Condition "!is_inside_tree()" is true. Returning: Transform3D()
-   at: get_global_transform (scene/3d/node_3d.cpp:345)
+          at: _update_people (res://main.gd:4269)
+SCRIPT ERROR: Trying to cast a freed object.
+          at: _update_construction_sites (res://main.gd:3263)
 ERROR: Condition "!is_inside_tree()" is true. Returning: Transform3D()
    at: get_global_transform (scene/3d/node_3d.cpp:345)
 ERROR: Condition "!is_inside_tree()" is true. Returning: Transform3D()
    at: get_global_transform (scene/3d/node_3d.cpp:345)
 ERROR: Condition "!is_inside_tree()" is true. Returning: Transform3D()
    at: get_global_transform (scene/3d/node_3d.cpp:345)
+SCRIPT ERROR: Left operand of 'is' is a previously freed instance.
+          at: _update_people (res://main.gd:4269)
+SCRIPT ERROR: Trying to cast a freed object.
+          at: _update_construction_sites (res://main.gd:3263)
 ERROR: Condition "!is_inside_tree()" is true. Returning: Transform3D()
    at: get_global_transform (scene/3d/node_3d.cpp:345)
 ERROR: Condition "!is_inside_tree()" is true. Returning: Transform3D()
    at: get_global_transform (scene/3d/node_3d.cpp:345)
 ERROR: Condition "!is_inside_tree()" is true. Returning: Transform3D()
    at: get_global_transform (scene/3d/node_3d.cpp:345)
-SCRIPT ERROR: Left operand of 'is' is a previously freed instance.
-          at: _update_people (res://main.gd:4192)
-SCRIPT ERROR: Left operand of 'is' is a previously freed instance.
-          at: _update_people (res://main.gd:4192)
-SCRIPT ERROR: Left operand of 'is' is a previously freed instance.
-          at: _update_people (res://main.gd:4192)
-SCRIPT ERROR: Left operand of 'is' is a previously freed instance.
-          at: _update_people (res://main.gd:4192)
 ERROR: Condition "!is_inside_tree()" is true. Returning: Transform3D()
    at: get_global_transform (scene/3d/node_3d.cpp:345)
 ERROR: Condition "!is_inside_tree()" is true. Returning: Transform3D()
@@ -1382,136 +1402,70 @@ ERROR: Condition "!is_inside_tree()" is true. Returning: Transform3D()
    at: get_global_transform (scene/3d/node_3d.cpp:345)
 ERROR: Condition "!is_inside_tree()" is true. Returning: Transform3D()
    at: get_global_transform (scene/3d/node_3d.cpp:345)
-SCRIPT ERROR: Left operand of 'is' is a previously freed instance.
-          at: _update_people (res://main.gd:4192)
 SCRIPT ERROR: Left operand of 'is' is a previously freed instance.
-          at: _update_people (res://main.gd:4192)
+          at: _update_people (res://main.gd:4269)
 ERROR: Condition "!is_inside_tree()" is true. Returning: Transform3D()
    at: get_global_transform (scene/3d/node_3d.cpp:345)
 ERROR: Condition "!is_inside_tree()" is true. Returning: Transform3D()
    at: get_global_transform (scene/3d/node_3d.cpp:345)
 SCRIPT ERROR: Left operand of 'is' is a previously freed instance.
-          at: _update_people (res://main.gd:4192)
+          at: _update_people (res://main.gd:4269)
 SCRIPT ERROR: Left operand of 'is' is a previously freed instance.
-          at: _update_people (res://main.gd:4192)
-SCRIPT ERROR: Trying to cast a freed object.
-          at: _update_construction_sites (res://main.gd:3208)
-SCRIPT ERROR: Left operand of 'is' is a previously freed instance.
-          at: _update_people (res://main.gd:4192)
+          at: _update_people (res://main.gd:4269)
 SCRIPT ERROR: Left operand of 'is' is a previously freed instance.
-          at: _update_people (res://main.gd:4192)
+          at: _update_people (res://main.gd:4269)
 SCRIPT ERROR: Left operand of 'is' is a previously freed instance.
-          at: _update_people (res://main.gd:4192)
-SCRIPT ERROR: Left operand of 'is' is a previously freed instance.
-          at: _update_people (res://main.gd:4192)
-SCRIPT ERROR: Trying to cast a freed object.
-          at: _update_construction_sites (res://main.gd:3208)
+          at: _update_people (res://main.gd:4269)
 SCRIPT ERROR: Left operand of 'is' is a previously freed instance.
-          at: _update_people (res://main.gd:4192)
+          at: _update_people (res://main.gd:4269)
 SCRIPT ERROR: Left operand of 'is' is a previously freed instance.
-          at: _update_people (res://main.gd:4192)
+          at: _update_people (res://main.gd:4269)
 SCRIPT ERROR: Left operand of 'is' is a previously freed instance.
-          at: _update_people (res://main.gd:4192)
+          at: _update_people (res://main.gd:4269)
 SCRIPT ERROR: Trying to cast a freed object.
-          at: _update_construction_sites (res://main.gd:3208)
+          at: _update_construction_sites (res://main.gd:3263)
 SCRIPT ERROR: Left operand of 'is' is a previously freed instance.
-          at: _update_people (res://main.gd:4192)
-SCRIPT ERROR: Trying to cast a freed object.
-          at: _update_construction_sites (res://main.gd:3208)
+          at: _update_people (res://main.gd:4269)
 SCRIPT ERROR: Left operand of 'is' is a previously freed instance.
-          at: _update_people (res://main.gd:4192)
-SCRIPT ERROR: Trying to cast a freed object.
-          at: _update_construction_sites (res://main.gd:3208)
+          at: _update_people (res://main.gd:4269)
 SCRIPT ERROR: Left operand of 'is' is a previously freed instance.
-          at: _update_people (res://main.gd:4192)
+          at: _update_people (res://main.gd:4269)
 SCRIPT ERROR: Trying to cast a freed object.
-          at: _update_construction_sites (res://main.gd:3208)
+          at: _update_construction_sites (res://main.gd:3263)
 SCRIPT ERROR: Left operand of 'is' is a previously freed instance.
-          at: _update_people (res://main.gd:4192)
-SCRIPT ERROR: Trying to cast a freed object.
-          at: _update_construction_sites (res://main.gd:3208)
+          at: _update_people (res://main.gd:4269)
 SCRIPT ERROR: Left operand of 'is' is a previously freed instance.
-          at: _update_people (res://main.gd:4192)
-ERROR: Condition "!is_inside_tree()" is true. Returning: Transform3D()
-   at: get_global_transform (scene/3d/node_3d.cpp:345)
-ERROR: Condition "!is_inside_tree()" is true. Returning: Transform3D()
-   at: get_global_transform (scene/3d/node_3d.cpp:345)
-ERROR: Condition "!is_inside_tree()" is true. Returning: Transform3D()
-   at: get_global_transform (scene/3d/node_3d.cpp:345)
-ERROR: Condition "!is_inside_tree()" is true. Returning: Transform3D()
-   at: get_global_transform (scene/3d/node_3d.cpp:345)
-ERROR: Condition "!is_inside_tree()" is true. Returning: Transform3D()
-   at: get_global_transform (scene/3d/node_3d.cpp:345)
-SCRIPT ERROR: Trying to cast a freed object.
-          at: _update_construction_sites (res://main.gd:3208)
+          at: _update_people (res://main.gd:4269)
 SCRIPT ERROR: Left operand of 'is' is a previously freed instance.
-          at: _update_people (res://main.gd:4192)
-SCRIPT ERROR: Trying to cast a freed object.
-          at: _update_construction_sites (res://main.gd:3208)
-ERROR: Condition "!is_inside_tree()" is true. Returning: Transform3D()
-   at: get_global_transform (scene/3d/node_3d.cpp:345)
-ERROR: Condition "!is_inside_tree()" is true. Returning: Transform3D()
-   at: get_global_transform (scene/3d/node_3d.cpp:345)
+          at: _update_people (res://main.gd:4269)
 SCRIPT ERROR: Left operand of 'is' is a previously freed instance.
-          at: _update_people (res://main.gd:4192)
-SCRIPT ERROR: Trying to cast a freed object.
-          at: _update_construction_sites (res://main.gd:3208)
+          at: _update_people (res://main.gd:4269)
 SCRIPT ERROR: Left operand of 'is' is a previously freed instance.
-          at: _update_people (res://main.gd:4192)
+          at: _update_people (res://main.gd:4269)
 SCRIPT ERROR: Trying to cast a freed object.
-          at: _update_construction_sites (res://main.gd:3208)
+          at: _update_construction_sites (res://main.gd:3263)
 SCRIPT ERROR: Left operand of 'is' is a previously freed instance.
-          at: _update_people (res://main.gd:4192)
-SCRIPT ERROR: Left operand of 'is' is a previously freed instance.
-          at: _update_people (res://main.gd:4192)
-SCRIPT ERROR: Left operand of 'is' is a previously freed instance.
-          at: _update_people (res://main.gd:4192)
-SCRIPT ERROR: Left operand of 'is' is a previously freed instance.
-          at: _update_people (res://main.gd:4192)
-SCRIPT ERROR: Left operand of 'is' is a previously freed instance.
-          at: _update_people (res://main.gd:4192)
-SCRIPT ERROR: Left operand of 'is' is a previously freed instance.
-          at: _update_people (res://main.gd:4192)
-SCRIPT ERROR: Left operand of 'is' is a previously freed instance.
-          at: _update_people (res://main.gd:4192)
-SCRIPT ERROR: Left operand of 'is' is a previously freed instance.
-          at: _update_people (res://main.gd:4192)
-SCRIPT ERROR: Left operand of 'is' is a previously freed instance.
-          at: _update_people (res://main.gd:4192)
-SCRIPT ERROR: Left operand of 'is' is a previously freed instance.
-          at: _update_people (res://main.gd:4192)
+          at: _update_people (res://main.gd:4269)
 SCRIPT ERROR: Trying to cast a freed object.
-          at: _update_construction_sites (res://main.gd:3208)
-SCRIPT ERROR: Left operand of 'is' is a previously freed instance.
-          at: _update_people (res://main.gd:4192)
-SCRIPT ERROR: Left operand of 'is' is a previously freed instance.
-          at: _update_people (res://main.gd:4192)
+          at: _update_construction_sites (res://main.gd:3263)
 ERROR: Condition "!is_inside_tree()" is true. Returning: Transform3D()
    at: get_global_transform (scene/3d/node_3d.cpp:345)
 ERROR: Condition "!is_inside_tree()" is true. Returning: Transform3D()
    at: get_global_transform (scene/3d/node_3d.cpp:345)
-SCRIPT ERROR: Left operand of 'is' is a previously freed instance.
-          at: _update_people (res://main.gd:4192)
 SCRIPT ERROR: Left operand of 'is' is a previously freed instance.
-          at: _update_people (res://main.gd:4192)
+          at: _update_people (res://main.gd:4269)
 SCRIPT ERROR: Trying to cast a freed object.
-          at: _update_construction_sites (res://main.gd:3208)
+          at: _update_construction_sites (res://main.gd:3263)
 SCRIPT ERROR: Left operand of 'is' is a previously freed instance.
-          at: _update_people (res://main.gd:4192)
+          at: _update_people (res://main.gd:4269)
 SCRIPT ERROR: Trying to cast a freed object.
-          at: _update_construction_sites (res://main.gd:3208)
+          at: _update_construction_sites (res://main.gd:3263)
 SCRIPT ERROR: Left operand of 'is' is a previously freed instance.
-          at: _update_people (res://main.gd:4192)
+          at: _update_people (res://main.gd:4269)
 SCRIPT ERROR: Trying to cast a freed object.
-          at: _update_construction_sites (res://main.gd:3208)
+          at: _update_construction_sites (res://main.gd:3263)
 SCRIPT ERROR: Left operand of 'is' is a previously freed instance.
-          at: _update_people (res://main.gd:4192)
-SCRIPT ERROR: Trying to cast a freed object.
-          at: _update_construction_sites (res://main.gd:3208)
-ERROR: Condition "!is_inside_tree()" is true. Returning: Transform3D()
-   at: get_global_transform (scene/3d/node_3d.cpp:345)
-ERROR: Condition "!is_inside_tree()" is true. Returning: Transform3D()
-   at: get_global_transform (scene/3d/node_3d.cpp:345)
+          at: _update_people (res://main.gd:4269)
 ERROR: Condition "!is_inside_tree()" is true. Returning: Transform3D()
    at: get_global_transform (scene/3d/node_3d.cpp:345)
 ERROR: Condition "!is_inside_tree()" is true. Returning: Transform3D()
@@ -1529,27 +1483,7 @@ ERROR: Condition "!is_inside_tree()" is true. Returning: Transform3D()
 ERROR: Condition "!is_inside_tree()" is true. Returning: Transform3D()
    at: get_global_transform (scene/3d/node_3d.cpp:345)
 SCRIPT ERROR: Trying to cast a freed object.
-          at: _update_construction_sites (res://main.gd:3208)
-ERROR: Condition "!is_inside_tree()" is true. Returning: Transform3D()
-   at: get_global_transform (scene/3d/node_3d.cpp:345)
-ERROR: Condition "!is_inside_tree()" is true. Returning: Transform3D()
-   at: get_global_transform (scene/3d/node_3d.cpp:345)
-ERROR: Condition "!is_inside_tree()" is true. Returning: Transform3D()
-   at: get_global_transform (scene/3d/node_3d.cpp:345)
-ERROR: Condition "!is_inside_tree()" is true. Returning: Transform3D()
-   at: get_global_transform (scene/3d/node_3d.cpp:345)
-ERROR: Condition "!is_inside_tree()" is true. Returning: Transform3D()
-   at: get_global_transform (scene/3d/node_3d.cpp:345)
-ERROR: Condition "!is_inside_tree()" is true. Returning: Transform3D()
-   at: get_global_transform (scene/3d/node_3d.cpp:345)
-ERROR: Condition "!is_inside_tree()" is true. Returning: Transform3D()
-   at: get_global_transform (scene/3d/node_3d.cpp:345)
-ERROR: Condition "!is_inside_tree()" is true. Returning: Transform3D()
-   at: get_global_transform (scene/3d/node_3d.cpp:345)
-ERROR: Condition "!is_inside_tree()" is true. Returning: Transform3D()
-   at: get_global_transform (scene/3d/node_3d.cpp:345)
-ERROR: Condition "!is_inside_tree()" is true. Returning: Transform3D()
-   at: get_global_transform (scene/3d/node_3d.cpp:345)
+          at: _update_construction_sites (res://main.gd:3263)
 ERROR: Condition "!is_inside_tree()" is true. Returning: Transform3D()
    at: get_global_transform (scene/3d/node_3d.cpp:345)
 ERROR: Condition "!is_inside_tree()" is true. Returning: Transform3D()
@@ -1561,23 +1495,17 @@ ERROR: Condition "!is_inside_tree()" is true. Returning: Transform3D()
 ERROR: Condition "!is_inside_tree()" is true. Returning: Transform3D()
    at: get_global_transform (scene/3d/node_3d.cpp:345)
 SCRIPT ERROR: Trying to cast a freed object.
-          at: _update_construction_sites (res://main.gd:3208)
-ERROR: Condition "!is_inside_tree()" is true. Returning: Transform3D()
-   at: get_global_transform (scene/3d/node_3d.cpp:345)
-ERROR: Condition "!is_inside_tree()" is true. Returning: Transform3D()
-   at: get_global_transform (scene/3d/node_3d.cpp:345)
-ERROR: Condition "!is_inside_tree()" is true. Returning: Transform3D()
-   at: get_global_transform (scene/3d/node_3d.cpp:345)
-ERROR: Condition "!is_inside_tree()" is true. Returning: Transform3D()
-   at: get_global_transform (scene/3d/node_3d.cpp:345)
+          at: _update_construction_sites (res://main.gd:3263)
 ERROR: Condition "!is_inside_tree()" is true. Returning: Transform3D()
    at: get_global_transform (scene/3d/node_3d.cpp:345)
 ERROR: Condition "!is_inside_tree()" is true. Returning: Transform3D()
    at: get_global_transform (scene/3d/node_3d.cpp:345)
 ERROR: Condition "!is_inside_tree()" is true. Returning: Transform3D()
    at: get_global_transform (scene/3d/node_3d.cpp:345)
+SCRIPT ERROR: Trying to cast a freed object.
+          at: _update_construction_sites (res://main.gd:3263)
 SCRIPT ERROR: Trying to cast a freed object.
-          at: _update_construction_sites (res://main.gd:3208)
+          at: _update_construction_sites (res://main.gd:3263)
 ERROR: Condition "!is_inside_tree()" is true. Returning: Transform3D()
    at: get_global_transform (scene/3d/node_3d.cpp:345)
 ERROR: Condition "!is_inside_tree()" is true. Returning: Transform3D()
@@ -1598,7 +1526,13 @@ ERROR: Condition "!is_inside_tree()" is true. Returning: Transform3D()
    at: get_global_transform (scene/3d/node_3d.cpp:345)
 ERROR: Condition "!is_inside_tree()" is true. Returning: Transform3D()
    at: get_global_transform (scene/3d/node_3d.cpp:345)
+SCRIPT ERROR: Left operand of 'is' is a previously freed instance.
+          at: _update_people (res://main.gd:4269)
+SCRIPT ERROR: Left operand of 'is' is a previously freed instance.
+          at: _update_people (res://main.gd:4269)
 ERROR: Condition "!is_inside_tree()" is true. Returning: Transform3D()
    at: get_global_transform (scene/3d/node_3d.cpp:345)
 ERROR: Condition "!is_inside_tree()" is true. Returning: Transform3D()
    at: get_global_transform (scene/3d/node_3d.cpp:345)
+SCRIPT ERROR: Left operand of 'is' is a previously freed instance.
+          at: _update_people (res://main.gd:4269)
