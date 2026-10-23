@@ -4401,16 +4401,17 @@ func _spawn_car(city_id: int) -> void:
 		return
 	var city: Dictionary = cities[city_id]
 	var city_position: Vector3 = city["pos"]
+	var grid_spacing: float = _city_road_grid_size(city_id, _world_year())
 	var min_x: float = float(city.get("road_grid_min_x", -7.5))
 	var max_x: float = float(city.get("road_grid_max_x", 7.5))
 	var min_z: float = float(city.get("road_grid_min_z", -7.5))
 	var max_z: float = float(city.get("road_grid_max_z", 7.5))
-	var x_steps: int = maxi(0, roundi((max_x - min_x) / ROAD_GRID_SIZE))
-	var z_steps: int = maxi(0, roundi((max_z - min_z) / ROAD_GRID_SIZE))
+	var x_steps: int = maxi(0, roundi((max_x - min_x) / grid_spacing))
+	var z_steps: int = maxi(0, roundi((max_z - min_z) / grid_spacing))
 	var spawn_position := Vector3.ZERO
 	for attempt in range(10):
-		var local_x: float = min_x + float(randi_range(0, x_steps)) * ROAD_GRID_SIZE
-		var local_z: float = min_z + float(randi_range(0, z_steps)) * ROAD_GRID_SIZE
+		var local_x: float = min_x + float(randi_range(0, x_steps)) * grid_spacing
+		var local_z: float = min_z + float(randi_range(0, z_steps)) * grid_spacing
 		spawn_position = _surface_position(city_position.x + local_x, city_position.z + local_z)
 		var space_free: bool = true
 		for existing_car in cars:
@@ -4461,8 +4462,9 @@ func _choose_next_car_waypoint(city_id: int, position: Vector3, previous_directi
 		return {"direction": Vector2i.ZERO, "waypoint": position}
 	var city: Dictionary = cities[city_id]
 	var city_position: Vector3 = city["pos"]
-	var grid_x: float = round((position.x - city_position.x) / ROAD_GRID_SIZE) * ROAD_GRID_SIZE
-	var grid_z: float = round((position.z - city_position.z) / ROAD_GRID_SIZE) * ROAD_GRID_SIZE
+	var grid_spacing: float = _city_road_grid_size(city_id, _world_year())
+	var grid_x: float = round((position.x - city_position.x) / grid_spacing) * grid_spacing
+	var grid_z: float = round((position.z - city_position.z) / grid_spacing) * grid_spacing
 	var min_x: float = float(city.get("road_grid_min_x", -7.5))
 	var max_x: float = float(city.get("road_grid_max_x", 7.5))
 	var min_z: float = float(city.get("road_grid_min_z", -7.5))
@@ -4470,8 +4472,8 @@ func _choose_next_car_waypoint(city_id: int, position: Vector3, previous_directi
 	var directions: Array[Vector2i] = [Vector2i(1, 0), Vector2i(-1, 0), Vector2i(0, 1), Vector2i(0, -1)]
 	var options: Array[Vector2i] = []
 	for option in directions:
-		var next_x: float = grid_x + float(option.x) * ROAD_GRID_SIZE
-		var next_z: float = grid_z + float(option.y) * ROAD_GRID_SIZE
+		var next_x: float = grid_x + float(option.x) * grid_spacing
+		var next_z: float = grid_z + float(option.y) * grid_spacing
 		if next_x < min_x - 0.1 or next_x > max_x + 0.1 or next_z < min_z - 0.1 or next_z > max_z + 0.1:
 			continue
 		options.append(option)
@@ -4488,8 +4490,8 @@ func _choose_next_car_waypoint(city_id: int, position: Vector3, previous_directi
 		if turn_options.is_empty():
 			turn_options = options
 		chosen = turn_options[randi_range(0, turn_options.size() - 1)]
-	var target_x: float = grid_x + float(chosen.x) * ROAD_GRID_SIZE
-	var target_z: float = grid_z + float(chosen.y) * ROAD_GRID_SIZE
+	var target_x: float = grid_x + float(chosen.x) * grid_spacing
+	var target_z: float = grid_z + float(chosen.y) * grid_spacing
 	return {"direction": chosen, "waypoint": _surface_position(city_position.x + target_x, city_position.z + target_z)}
 
 
@@ -5264,13 +5266,14 @@ func _pick_city_event_location(city_id: int) -> Vector3:
 		return Vector3.ZERO
 	var city: Dictionary = cities[city_id]
 	var city_position: Vector3 = city["pos"]
+	var grid_spacing: float = _city_road_grid_size(city_id, _world_year())
 	var min_x: float = float(city.get("road_grid_min_x", -7.5))
 	var max_x: float = float(city.get("road_grid_max_x", 7.5))
 	var min_z: float = float(city.get("road_grid_min_z", -7.5))
 	var max_z: float = float(city.get("road_grid_max_z", 7.5))
 	for attempt in range(16):
-		var local_x: float = roundf(randf_range(min_x, max_x) / ROAD_GRID_SIZE) * ROAD_GRID_SIZE
-		var local_z: float = roundf(randf_range(min_z, max_z) / ROAD_GRID_SIZE) * ROAD_GRID_SIZE
+		var local_x: float = roundf(randf_range(min_x, max_x) / grid_spacing) * grid_spacing
+		var local_z: float = roundf(randf_range(min_z, max_z) / grid_spacing) * grid_spacing
 		var world_x: float = clampf(city_position.x + local_x, -TERRAIN_SIZE * 0.47, TERRAIN_SIZE * 0.47)
 		var world_z: float = clampf(city_position.z + local_z, -TERRAIN_SIZE * 0.47, TERRAIN_SIZE * 0.47)
 		if _height_at(world_x, world_z) > WATER_LEVEL + 0.2:
