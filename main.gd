@@ -99,7 +99,7 @@ var citizen_infection_marker_material: StandardMaterial3D
 var last_detail_signature: String = ""
 var territory_refresh_pending: bool = false
 var territory_refresh_timer: float = 0.0
-var city_defence_timer: float = 0.0
+var city_defence_timer: float = 0.35
 var armies: Array = []
 var missiles: Array = []
 var explosions: Array = []
@@ -8651,7 +8651,10 @@ func _update_world_detail_levels() -> void:
 	var show_city_models: bool = camera_distance <= 165.0
 	var show_neighbourhoods: bool = camera_distance <= 135.0
 	var show_resources: bool = camera_distance <= 110.0
-	var show_people: bool = camera_distance <= 85.0
+	# At overview/medium zoom, use the single MultiMesh crowd instead of hundreds
+	# of individual character nodes. Only show full citizens when they are large
+	# enough on screen to read clearly.
+	var show_people: bool = camera_distance <= 52.0
 	var show_city_labels: bool = camera_distance >= 48.0
 	var show_far_markers: bool = not show_city_models
 	var focus_cell_x: int = floori(camera_target.x / 10.0)
@@ -8684,7 +8687,7 @@ func _update_world_detail_levels() -> void:
 	var viewport_rect: Rect2 = get_viewport().get_visible_rect()
 	var view_inverse: Transform3D = camera.global_transform.affine_inverse()
 	var focal_pixels: float = viewport_rect.size.y * 0.5 / maxf(0.1, tan(deg_to_rad(camera.fov * 0.5)))
-	var show_building_details: bool = camera_distance <= 82.0
+	var show_building_details: bool = camera_distance <= 56.0
 	for city in cities:
 		var ruined: bool = bool(city.get("ruined", false))
 		var detail_city_position: Vector3 = city["pos"]
