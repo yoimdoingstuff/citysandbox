@@ -34,7 +34,7 @@ const AIRPORT_INTRODUCTION_YEAR: int = 1945
 const MARITIME_INTRODUCTION_YEAR: int = AIRPORT_INTRODUCTION_YEAR - 60
 const INFRASTRUCTURE_UPDATE_INTERVAL: float = 6.0
 const MAX_INFRASTRUCTURE_CITY_CHECKS_PER_TICK: int = 6
-const ERA_SKIP_YEARS: Array[int] = [1200, 1450, 1780, 1880, 1950, 2000, 2026]
+const ERA_SKIP_YEARS: Array[int] = [1200, 1450, 1780, 1880, 1885, 1945, 1950, 2000, 2026]
 const TRADE_GOODS: Array[String] = ["food", "wood", "stone", "iron", "copper", "coal", "gold"]
 const PERFORMANCE_LOG_PATH: String = "user://civiterra-performance.log"
 const SLOW_OPERATION_THRESHOLD_USEC: int = 40000
@@ -9825,6 +9825,12 @@ func _clear_loaded_world() -> void:
 	transports.clear()
 	oil_rigs.clear()
 	alliances.clear()
+	traffic_light_records.clear()
+	traffic_light_records_by_city.clear()
+	maritime_era_unlocked = false
+	aviation_era_unlocked = false
+	infrastructure_update_timer = 0.0
+	infrastructure_city_cursor = 0
 	transport_timer = 0.0
 	oil_update_timer = 0.0
 	diplomacy_timer = 0.0
@@ -9946,6 +9952,7 @@ func _ensure_city_infrastructure(city_id: int, year: int, population_override: i
 			(old_access_road as Node3D).queue_free()
 		city["seaport"] = null
 		city["seaport_attempted"] = false
+		city["airport_access_road"] = null
 	if year < AIRPORT_INTRODUCTION_YEAR:
 		var old_airport: Variant = city.get("airport", null)
 		if is_instance_valid(old_airport) and old_airport is Node3D:
