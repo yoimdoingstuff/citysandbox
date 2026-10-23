@@ -6,7 +6,7 @@ const TERRAIN_LOD_STEPS: Array[int] = [1, 2, 4, 8]
 const TERRAIN_CHUNK_CELLS: int = 48
 const TERRAIN_CHUNKS_PER_AXIS: int = 5
 const TERRAIN_EDIT_REBUILD_INTERVAL: float = 0.12
-const MAX_TERRAIN_CHUNKS_PER_FRAME: int = 2
+const MAX_TERRAIN_CHUNKS_PER_FRAME: int = 1
 const MAX_METEOR_IMPACTS_PER_FRAME: int = 2
 const MAX_CITIES: int = 10
 const MAX_PEOPLE: int = 800
@@ -362,7 +362,10 @@ func _tick_runtime_stress_tests() -> void:
 	if active_action == "camera_lod":
 		repeat_interval_usec = 1250000
 		repeat_action = "camera_lod_pulse"
-	if active_action in ["combined", "camera_lod"] and now_usec - stress_repeat_started_usec >= repeat_interval_usec:
+	if active_action == "terrain_edits":
+		repeat_interval_usec = 1800000
+		repeat_action = "terrain_edit_pulse"
+	if active_action in ["combined", "camera_lod", "terrain_edits"] and now_usec - stress_repeat_started_usec >= repeat_interval_usec:
 		var action_started_usec: int = Time.get_ticks_usec()
 		_run_runtime_stress_action(repeat_action)
 		var action_elapsed_ms: float = float(Time.get_ticks_usec() - action_started_usec) / 1000.0
@@ -562,6 +565,16 @@ func _run_runtime_stress_action(action_name: String) -> void:
 			for terrain_edit_index in range(1, 3):
 				var target: Vector3 = _stress_city_target(terrain_edit_index)
 				_sculpt_terrain(target, -0.24 if terrain_edit_index % 2 == 0 else 0.28)
+		"terrain_edit_pulse":
+			if cities.is_empty():
+				return
+			brush_radius = 7.0
+			# Repeat small local edits while the scenario runs so the stress log
+			# captures the delayed mesh/object-alignment cost, not just dispatch cost.
+			var edit_target: Vector3 = _stress_city_target(stress_camera_lod_step % mini(3, cities.size()))
+			stress_camera_lod_step += 1
+			_sculpt_terrain(edit_target, -0.18, false)
+			_sculpt_terrain(edit_target + Vector3(5.0, 0.0, 4.0), 0.16, false)
 		"collapse":
 			var collapse_count: int = 0
 			for city_id in range(cities.size()):
