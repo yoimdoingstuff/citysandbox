@@ -2762,6 +2762,7 @@ func _apply_building_era_appearance(city_id: int, year: int, only_house_index: i
 			var glass_material: StandardMaterial3D = _material(GLASS_PALETTE[(variation + (1 if skyscraper else 0)) % GLASS_PALETTE.size()], 0.38)
 			glass_material.cull_mode = BaseMaterial3D.CULL_DISABLED
 			windows.material_override = glass_material
+			windows.set_meta("building_detail_lod", true)
 			house.add_child(windows)
 			var flat_roof := BoxMesh.new()
 			flat_roof.size = Vector3(width + 0.16, 0.18, depth + 0.16)
@@ -2769,7 +2770,8 @@ func _apply_building_era_appearance(city_id: int, year: int, only_house_index: i
 			if skyscraper:
 				var crown := BoxMesh.new()
 				crown.size = Vector3(width * (0.30 + float(variation % 4) * 0.08), 0.35 + float(variation % 3) * 0.18, depth * (0.30 + float((variation + 2) % 4) * 0.08))
-				_add_mesh(house, crown, _material(URBAN_FACADE_PALETTE[(variation + 4) % URBAN_FACADE_PALETTE.size()].darkened(0.20)), Vector3(0.0, height + crown.size.y * 0.5, 0.0))
+				var crown_visual: MeshInstance3D = _add_mesh(house, crown, _material(URBAN_FACADE_PALETTE[(variation + 4) % URBAN_FACADE_PALETTE.size()].darkened(0.20)), Vector3(0.0, height + crown.size.y * 0.5, 0.0))
+				crown_visual.set_meta("building_detail_lod", true)
 		elif kind in [0, 1]:
 			var roof := CylinderMesh.new()
 			roof.top_radius = 0.0
@@ -2786,22 +2788,26 @@ func _apply_building_era_appearance(city_id: int, year: int, only_house_index: i
 				chimney.top_radius = 0.09
 				chimney.bottom_radius = 0.12
 				chimney.height = 0.54
-				_add_mesh(house, chimney, _material(Color(0.35, 0.28, 0.24)), Vector3(width * 0.28, height + 0.38, 0.0))
+				var chimney_visual: MeshInstance3D = _add_mesh(house, chimney, _material(Color(0.35, 0.28, 0.24)), Vector3(width * 0.28, height + 0.38, 0.0))
+				chimney_visual.set_meta("building_detail_lod", true)
 			elif kind == 4:
 				for crop_index in range(3):
 					var crop := BoxMesh.new()
 					crop.size = Vector3(width * 0.72, 0.10, 0.13)
-					_add_mesh(house, crop, _material(Color(0.28, 0.54, 0.23)), Vector3(0.0, height + 0.18, (float(crop_index) - 1.0) * 0.42))
+					var crop_visual: MeshInstance3D = _add_mesh(house, crop, _material(Color(0.28, 0.54, 0.23)), Vector3(0.0, height + 0.18, (float(crop_index) - 1.0) * 0.42))
+					crop_visual.set_meta("building_detail_lod", true)
 		if urban and large_plot and year >= 1950:
 			# Commercial and office super-lots get recognisable loading/roof plant details.
 			for unit_index in range(3):
 				var rooftop_unit := BoxMesh.new()
 				rooftop_unit.size = Vector3(0.34, 0.24, 0.30)
 				var unit_x: float = (float(unit_index) - 1.0) * width * 0.26
-				_add_mesh(house, rooftop_unit, _material(Color(0.34, 0.39, 0.41)), Vector3(unit_x, height + 0.31, -depth * 0.18))
+				var rooftop_visual: MeshInstance3D = _add_mesh(house, rooftop_unit, _material(Color(0.34, 0.39, 0.41)), Vector3(unit_x, height + 0.31, -depth * 0.18))
+				rooftop_visual.set_meta("building_detail_lod", true)
 			var canopy := BoxMesh.new()
 			canopy.size = Vector3(width * 0.62, 0.12, 0.42)
-			_add_mesh(house, canopy, _material(roof_color.lightened(0.18)), Vector3(0.0, minf(1.5, height * 0.48), depth * 0.5 + 0.18))
+			var canopy_visual: MeshInstance3D = _add_mesh(house, canopy, _material(roof_color.lightened(0.18)), Vector3(0.0, minf(1.5, height * 0.48), depth * 0.5 + 0.18))
+			canopy_visual.set_meta("building_detail_lod", true)
 		if kind == 7:
 			for stack_index in range(2):
 				var stack := CylinderMesh.new()
@@ -2809,10 +2815,12 @@ func _apply_building_era_appearance(city_id: int, year: int, only_house_index: i
 				stack.bottom_radius = 0.22
 				stack.height = 1.2
 				stack.radial_segments = 8
-				_add_mesh(house, stack, _material(Color(0.37, 0.38, 0.36)), Vector3((float(stack_index) - 0.5) * 1.25, height + 0.65, -depth * 0.22))
+				var stack_visual: MeshInstance3D = _add_mesh(house, stack, _material(Color(0.37, 0.38, 0.36)), Vector3((float(stack_index) - 0.5) * 1.25, height + 0.65, -depth * 0.22))
+				stack_visual.set_meta("building_detail_lod", true)
 		var door := BoxMesh.new()
 		door.size = Vector3(0.22, 0.42, 0.045)
-		_add_mesh(house, door, _material(Color(0.23, 0.16, 0.11)), Vector3(0.0, 0.22, depth * 0.5 + 0.03))
+		var door_visual: MeshInstance3D = _add_mesh(house, door, _material(Color(0.23, 0.16, 0.11)), Vector3(0.0, 0.22, depth * 0.5 + 0.03))
+		door_visual.set_meta("building_detail_lod", true)
 		if int(house.get_meta("building_type", original_type)) != kind:
 			cities[city_id]["building_economy_counts_cache_valid"] = false
 		house.set_meta("building_type", kind)
@@ -2824,6 +2832,7 @@ func _apply_building_era_appearance(city_id: int, year: int, only_house_index: i
 		house.set_meta("building_width", width * house.scale.x)
 		house.set_meta("building_depth", depth * house.scale.z)
 		house.set_meta("is_skyscraper", skyscraper)
+		house.set_meta("building_detail_lod_state", -1)
 		if only_house_index < 0 and not update_all:
 			# One eligible old building is either refurbished or refreshed per call.
 			break
@@ -3487,9 +3496,14 @@ func _add_road_segment(surface: SurfaceTool, city_position: Vector3, from_point:
 	var finish_point: Vector2 = to_point - direction * endpoint_padding
 	if finish_point.distance_to(start_point) < 0.1:
 		return
-	# The terrain grid samples at about 3.2 world units; the old 0.7-unit road
-	# spacing oversampled it by over four times for no visible benefit.
-	var segment_count: int = maxi(2, int(ceil(start_point.distance_to(finish_point) / 1.4)))
+	# Use smoother ribbons nearby and fewer vertices when a whole city is only
+	# a small part of the screen. Terrain samples are already spaced at 3.2 units.
+	var segment_step: float = 1.4
+	if camera_distance > 100.0:
+		segment_step = 2.6
+	elif camera_distance > 72.0:
+		segment_step = 1.9
+	var segment_count: int = maxi(2, int(ceil(start_point.distance_to(finish_point) / segment_step)))
 	var previous_left := Vector3.ZERO
 	var previous_right := Vector3.ZERO
 	for segment in range(segment_count + 1):
@@ -8476,10 +8490,19 @@ func _update_world_detail_levels() -> void:
 	var active_lod: int = _terrain_lod_index_for_distance(camera_distance)
 	if active_lod < terrain_lod_dirty.size() and terrain_lod_dirty[active_lod]:
 		_build_terrain_lod(active_lod)
+	var city_detail_radius: float = maxf(220.0, camera_distance * 1.35 + 110.0)
+	var city_detail_radius_squared: float = city_detail_radius * city_detail_radius
 	if active_lod != last_road_terrain_lod:
 		last_road_terrain_lod = active_lod
-		for city_id in range(cities.size()):
-			_queue_city_roads_rebuild(city_id)
+		# Rebuild only roads that can currently be seen at neighbourhood zoom.
+		# Distant city meshes are refreshed when the camera approaches them.
+		if camera_distance <= 135.0:
+			for city_id in range(cities.size()):
+				var road_city_position: Vector3 = cities[city_id]["pos"]
+				var road_city_dx: float = road_city_position.x - camera_target.x
+				var road_city_dz: float = road_city_position.z - camera_target.z
+				if road_city_dx * road_city_dx + road_city_dz * road_city_dz <= city_detail_radius_squared:
+					_queue_city_roads_rebuild(city_id)
 	_set_active_terrain_lod_visibility(active_lod)
 	var show_city_models: bool = camera_distance <= 165.0
 	var show_neighbourhoods: bool = camera_distance <= 135.0
@@ -8517,40 +8540,45 @@ func _update_world_detail_levels() -> void:
 	var viewport_rect: Rect2 = get_viewport().get_visible_rect()
 	var view_inverse: Transform3D = camera.global_transform.affine_inverse()
 	var focal_pixels: float = viewport_rect.size.y * 0.5 / maxf(0.1, tan(deg_to_rad(camera.fov * 0.5)))
+	var show_building_details: bool = camera_distance <= 82.0
 	for city in cities:
 		var ruined: bool = bool(city.get("ruined", false))
+		var detail_city_position: Vector3 = city["pos"]
+		var detail_city_dx: float = detail_city_position.x - camera_target.x
+		var detail_city_dz: float = detail_city_position.z - camera_target.z
+		var city_detail_visible: bool = detail_city_dx * detail_city_dx + detail_city_dz * detail_city_dz <= city_detail_radius_squared
 		for visual_key in ["plinth", "body", "roof", "flag_pole", "flag"]:
 			var city_visual: MeshInstance3D = city[visual_key]
 			if is_instance_valid(city_visual):
-				city_visual.visible = show_city_models and not ruined
+				city_visual.visible = show_city_models and city_detail_visible and not ruined
 		var zone_fill: MeshInstance3D = city["zone_fill"]
 		var zone_border: MeshInstance3D = city["zone_border"]
 		if is_instance_valid(zone_fill):
-			zone_fill.visible = camera_distance <= 165.0 and not ruined
+			zone_fill.visible = camera_distance <= 165.0 and city_detail_visible and not ruined
 		if is_instance_valid(zone_border):
-			zone_border.visible = camera_distance <= TERRAIN_SIZE * 2.0 and not ruined
+			zone_border.visible = camera_distance <= 260.0 and city_detail_visible and not ruined
 		var far_marker: MeshInstance3D = city["far_marker"]
 		if is_instance_valid(far_marker):
 			far_marker.visible = show_far_markers and not ruined
 		for utility_key in ["power_plant", "internet_hub"]:
 			var utility_node: Node3D = city.get(utility_key) as Node3D
 			if is_instance_valid(utility_node):
-				utility_node.visible = show_neighbourhoods and not ruined
+				utility_node.visible = show_neighbourhoods and city_detail_visible and not ruined
 		var city_label: Label3D = city["label"]
 		if is_instance_valid(city_label):
-			city_label.visible = show_city_labels
+			city_label.visible = show_city_labels and (city_detail_visible or show_far_markers)
 		var roads: MeshInstance3D = city["roads"]
 		if is_instance_valid(roads):
-			roads.visible = show_neighbourhoods and not ruined
+			roads.visible = show_neighbourhoods and city_detail_visible and not ruined
 		var sidewalks: MeshInstance3D = city.get("sidewalks") as MeshInstance3D
 		if is_instance_valid(sidewalks):
-			sidewalks.visible = show_neighbourhoods and not ruined
+			sidewalks.visible = show_neighbourhoods and city_detail_visible and not ruined
 		var crosswalks: MeshInstance3D = city.get("crosswalks") as MeshInstance3D
 		if is_instance_valid(crosswalks):
-			crosswalks.visible = show_neighbourhoods and not ruined
+			crosswalks.visible = show_neighbourhoods and city_detail_visible and not ruined
 		var islands: MeshInstance3D = city.get("islands") as MeshInstance3D
 		if is_instance_valid(islands):
-			islands.visible = show_neighbourhoods and not ruined
+			islands.visible = show_neighbourhoods and city_detail_visible and not ruined
 		for house in city["houses"]:
 			if not is_instance_valid(house):
 				continue
@@ -8577,6 +8605,17 @@ func _update_world_detail_levels() -> void:
 				house.visible = base_visible and not bool(house.get_meta("lod_occluded", false))
 			else:
 				house.visible = base_visible
+			# Windows, doors, chimneys and roof props are tagged as detail meshes.
+			# Hide those draw calls at medium zoom while keeping building silhouettes.
+			var detail_state: int = 1 if show_building_details else 0
+			if int(house.get_meta("building_detail_lod_state", -1)) != detail_state:
+				for detail_child in house.get_children():
+					if not bool(detail_child.get_meta("building_detail_lod", false)):
+						continue
+					var detail_visual: GeometryInstance3D = detail_child as GeometryInstance3D
+					if is_instance_valid(detail_visual):
+						detail_visual.visible = show_building_details
+				house.set_meta("building_detail_lod_state", detail_state)
 	if camera_distance <= 95.0 and building_count <= 360 and building_occlusion_refresh_cooldown <= 0.0:
 		var occlusion_started_usec: int = Time.get_ticks_usec()
 		_cull_buildings_behind_nearby_structures()
