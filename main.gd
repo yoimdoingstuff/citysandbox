@@ -30,6 +30,10 @@ const TERRITORY_CELL_SIZE: float = 4.0
 const SAVE_PATH: String = "user://civiterra_world.json"
 const SAVE_VERSION: int = 6
 const MISSILE_UNLOCK_YEAR: int = 1945
+const AIRPORT_INTRODUCTION_YEAR: int = 1945
+const MARITIME_INTRODUCTION_YEAR: int = AIRPORT_INTRODUCTION_YEAR - 60
+const INFRASTRUCTURE_UPDATE_INTERVAL: float = 6.0
+const MAX_INFRASTRUCTURE_CITY_CHECKS_PER_TICK: int = 6
 const ERA_SKIP_YEARS: Array[int] = [1200, 1450, 1780, 1880, 1950, 2000, 2026]
 const TRADE_GOODS: Array[String] = ["food", "wood", "stone", "iron", "copper", "coal", "gold"]
 const PERFORMANCE_LOG_PATH: String = "user://civiterra-performance.log"
@@ -90,6 +94,10 @@ var cars: Array = []
 var resources: Array = []
 var transports: Array = []
 var oil_rigs: Array = []
+var maritime_era_unlocked: bool = false
+var aviation_era_unlocked: bool = false
+var infrastructure_update_timer: float = 0.0
+var infrastructure_city_cursor: int = 0
 var alliances: Dictionary = {}
 var _material_cache: Dictionary = {}
 var _box_mesh_cache: Dictionary = {}
@@ -232,6 +240,7 @@ var chronicle_panel: PanelContainer
 var chronicle_button: Button
 var chronicle_expanded: bool = false
 var traffic_light_records: Array = []
+var traffic_light_records_by_city: Dictionary = {}
 var traffic_light_timer: float = 0.0
 var detail_refresh_cooldown: float = 0.0
 var building_occlusion_refresh_cooldown: float = 0.0
@@ -4125,6 +4134,7 @@ func _rebuild_city_traffic_lights(city_id: int, grid_x: Array, grid_z: Array) ->
 		if is_instance_valid(old_lights):
 			old_lights.free()
 		town.set_meta("traffic_light_grid_signature", "disabled")
+		_update_traffic_light_states()
 		return
 	var signature: String = "%d|%d|%.1f|%.1f|%.1f|%.1f" % [grid_x.size(), grid_z.size(), float(grid_x[0]), float(grid_x[grid_x.size() - 1]), float(grid_z[0]), float(grid_z[grid_z.size() - 1])]
 	if is_instance_valid(old_lights) and str(town.get_meta("traffic_light_grid_signature", "")) == signature:
@@ -4185,8 +4195,9 @@ func _update_traffic_lights(delta: float) -> void:
 
 func _update_traffic_light_states() -> void:
 	# City rebuilds can free lamp meshes before the registry is rebuilt. Check
-	# each object before casting and prune records with no surviving lamps.
+	# before casting, prune dead records and rebuild the city-local lookup once.
 	var surviving_records: Array[Dictionary] = []
+	var records_by_city: Dictionary = {}
 	for record in traffic_light_records:
 		var local_phase: int = (traffic_light_phase + int(record.get("phase_offset", 0))) % 3
 		var any_live_lamp: bool = false
@@ -4207,16 +4218,19 @@ func _update_traffic_light_states() -> void:
 			any_live_lamp = true
 		if any_live_lamp:
 			surviving_records.append(record)
+			var city_id: int = int(record.get("city_id", -1))
+			var city_records: Array = records_by_city.get(city_id, [])
+			city_records.append(record)
+			records_by_city[city_id] = city_records
 	traffic_light_records = surviving_records
+	traffic_light_records_by_city = records_by_city
 
 func _car_should_stop_for_signal(city_id: int, waypoint: Vector3) -> bool:
 	if city_id < 0 or city_id >= cities.size() or _world_year() < 1900:
 		return false
 	if bool(cities[city_id].get("ruined", false)) or _city_population(city_id) <= 0:
 		return false
-	for record in traffic_light_records:
-		if int(record.get("city_id", -1)) != city_id:
-			continue
+	for record in traffic_light_records_by_city.get(city_id, []):
 		var intersection: Vector3 = record.get("intersection", Vector3.ZERO)
 		var dx: float = waypoint.x - intersection.x
 		var dz: float = waypoint.z - intersection.z
@@ -5119,6 +5133,10 @@ func _update_simulation_timers(delta: float) -> void:
 	transport_timer += delta
 	oil_update_timer += delta
 	diplomacy_timer += delta
+	infrastructure_update_timer += delta
+	if infrastructure_update_timer >= INFRASTRUCTURE_UPDATE_INTERVAL:
+		infrastructure_update_timer = fmod(infrastructure_update_timer, INFRASTRUCTURE_UPDATE_INTERVAL)
+		_update_city_infrastructure_batch(_world_year())
 	if city_event_timer >= 22.0:
 		city_event_timer = fmod(city_event_timer, 22.0)
 		var events_started_usec: int = Time.get_ticks_usec()
@@ -9916,40 +9934,135 @@ func _ensure_city_infrastructure(city_id: int, year: int, population_override: i
 	if city_id < 0 or city_id >= cities.size():
 		return
 	var city: Dictionary = cities[city_id]
+
+	# Remove anachronistic transport infrastructure when the player jumps back
+	# through time. Reset the attempt flags so it can be rebuilt on the next era.
+	if year < MARITIME_INTRODUCTION_YEAR:
+		var old_seaport: Variant = city.get("seaport", null)
+		if is_instance_valid(old_seaport) and old_seaport is Node3D:
+			(old_seaport as Node3D).queue_free()
+		var old_access_road: Variant = city.get("airport_access_road", null)
+		if is_instance_valid(old_access_road) and old_access_road is Node3D:
+			(old_access_road as Node3D).queue_free()
+		city["seaport"] = null
+		city["seaport_attempted"] = false
+	if year < AIRPORT_INTRODUCTION_YEAR:
+		var old_airport: Variant = city.get("airport", null)
+		if is_instance_valid(old_airport) and old_airport is Node3D:
+			(old_airport as Node3D).queue_free()
+		var old_access: Variant = city.get("airport_access_road", null)
+		if is_instance_valid(old_access) and old_access is Node3D:
+			(old_access as Node3D).queue_free()
+		city["airport"] = null
+		city["airport_access_road"] = null
+		city["airport_attempted"] = false
+
 	if year >= 1880:
 		if not is_instance_valid(city.get("power_plant")):
 			_create_city_power_plant(city_id)
 	else:
-		var obsolete_plant: Node3D = city.get("power_plant") as Node3D
-		if is_instance_valid(obsolete_plant):
-			obsolete_plant.queue_free()
+		var obsolete_plant: Variant = city.get("power_plant", null)
+		if is_instance_valid(obsolete_plant) and obsolete_plant is Node3D:
+			(obsolete_plant as Node3D).queue_free()
 		city["power_plant"] = null
 		city["electricity"] = 0.0
 	if year >= 2000:
 		if not is_instance_valid(city.get("internet_hub")):
 			_create_city_internet_hub(city_id)
 	else:
-		var obsolete_hub: Node3D = city.get("internet_hub") as Node3D
-		if is_instance_valid(obsolete_hub):
-			obsolete_hub.queue_free()
+		var obsolete_hub: Variant = city.get("internet_hub", null)
+		if is_instance_valid(obsolete_hub) and obsolete_hub is Node3D:
+			(obsolete_hub as Node3D).queue_free()
 		city["internet_hub"] = null
 		city["internet"] = 0.0
 	cities[city_id] = city
+
 	var population: int = _city_population(city_id) if population_override < 0 else population_override
-	if not bool(city.get("ruined", false)) and year >= 1450 and population >= 16 and not bool(city.get("seaport_attempted", false)):
-		# Port construction is paid for and retryable if the city is still poor.
+	if not bool(city.get("ruined", false)) and year >= MARITIME_INTRODUCTION_YEAR and population >= 16 and not bool(city.get("seaport_attempted", false)):
 		if float(city.get("treasury", 0.0)) >= 20.0 and float(city.get("wood", 0.0)) >= 2.0:
 			city["seaport_attempted"] = true
 			cities[city_id] = city
 			_create_city_seaport(city_id)
 	city = cities[city_id]
-	if not bool(city.get("ruined", false)) and year >= 1945 and population >= 24 and not bool(city.get("airport_attempted", false)):
-		# A landing strip and terminal are expensive enough that small towns
-		# have to grow their treasury and stockpile industrial materials first.
+	if not bool(city.get("ruined", false)) and year >= AIRPORT_INTRODUCTION_YEAR and population >= 24 and not bool(city.get("airport_attempted", false)):
 		if float(city.get("treasury", 0.0)) >= 32.0 and float(city.get("iron", 0.0)) >= 3.0:
 			city["airport_attempted"] = true
 			cities[city_id] = city
 			_create_city_airport(city_id)
+
+func _remove_transports_of_kind(kind: String) -> void:
+	for transport_index in range(transports.size() - 1, -1, -1):
+		var transport: Dictionary = transports[transport_index]
+		if str(transport.get("kind", "")) != kind:
+			continue
+		var node_value: Variant = transport.get("node", null)
+		if is_instance_valid(node_value) and node_value is Node3D:
+			(node_value as Node3D).queue_free()
+		transports.remove_at(transport_index)
+
+
+func _clear_oil_rigs() -> void:
+	for rig in oil_rigs:
+		var node_value: Variant = rig.get("node", null)
+		if is_instance_valid(node_value) and node_value is Node3D:
+			(node_value as Node3D).queue_free()
+	oil_rigs.clear()
+
+
+func _update_transport_era_unlocks(year: int) -> void:
+	var maritime_available: bool = year >= MARITIME_INTRODUCTION_YEAR
+	if maritime_available != maritime_era_unlocked:
+		maritime_era_unlocked = maritime_available
+		if maritime_available:
+			for city_id in range(cities.size()):
+				_ensure_city_infrastructure(city_id, year)
+			_seed_oil_rigs()
+			_log("HISTORICAL SHIFT: Maritime ports and offshore oil extraction become available in %d." % MARITIME_INTRODUCTION_YEAR)
+		else:
+			_remove_transports_of_kind("sea")
+			_clear_oil_rigs()
+			for city_id in range(cities.size()):
+				var city: Dictionary = cities[city_id]
+				var port_value: Variant = city.get("seaport", null)
+				if is_instance_valid(port_value) and port_value is Node3D:
+					(port_value as Node3D).queue_free()
+				city["seaport"] = null
+				city["seaport_attempted"] = false
+				cities[city_id] = city
+	var aviation_available: bool = year >= AIRPORT_INTRODUCTION_YEAR
+	if aviation_available != aviation_era_unlocked:
+		aviation_era_unlocked = aviation_available
+		if aviation_available:
+			for city_id in range(cities.size()):
+				_ensure_city_infrastructure(city_id, year)
+			_log("HISTORICAL SHIFT: Civil aviation becomes available in %d." % AIRPORT_INTRODUCTION_YEAR)
+		else:
+			_remove_transports_of_kind("air")
+			for city_id in range(cities.size()):
+				var city: Dictionary = cities[city_id]
+				var airport_value: Variant = city.get("airport", null)
+				var road_value: Variant = city.get("airport_access_road", null)
+				if is_instance_valid(airport_value) and airport_value is Node3D:
+					(airport_value as Node3D).queue_free()
+				if is_instance_valid(road_value) and road_value is Node3D:
+					(road_value as Node3D).queue_free()
+				city["airport"] = null
+				city["airport_access_road"] = null
+				city["airport_attempted"] = false
+				cities[city_id] = city
+
+
+func _update_city_infrastructure_batch(year: int) -> void:
+	if cities.is_empty():
+		infrastructure_city_cursor = 0
+		return
+	var check_count: int = mini(MAX_INFRASTRUCTURE_CITY_CHECKS_PER_TICK, cities.size())
+	var start_index: int = posmod(infrastructure_city_cursor, cities.size())
+	for offset in range(check_count):
+		var city_id: int = (start_index + offset) % cities.size()
+		_ensure_city_infrastructure(city_id, year)
+	infrastructure_city_cursor = (start_index + check_count) % maxi(1, cities.size())
+
 
 func _find_city_waterfront_site(city_id: int) -> Vector3:
 	if city_id < 0 or city_id >= cities.size():
@@ -9980,42 +10093,155 @@ func _find_city_waterfront_site(city_id: int) -> Vector3:
 
 
 func _create_city_airport(city_id: int) -> void:
-	if city_id < 0 or city_id >= cities.size() or is_instance_valid(cities[city_id].get("airport")):
+	if city_id < 0 or city_id >= cities.size() or _world_year() < AIRPORT_INTRODUCTION_YEAR:
+		return
+	if is_instance_valid(cities[city_id].get("airport")):
 		return
 	var city: Dictionary = cities[city_id]
 	var airport := Node3D.new()
 	airport.name = "AirportAuthority"
 	airport.position = _find_city_utility_site(city_id, 46.0, 88.0)
-	cities[city_id]["node"].add_child(airport)
+	# Put the terminal on the city-facing side of the runway. The access road
+	# can then join the nearest actual street-grid line instead of ending alone
+	# in the grass outside town.
+	airport.rotation.y = atan2(airport.position.x, airport.position.z)
+	var town_value: Variant = city.get("node", null)
+	if not is_instance_valid(town_value) or not (town_value is Node3D):
+		return
+	var town: Node3D = town_value as Node3D
+	town.add_child(airport)
+
 	var concrete := _material(Color(0.35, 0.37, 0.37))
 	var tarmac := BoxMesh.new()
-	tarmac.size = Vector3(8.5, 0.14, 46.0)
+	tarmac.size = Vector3(12.0, 0.16, 62.0)
 	_add_mesh(airport, tarmac, concrete, Vector3(0.0, 0.08, 0.0))
 	var runway_mark := BoxMesh.new()
-	runway_mark.size = Vector3(0.18, 0.025, 37.0)
-	_add_mesh(airport, runway_mark, _material(Color(0.88, 0.88, 0.78)), Vector3(0.0, 0.17, 0.0))
+	runway_mark.size = Vector3(0.20, 0.025, 52.0)
+	_add_mesh(airport, runway_mark, _material(Color(0.94, 0.93, 0.82)), Vector3(0.0, 0.18, 0.0))
+	var edge_mark := BoxMesh.new()
+	edge_mark.size = Vector3(0.12, 0.025, 58.0)
+	for side in [-1.0, 1.0]:
+		_add_mesh(airport, edge_mark, _material(Color(0.82, 0.84, 0.81)), Vector3(side * 5.3, 0.18, 0.0))
+	# Wide apron ties the runway into a terminal and creates a clear road entry.
+	var apron := BoxMesh.new()
+	apron.size = Vector3(15.0, 0.12, 13.0)
+	_add_mesh(airport, apron, concrete, Vector3(0.0, 0.12, -11.0))
 	var terminal := BoxMesh.new()
-	terminal.size = Vector3(8.2, 3.0, 5.0)
-	_add_mesh(airport, terminal, _material(Color(0.49, 0.54, 0.55)), Vector3(0.0, 1.60, -7.5))
-	var roof := BoxMesh.new()
-	roof.size = Vector3(8.8, 0.25, 5.5)
-	_add_mesh(airport, roof, _material(Color(0.23, 0.29, 0.32)), Vector3(0.0, 3.25, -7.5))
+	terminal.size = Vector3(8.8, 3.2, 5.6)
+	_add_mesh(airport, terminal, _material(Color(0.55, 0.60, 0.61)), Vector3(0.0, 1.75, -8.0))
+	var terminal_roof := BoxMesh.new()
+	terminal_roof.size = Vector3(9.3, 0.26, 6.0)
+	_add_mesh(airport, terminal_roof, _material(Color(0.22, 0.29, 0.33)), Vector3(0.0, 3.48, -8.0))
+	var terminal_glass := BoxMesh.new()
+	terminal_glass.size = Vector3(7.8, 1.15, 0.10)
+	_add_mesh(airport, terminal_glass, _material(Color(0.12, 0.45, 0.60)), Vector3(0.0, 2.05, -5.15))
 	var tower := BoxMesh.new()
-	tower.size = Vector3(1.5, 5.0, 1.5)
-	_add_mesh(airport, tower, _material(Color(0.52, 0.58, 0.60)), Vector3(5.5, 2.7, -11.0))
-	var glass := BoxMesh.new()
-	glass.size = Vector3(1.7, 0.35, 1.7)
-	_add_mesh(airport, glass, _material(Color(0.16, 0.47, 0.61)), Vector3(5.5, 5.2, -11.0))
+	tower.size = Vector3(1.7, 5.3, 1.7)
+	_add_mesh(airport, tower, _material(Color(0.52, 0.58, 0.60)), Vector3(5.7, 2.8, -11.5))
+	var tower_glass := BoxMesh.new()
+	tower_glass.size = Vector3(1.9, 0.40, 1.9)
+	_add_mesh(airport, tower_glass, _material(Color(0.16, 0.50, 0.66)), Vector3(5.7, 5.25, -11.5))
+	var hangar := BoxMesh.new()
+	hangar.size = Vector3(5.4, 2.5, 4.5)
+	_add_mesh(airport, hangar, _material(Color(0.43, 0.48, 0.49)), Vector3(-5.6, 1.35, -9.5))
+	var hangar_roof := BoxMesh.new()
+	hangar_roof.size = Vector3(5.8, 0.22, 4.9)
+	_add_mesh(airport, hangar_roof, _material(Color(0.25, 0.31, 0.34)), Vector3(-5.6, 2.70, -9.5))
+	var airport_label := Label3D.new()
+	airport_label.text = "AIRPORT"
+	airport_label.font_size = 34
+	airport_label.pixel_size = 0.015
+	airport_label.outline_size = 6
+	airport_label.modulate = Color(0.93, 0.96, 0.94)
+	airport_label.position = Vector3(0.0, 4.25, -8.0)
+	airport.add_child(airport_label)
+
 	city = cities[city_id]
 	city["airport"] = airport
+	city["airport_access_road"] = null
 	city["treasury"] = maxf(0.0, float(city.get("treasury", 0.0)) - 30.0)
 	city["iron"] = maxf(0.0, float(city.get("iron", 0.0)) - 3.0)
 	cities[city_id] = city
-	_log("AIRPORT BUILT: %s can now operate passenger and cargo aircraft." % city["name"])
+	_create_airport_access_road(city_id, airport)
+	_log("AIRPORT BUILT: %s is connected to its street grid and can operate passenger and cargo aircraft." % city["name"])
+
+func _create_airport_access_road(city_id: int, airport: Node3D) -> void:
+	if city_id < 0 or city_id >= cities.size() or not is_instance_valid(airport):
+		return
+	var city: Dictionary = cities[city_id]
+	var town_value: Variant = city.get("node", null)
+	if not is_instance_valid(town_value) or not (town_value is Node3D):
+		return
+	var town: Node3D = town_value as Node3D
+	var old_road: Variant = city.get("airport_access_road", null)
+	if is_instance_valid(old_road) and old_road is Node3D:
+		(old_road as Node3D).queue_free()
+
+	var min_x: float = float(city.get("road_grid_min_x", -7.5))
+	var max_x: float = float(city.get("road_grid_max_x", 7.5))
+	var min_z: float = float(city.get("road_grid_min_z", -7.5))
+	var max_z: float = float(city.get("road_grid_max_z", 7.5))
+	var grid_spacing: float = _city_road_grid_size(city_id, _world_year())
+	# The terminal's front points toward the city centre after the runway was
+	# rotated. Start the driveway on the terminal apron rather than the runway.
+	var terminal_offset: Vector3 = Vector3(0.0, 0.0, -14.5).rotated(Vector3.UP, airport.rotation.y)
+	var start: Vector2 = Vector2(airport.position.x + terminal_offset.x, airport.position.z + terminal_offset.z)
+	# Pick the closest point on a real vertical or horizontal road-grid line.
+	var vertical_x: float = clampf(round(start.x / grid_spacing) * grid_spacing, min_x, max_x)
+	var vertical_point: Vector2 = Vector2(vertical_x, clampf(start.y, min_z, max_z))
+	var horizontal_z: float = clampf(round(start.y / grid_spacing) * grid_spacing, min_z, max_z)
+	var horizontal_point: Vector2 = Vector2(clampf(start.x, min_x, max_x), horizontal_z)
+	var target: Vector2 = vertical_point if start.distance_squared_to(vertical_point) <= start.distance_squared_to(horizontal_point) else horizontal_point
+	var delta_xz: Vector2 = target - start
+	var path_length: float = delta_xz.length()
+	if path_length < 1.25:
+		city["airport_access_road"] = null
+		cities[city_id] = city
+		return
+
+	var direction: Vector2 = delta_xz / path_length
+	var perpendicular := Vector2(-direction.y, direction.x)
+	var half_width: float = 1.65
+	var step_count: int = maxi(2, ceili(path_length / 3.0))
+	var surface := SurfaceTool.new()
+	surface.begin(Mesh.PRIMITIVE_TRIANGLES)
+	var city_position: Vector3 = city["pos"]
+	for step_index in range(step_count):
+		var t0: float = float(step_index) / float(step_count)
+		var t1: float = float(step_index + 1) / float(step_count)
+		var point0: Vector2 = start.lerp(target, t0)
+		var point1: Vector2 = start.lerp(target, t1)
+		var left0_x: float = city_position.x + point0.x + perpendicular.x * half_width
+		var left0_z: float = city_position.z + point0.y + perpendicular.y * half_width
+		var right0_x: float = city_position.x + point0.x - perpendicular.x * half_width
+		var right0_z: float = city_position.z + point0.y - perpendicular.y * half_width
+		var left1_x: float = city_position.x + point1.x + perpendicular.x * half_width
+		var left1_z: float = city_position.z + point1.y + perpendicular.y * half_width
+		var right1_x: float = city_position.x + point1.x - perpendicular.x * half_width
+		var right1_z: float = city_position.z + point1.y - perpendicular.y * half_width
+		var left0 := Vector3(point0.x + perpendicular.x * half_width, _height_at(left0_x, left0_z) - city_position.y + 0.21, point0.y + perpendicular.y * half_width)
+		var right0 := Vector3(point0.x - perpendicular.x * half_width, _height_at(right0_x, right0_z) - city_position.y + 0.21, point0.y - perpendicular.y * half_width)
+		var left1 := Vector3(point1.x + perpendicular.x * half_width, _height_at(left1_x, left1_z) - city_position.y + 0.21, point1.y + perpendicular.y * half_width)
+		var right1 := Vector3(point1.x - perpendicular.x * half_width, _height_at(right1_x, right1_z) - city_position.y + 0.21, point1.y - perpendicular.y * half_width)
+		surface.add_vertex(left0)
+		surface.add_vertex(left1)
+		surface.add_vertex(right0)
+		surface.add_vertex(right0)
+		surface.add_vertex(left1)
+		surface.add_vertex(right1)
+	surface.generate_normals(true)
+	var road := MeshInstance3D.new()
+	road.name = "AirportAccessRoad"
+	road.mesh = surface.commit()
+	road.material_override = _material(Color(0.22, 0.245, 0.25), 0.98)
+	road.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
+	town.add_child(road)
+	city["airport_access_road"] = road
+	cities[city_id] = city
 
 
 func _create_city_seaport(city_id: int) -> void:
-	if city_id < 0 or city_id >= cities.size() or is_instance_valid(cities[city_id].get("seaport")):
+	if city_id < 0 or city_id >= cities.size() or _world_year() < MARITIME_INTRODUCTION_YEAR or is_instance_valid(cities[city_id].get("seaport")):
 		return
 	var city: Dictionary = cities[city_id]
 	var site: Vector3 = _find_city_waterfront_site(city_id)
@@ -10092,7 +10318,7 @@ func _create_oil_rig_visual(position: Vector3) -> Node3D:
 
 
 func _seed_oil_rigs() -> void:
-	if not oil_rigs.is_empty():
+	if _world_year() < MARITIME_INTRODUCTION_YEAR or not oil_rigs.is_empty():
 		return
 	var created: int = 0
 	for rig_index in range(MAX_OIL_RIGS):
@@ -10182,51 +10408,85 @@ func _update_oil_rigs() -> void:
 
 
 func _spawn_transport_wave() -> void:
-	if transports.size() >= MAX_TRANSPORTS or cities.size() < 2:
+	if _world_year() < MARITIME_INTRODUCTION_YEAR or transports.size() >= MAX_TRANSPORTS or cities.size() < 2:
 		return
-	var kind: String = "air" if randf() < 0.62 else "sea"
+	var air_city_count: int = 0
+	var sea_city_count: int = 0
+	for city_id in range(cities.size()):
+		if is_instance_valid(cities[city_id].get("airport")):
+			air_city_count += 1
+		if is_instance_valid(cities[city_id].get("seaport")):
+			sea_city_count += 1
+	var kind: String = "air" if air_city_count >= 2 and (sea_city_count < 2 or randf() < 0.76) else "sea"
 	var eligible: Array[int] = []
 	for city_id in range(cities.size()):
-		if kind == "air" and _world_year() >= 1945 and is_instance_valid(cities[city_id].get("airport")):
+		if kind == "air" and _world_year() >= AIRPORT_INTRODUCTION_YEAR and is_instance_valid(cities[city_id].get("airport")):
 			eligible.append(city_id)
-		elif kind == "sea" and _world_year() >= 1450 and is_instance_valid(cities[city_id].get("seaport")):
+		elif kind == "sea" and _world_year() >= MARITIME_INTRODUCTION_YEAR and is_instance_valid(cities[city_id].get("seaport")):
 			eligible.append(city_id)
 	if eligible.size() < 2:
-		# Try the other transport mode before giving up this spawn cycle.
 		kind = "sea" if kind == "air" else "air"
 		eligible.clear()
 		for city_id in range(cities.size()):
-			if kind == "air" and _world_year() >= 1945 and is_instance_valid(cities[city_id].get("airport")):
+			if kind == "air" and _world_year() >= AIRPORT_INTRODUCTION_YEAR and is_instance_valid(cities[city_id].get("airport")):
 				eligible.append(city_id)
-			elif kind == "sea" and _world_year() >= 1450 and is_instance_valid(cities[city_id].get("seaport")):
+			elif kind == "sea" and _world_year() >= MARITIME_INTRODUCTION_YEAR and is_instance_valid(cities[city_id].get("seaport")):
 				eligible.append(city_id)
 	if eligible.size() < 2:
 		return
 	var source_id: int = eligible[randi_range(0, eligible.size() - 1)]
 	var target_id: int = -1
-	var target_distance: float = INF
+	var target_distance_squared: float = INF
 	for candidate_id in eligible:
 		if candidate_id == source_id or _are_at_war(source_id, candidate_id):
 			continue
 		var a: Vector3 = cities[source_id]["pos"]
 		var b: Vector3 = cities[candidate_id]["pos"]
-		var distance: float = Vector2(a.x - b.x, a.z - b.z).length()
-		if distance < target_distance:
-			target_distance = distance
+		var dx: float = a.x - b.x
+		var dz: float = a.z - b.z
+		var distance_squared: float = dx * dx + dz * dz
+		if distance_squared < target_distance_squared:
+			target_distance_squared = distance_squared
 			target_id = candidate_id
 	if target_id >= 0:
 		_spawn_transport(source_id, target_id, kind)
 
-
 func _create_transport_node(kind: String) -> Node3D:
 	var vehicle := Node3D.new()
-	vehicle.name = "Airliner" if kind == "air" else "CargoShip"
+	vehicle.name = "PassengerAirliner" if kind == "air" else "CargoShip"
 	if kind == "air":
-		_add_mesh(vehicle, _cached_box_mesh(Vector3(0.78, 0.48, 4.4)), _material(Color(0.80, 0.83, 0.82)), Vector3.ZERO)
-		_add_mesh(vehicle, _cached_box_mesh(Vector3(5.0, 0.14, 0.82)), _material(Color(0.77, 0.79, 0.76)), Vector3(0.0, -0.02, 0.1))
-		_add_mesh(vehicle, _cached_box_mesh(Vector3(1.8, 0.12, 0.48)), _material(Color(0.70, 0.73, 0.71)), Vector3(0.0, 0.08, -1.72))
-		_add_mesh(vehicle, _cached_box_mesh(Vector3(0.16, 0.68, 0.5)), _material(Color(0.21, 0.37, 0.51)), Vector3(0.0, 0.38, -1.80))
-		_add_mesh(vehicle, _cached_box_mesh(Vector3(0.08, 0.10, 0.25)), _material(Color(0.19, 0.50, 0.74)), Vector3(0.0, -0.03, -0.4))
+		# Deliberately oversized, high-contrast geometry: the previous tiny,
+		# mostly white box-plane was effectively invisible at normal map zoom.
+		var fuselage := _cached_box_mesh(Vector3(1.10, 0.82, 9.2))
+		_add_mesh(vehicle, fuselage, _material(Color(0.91, 0.93, 0.91)), Vector3(0.0, 0.0, 0.0))
+		var wings := _cached_box_mesh(Vector3(12.4, 0.18, 1.75))
+		_add_mesh(vehicle, wings, _material(Color(0.72, 0.77, 0.79)), Vector3(0.0, -0.12, 0.45))
+		var tailplane := _cached_box_mesh(Vector3(4.3, 0.15, 1.05))
+		_add_mesh(vehicle, tailplane, _material(Color(0.76, 0.80, 0.81)), Vector3(0.0, 0.28, 3.25))
+		var tailfin := _cached_box_mesh(Vector3(0.20, 1.55, 1.35))
+		_add_mesh(vehicle, tailfin, _material(Color(0.08, 0.31, 0.57)), Vector3(0.0, 0.92, 3.40))
+		var blue_stripe := _cached_box_mesh(Vector3(0.055, 0.12, 5.9))
+		var blue_material: Material = _material(Color(0.08, 0.36, 0.68))
+		_add_mesh(vehicle, blue_stripe, blue_material, Vector3(-0.565, 0.12, 0.05))
+		_add_mesh(vehicle, blue_stripe, blue_material, Vector3(0.565, 0.12, 0.05))
+		var nose := SphereMesh.new()
+		nose.radial_segments = 10
+		nose.rings = 6
+		nose.radius = 0.52
+		nose.height = 1.05
+		_add_mesh(vehicle, nose, _material(Color(0.94, 0.95, 0.92)), Vector3(0.0, 0.0, -4.55))
+		for engine_side in [-1.0, 1.0]:
+			var engine_mesh := CylinderMesh.new()
+			engine_mesh.top_radius = 0.28
+			engine_mesh.bottom_radius = 0.34
+			engine_mesh.height = 1.75
+			engine_mesh.radial_segments = 8
+			var engine := MeshInstance3D.new()
+			engine.mesh = engine_mesh
+			engine.material_override = _material(Color(0.24, 0.29, 0.33))
+			engine.position = Vector3(engine_side * 2.35, -0.33, 0.45)
+			engine.rotation.x = PI * 0.5
+			vehicle.add_child(engine)
 	else:
 		_add_mesh(vehicle, _cached_box_mesh(Vector3(2.9, 0.72, 6.2)), _material(Color(0.18, 0.27, 0.34)), Vector3(0.0, 0.1, 0.0))
 		_add_mesh(vehicle, _cached_box_mesh(Vector3(2.2, 0.85, 3.6)), _material(Color(0.74, 0.76, 0.71)), Vector3(0.0, 0.78, -0.4))
@@ -10237,9 +10497,10 @@ func _create_transport_node(kind: String) -> Node3D:
 			_add_mesh(vehicle, container, _material(container_color), Vector3((float(container_index) - 1.0) * 0.75, 1.55, 1.05))
 	return vehicle
 
-
 func _spawn_transport(source_id: int, target_id: int, kind: String) -> void:
 	if source_id < 0 or target_id < 0 or source_id >= cities.size() or target_id >= cities.size() or transports.size() >= MAX_TRANSPORTS:
+		return
+	if (kind == "air" and _world_year() < AIRPORT_INTRODUCTION_YEAR) or (kind == "sea" and _world_year() < MARITIME_INTRODUCTION_YEAR):
 		return
 	var source_facility: Node3D = cities[source_id].get("airport" if kind == "air" else "seaport") as Node3D
 	var target_facility: Node3D = cities[target_id].get("airport" if kind == "air" else "seaport") as Node3D
@@ -10248,8 +10509,8 @@ func _spawn_transport(source_id: int, target_id: int, kind: String) -> void:
 	var start: Vector3 = source_facility.global_position
 	var finish: Vector3 = target_facility.global_position
 	if kind == "air":
-		start.y += 2.0
-		finish.y += 2.0
+		start.y += 4.5
+		finish.y += 4.5
 	else:
 		start += source_facility.global_transform.basis.z.normalized() * 9.0 + Vector3(0.0, 0.7, 0.0)
 		finish += target_facility.global_transform.basis.z.normalized() * 9.0 + Vector3(0.0, 0.7, 0.0)
@@ -10279,14 +10540,17 @@ func _update_transports(delta: float) -> void:
 		var kind: String = str(transport.get("kind", "air"))
 		var position: Vector3 = start.lerp(finish, progress)
 		if kind == "air":
-			position.y += sin(progress * PI) * 18.0
+			position.y += sin(progress * PI) * 26.0
 		else:
 			position.y = WATER_LEVEL + 0.65
 		var direction: Vector3 = finish - start
 		if direction.length_squared() > 0.1:
 			node.look_at(position + direction.normalized(), Vector3.UP)
 		node.position = position
-		node.visible = camera_distance < 570.0 or Vector2(position.x - camera_target.x, position.z - camera_target.z).length() < camera_distance * 0.85
+		var camera_dx: float = position.x - camera_target.x
+		var camera_dz: float = position.z - camera_target.z
+		var show_transport_radius_squared: float = camera_distance * camera_distance * 0.90 * 0.90
+		node.visible = camera_distance < 900.0 or camera_dx * camera_dx + camera_dz * camera_dz < show_transport_radius_squared
 		transport["progress"] = progress
 		transport["pos"] = position
 		if progress >= 1.0:
@@ -10476,6 +10740,7 @@ func _update_historical_era(force: bool = false) -> void:
 	var era: int = _historical_era_index(year)
 	var lights_available: bool = year >= 1900
 	var lights_transitioned: bool = lights_available != traffic_lights_enabled
+	_update_transport_era_unlocks(year)
 	if not force and era == last_architecture_era and not lights_transitioned:
 		return
 	var previous_era: int = last_architecture_era
