@@ -4217,8 +4217,13 @@ func _car_should_stop_for_signal(city_id: int, waypoint: Vector3) -> bool:
 		var dx: float = waypoint.x - intersection.x
 		var dz: float = waypoint.z - intersection.z
 		if dx * dx + dz * dz <= 0.1:
-			var green: MeshInstance3D = record.get("green") as MeshInstance3D
-			return not is_instance_valid(green) or not green.visible
+			var green_value: Variant = record.get("green", null)
+			# Stale traffic-light records may outlive the city meshes that created them.
+			# Ignore freed lamps before type checks or casts instead of erroring per car.
+			if not is_instance_valid(green_value) or not (green_value is MeshInstance3D):
+				continue
+			var green: MeshInstance3D = green_value as MeshInstance3D
+			return not green.visible
 	return false
 
 
