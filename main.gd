@@ -4305,10 +4305,21 @@ func _update_people(delta: float) -> void:
 	# Rotate through deterministic batches and scale elapsed simulation time so
 	# every citizen still receives the same average amount of AI/movement time.
 	var batch_count: int = total_people
+	var batch_divisor: float = 1.0
+	if sim_speed >= 12.0:
+		batch_divisor = 4.0
+	elif sim_speed >= 8.0:
+		batch_divisor = 3.0
+	elif sim_speed >= 4.0:
+		batch_divisor = 2.0
+	if camera_distance > 165.0:
+		batch_divisor = maxf(batch_divisor, 4.0)
+	elif camera_distance > 85.0:
+		batch_divisor = maxf(batch_divisor, 3.0)
 	if total_people > 900:
-		batch_count = maxi(1, ceili(float(total_people) / (4.0 if camera_distance > 165.0 else 3.0)))
-	elif total_people > 500 or (camera_distance > 85.0 and total_people > 240):
-		batch_count = maxi(1, ceili(float(total_people) / (4.0 if camera_distance > 165.0 else 2.0)))
+		batch_count = maxi(1, ceili(float(total_people) / maxf(3.0, batch_divisor)))
+	elif total_people > 500 or (camera_distance > 85.0 and total_people > 240) or (sim_speed >= 4.0 and total_people > 240):
+		batch_count = maxi(1, ceili(float(total_people) / maxf(2.0, batch_divisor))))
 	var start_index: int = posmod(people_update_cursor, total_people)
 	var person_delta: float = delta * float(total_people) / float(batch_count)
 	var animate_citizens: bool = camera_distance <= 72.0 and total_people <= 300
