@@ -9098,6 +9098,25 @@ func _update_world_detail_levels() -> void:
 	var show_people: bool = camera_distance <= 52.0
 	var show_city_labels: bool = camera_distance >= 48.0
 	var show_far_markers: bool = not show_city_models
+	# Airports remain visible beyond the city-detail LOD range. Their access
+	# roads are more local so overview maps keep a readable silhouette without
+	# painting every driveway across the entire world.
+	var airport_render_range: float = minf(900.0, maxf(260.0, camera_distance * 1.75 + 100.0))
+	var airport_render_range_squared: float = airport_render_range * airport_render_range
+	var airport_road_range: float = minf(340.0, maxf(185.0, camera_distance * 1.12))
+	var airport_road_range_squared: float = airport_road_range * airport_road_range
+	for city in cities:
+		var ruined_transport_city: bool = bool(city.get("ruined", false))
+		var transport_city_position: Vector3 = city.get("pos", Vector3.ZERO)
+		var transport_dx: float = transport_city_position.x - camera_target.x
+		var transport_dz: float = transport_city_position.z - camera_target.z
+		var transport_distance_squared: float = transport_dx * transport_dx + transport_dz * transport_dz
+		var airport_node: Variant = city.get("airport", null)
+		if is_instance_valid(airport_node) and airport_node is Node3D:
+			(airport_node as Node3D).visible = not ruined_transport_city and camera_distance <= 900.0 and transport_distance_squared <= airport_render_range_squared
+		var airport_road_node: Variant = city.get("airport_access_road", null)
+		if is_instance_valid(airport_road_node) and airport_road_node is Node3D:
+			(airport_road_node as Node3D).visible = not ruined_transport_city and camera_distance <= 340.0 and transport_distance_squared <= airport_road_range_squared
 	var focus_cell_x: int = floori(camera_target.x / 10.0)
 	var focus_cell_z: int = floori(camera_target.z / 10.0)
 	var building_count: int = 0
@@ -9848,7 +9867,7 @@ func _clear_loaded_world() -> void:
 	construction_site_update_cursor = 0
 	construction_simulation_clock = 0.0
 	for city in cities:
-		for key in ["node", "zone_fill", "zone_border"]:
+		for key in ["node", "zone_fill", "zone_border", "airport", "airport_access_road"]:
 			if city.has(key) and city[key] is Node and is_instance_valid(city[key]):
 				(city[key] as Node).queue_free()
 	_queue_nodes_from_entries(people)
@@ -10165,16 +10184,14 @@ func _create_city_airport(city_id: int) -> void:
 	var city: Dictionary = cities[city_id]
 	var airport := Node3D.new()
 	airport.name = "AirportAuthority"
-	airport.position = _find_city_utility_site(city_id, 46.0, 88.0)
-	# Put the terminal on the city-facing side of the runway. The access road
-	# can then join the nearest actual street-grid line instead of ending alone
-	# in the grass outside town.
-	airport.rotation.y = atan2(airport.position.x, airport.position.z)
-	var town_value: Variant = city.get("node", null)
-	if not is_instance_valid(town_value) or not (town_value is Node3D):
-		return
-	var town: Node3D = town_value as Node3D
-	town.add_child(airport)
+	var airport_offset: Vector3 = _find_city_utility_site(city_id, 46.0, 88.0)
+	# Airports are independent world infrastructure, not children of the city
+	# detail root. Otherwise the city LOD hides the runway and its airplanes at
+	# normal map zoom even though the airport itself was built correctly.
+	var city_position: Vector3 = city["pos"]
+	airport.position = city_position + airport_offset
+	airport.rotation.y = atan2(airport_offset.x, airport_offset.z)
+	add_child(airport)
 
 	var concrete := _material(Color(0.35, 0.37, 0.37))
 	var tarmac := BoxMesh.new()
@@ -10237,7 +10254,6 @@ func _create_airport_access_road(city_id: int, airport: Node3D) -> void:
 	var town_value: Variant = city.get("node", null)
 	if not is_instance_valid(town_value) or not (town_value is Node3D):
 		return
-	var town: Node3D = town_value as Node3D
 	var old_road: Variant = city.get("airport_access_road", null)
 	if is_instance_valid(old_road) and old_road is Node3D:
 		(old_road as Node3D).queue_free()
@@ -10250,7 +10266,9 @@ func _create_airport_access_road(city_id: int, airport: Node3D) -> void:
 	# The terminal's front points toward the city centre after the runway was
 	# rotated. Start the driveway on the terminal apron rather than the runway.
 	var terminal_offset: Vector3 = Vector3(0.0, 0.0, -14.5).rotated(Vector3.UP, airport.rotation.y)
-	var start: Vector2 = Vector2(airport.position.x + terminal_offset.x, airport.position.z + terminal_offset.z)
+	var city_position: Vector3 = city["pos"]
+	var airport_local_position: Vector3 = airport.position - city_position
+	var start: Vector2 = Vector2(airport_local_position.x + terminal_offset.x, airport_local_position.z + terminal_offset.z)
 	# Pick the closest point on a real vertical or horizontal road-grid line.
 	var vertical_x: float = clampf(round(start.x / grid_spacing) * grid_spacing, min_x, max_x)
 	var vertical_point: Vector2 = Vector2(vertical_x, clampf(start.y, min_z, max_z))
@@ -10270,7 +10288,6 @@ func _create_airport_access_road(city_id: int, airport: Node3D) -> void:
 	var step_count: int = maxi(2, ceili(path_length / 3.0))
 	var surface := SurfaceTool.new()
 	surface.begin(Mesh.PRIMITIVE_TRIANGLES)
-	var city_position: Vector3 = city["pos"]
 	for step_index in range(step_count):
 		var t0: float = float(step_index) / float(step_count)
 		var t1: float = float(step_index + 1) / float(step_count)
@@ -10300,7 +10317,8 @@ func _create_airport_access_road(city_id: int, airport: Node3D) -> void:
 	road.mesh = surface.commit()
 	road.material_override = _material(Color(0.22, 0.245, 0.25), 0.98)
 	road.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
-	town.add_child(road)
+	road.position = city_position
+	add_child(road)
 	city["airport_access_road"] = road
 	cities[city_id] = city
 
@@ -10482,13 +10500,20 @@ func _spawn_transport_wave() -> void:
 			air_city_count += 1
 		if is_instance_valid(cities[city_id].get("seaport")):
 			sea_city_count += 1
-	var kind: String = "air" if air_city_count >= 2 and (sea_city_count < 2 or randf() < 0.76) else "sea"
+	var kind: String = "air" if air_city_count > 0 and (air_city_count < 2 or sea_city_count < 2 or randf() < 0.76) else "sea"
 	var eligible: Array[int] = []
 	for city_id in range(cities.size()):
 		if kind == "air" and _world_year() >= AIRPORT_INTRODUCTION_YEAR and is_instance_valid(cities[city_id].get("airport")):
 			eligible.append(city_id)
 		elif kind == "sea" and _world_year() >= MARITIME_INTRODUCTION_YEAR and is_instance_valid(cities[city_id].get("seaport")):
 			eligible.append(city_id)
+	if eligible.size() == 1 and kind == "air":
+		# Cities often build their first airport years before the next city can
+		# afford one. Run a short takeoff/landing hop on its runway so aircraft
+		# are still visibly operating during that early network-building phase.
+		var first_airport_city: int = eligible[0]
+		_spawn_transport(first_airport_city, first_airport_city, "air")
+		return
 	if eligible.size() < 2:
 		kind = "sea" if kind == "air" else "air"
 		eligible.clear()
@@ -10576,6 +10601,10 @@ func _spawn_transport(source_id: int, target_id: int, kind: String) -> void:
 		return
 	var start: Vector3 = source_facility.global_position
 	var finish: Vector3 = target_facility.global_position
+	if kind == "air" and source_id == target_id:
+		var runway_direction: Vector3 = source_facility.global_transform.basis.z.normalized()
+		var runway_sign: float = -1.0 if randf() < 0.5 else 1.0
+		finish += runway_direction * runway_sign * randf_range(18.0, 23.0)
 	if kind == "air":
 		start.y += 4.5
 		finish.y += 4.5
@@ -10586,7 +10615,7 @@ func _spawn_transport(source_id: int, target_id: int, kind: String) -> void:
 	vehicle.position = start
 	add_child(vehicle)
 	var incident: String = "none"
-	if kind == "air":
+	if kind == "air" and source_id != target_id:
 		var roll: float = randf()
 		if roll < 0.018:
 			incident = "crash"
