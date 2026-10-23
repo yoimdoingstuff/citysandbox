@@ -367,6 +367,13 @@ jobs:
           if ($screenshotCount -ne $expectedScreenshotCount) { throw "Expected $expectedScreenshotCount evenly spaced screenshots (maximum 10), but found $screenshotCount." }
           if (-not (Test-Path -LiteralPath "logs/civiterra-latest.png")) { throw "The rolling latest screenshot is missing." }
           $rows = @(Import-Csv -LiteralPath $csvPath)
+          $requiredTransportColumns = @("airports", "seaports", "air_transports", "sea_transports")
+          if ($rows.Count -eq 0) { throw "The FPS telemetry CSV contains no rows." }
+          foreach ($column in $requiredTransportColumns) {
+            if ($rows[0].PSObject.Properties.Name -notcontains $column) {
+              throw "The FPS telemetry CSV is missing transport column '$column'."
+            }
+          }
           $sampleRows = @($rows | Where-Object { $_.record_type -eq "sample" })
           if ($sampleRows.Count -lt 30) { throw "Expected at least 30 one-second FPS samples, but found $($sampleRows.Count)." }
           Write-Output "Stress suite passed: $scenarioCount scenarios, $($sampleRows.Count) FPS sampling windows, and $screenshotCount rendered screenshots."
