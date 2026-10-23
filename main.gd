@@ -155,6 +155,7 @@ var city_event_timer: float = 16.0
 var city_events_total: int = 0
 var resource_timer: float = 0.0
 var founding_timer: float = 0.0
+var settlement_timer: float = 70.0
 var auto_war_timer: float = 24.0
 var ui_timer: float = 0.0
 var performance_log: FileAccess
@@ -4632,6 +4633,7 @@ func _update_simulation_timers(delta: float) -> void:
 	resource_timer += delta
 	trade_timer += delta
 	founding_timer += delta
+	settlement_timer += delta
 	auto_war_timer += delta
 	transport_timer += delta
 	oil_update_timer += delta
@@ -4676,6 +4678,11 @@ func _update_simulation_timers(delta: float) -> void:
 		var founding_started_usec: int = Time.get_ticks_usec()
 		_try_found_cities()
 		_trace_slow_operation("new-city-founding", founding_started_usec)
+	if settlement_timer >= 70.0:
+		settlement_timer = fmod(settlement_timer, 70.0)
+		var colonization_started_usec: int = Time.get_ticks_usec()
+		_try_found_colonial_settlement()
+		_trace_slow_operation("capital-colony-settlement", colonization_started_usec)
 	if auto_war_timer >= 31.0:
 		auto_war_timer = fmod(auto_war_timer, 31.0)
 		var auto_war_started_usec: int = Time.get_ticks_usec()
@@ -5012,6 +5019,90 @@ func _assign_wild_people() -> void:
 		if closest >= 0:
 			person["city_id"] = closest
 			people[i] = person
+
+
+func _try_found_colonial_settlement() -> void:
+	if cities.size() >= MAX_CITIES or _world_year() < 1450:
+		return
+	var candidate_capitals: Array[int] = []
+	for city_id in range(cities.size()):
+		var city: Dictionary = cities[city_id]
+		if not bool(city.get("is_capital", true)) or int(city.get("capital_id", city_id)) != city_id:
+			continue
+		if bool(city.get("ruined", false)) or _city_population(city_id) < 18:
+			continue
+		if float(city.get("treasury", 0.0)) < 42.0 or float(city.get("food", 0.0)) < 3.0:
+			continue
+		candidate_capitals.append(city_id)
+	if candidate_capitals.is_empty():
+		return
+	# Well-funded capitals periodically sponsor settler parties. Settlement
+	# sites must be on land and far enough from existing city centres to grow.
+	candidate_capitals.shuffle()
+	for capital_id in candidate_capitals:
+		if cities.size() >= MAX_CITIES:
+			return
+		var capital: Dictionary = cities[capital_id]
+		var capital_position: Vector3 = capital["pos"]
+		var chosen_position: Vector3 = Vector3.ZERO
+		var found_site: bool = false
+		for attempt in range(80):
+			var angle: float = randf() * TAU
+			var distance: float = randf_range(82.0, 190.0)
+			var world_x: float = capital_position.x + cos(angle) * distance
+			var world_z: float = capital_position.z + sin(angle) * distance
+			if absf(world_x) > TERRAIN_SIZE * 0.43 or absf(world_z) > TERRAIN_SIZE * 0.43:
+				continue
+			if _height_at(world_x, world_z) <= WATER_LEVEL + 0.35:
+				continue
+			var spacing_ok: bool = true
+			for existing_city in cities:
+				var existing_position: Vector3 = existing_city["pos"]
+				var separation: float = Vector2(existing_position.x - world_x, existing_position.z - world_z).length()
+				if separation < 62.0:
+					spacing_ok = false
+					break
+			if not spacing_ok:
+				continue
+			chosen_position = _surface_position(world_x, world_z)
+			found_site = true
+			break
+		if not found_site:
+			continue
+		var city_id: int = cities.size()
+		var city_name: String = city_names[city_id % city_names.size()]
+		var city_color: Color = city_colors[city_id % city_colors.size()]
+		capital["treasury"] = maxf(0.0, float(capital["treasury"]) - 26.0)
+		capital["wood"] = maxf(0.0, float(capital["wood"]) - 2.5)
+		capital["stone"] = maxf(0.0, float(capital["stone"]) - 1.5)
+		cities[capital_id] = capital
+		var new_city_id: int = _create_city(chosen_position, city_name, city_color)
+		var loyalty: float = randf_range(64.0, 82.0)
+		cities[new_city_id]["owner"] = int(cities[capital_id]["owner"])
+		cities[new_city_id]["capital_id"] = capital_id
+		cities[new_city_id]["is_capital"] = false
+		cities[new_city_id]["loyalty"] = loyalty
+		cities[new_city_id]["autonomy"] = 100.0 - loyalty
+		cities[new_city_id]["treasury"] = 18.0
+		cities[new_city_id]["food"] = 10.0
+		cities[new_city_id]["wood"] = 6.0
+		cities[new_city_id]["stone"] = 3.0
+		cities[new_city_id]["stability"] = 76.0
+		cities[new_city_id]["security"] = 28.0
+		city_relations[_city_relation_key(new_city_id, capital_id)] = 45.0
+		for settler_index in range(randi_range(4, 7)):
+			var settler_angle: float = randf() * TAU
+			var settler_radius: float = randf_range(1.5, 4.0)
+			var settler_position: Vector3 = _surface_position(
+				chosen_position.x + cos(settler_angle) * settler_radius,
+				chosen_position.z + sin(settler_angle) * settler_radius
+			)
+			_spawn_human(settler_position, new_city_id)
+		_refresh_city_development(new_city_id)
+		_schedule_city_territory_refresh()
+		_seed_resources_around(chosen_position)
+		_log("COLONIAL EXPANSION: %s funded settlers who founded %s. The new town owes its capital a levy, but declining loyalty can lead to independence." % [cities[capital_id]["name"], city_name])
+		return
 
 
 func _try_found_cities() -> void:
