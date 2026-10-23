@@ -3573,13 +3573,14 @@ func _add_road_segment(surface: SurfaceTool, city_position: Vector3, from_point:
 	var finish_point: Vector2 = to_point - direction * endpoint_padding
 	if finish_point.distance_to(start_point) < 0.1:
 		return
-	# Use smoother ribbons nearby and fewer vertices when a whole city is only
-	# a small part of the screen. Terrain samples are already spaced at 3.2 units.
-	var segment_step: float = 1.4
+	# Match the underlying terrain's 3.2-unit sample spacing at overview zoom.
+	# Sub-sampling that grid more densely doesn't add real terrain detail, it just
+	# creates extra vertices and repeated terrain interpolation during road rebuilds.
+	var segment_step: float = 2.0
 	if camera_distance > 100.0:
-		segment_step = 2.6
+		segment_step = 3.2
 	elif camera_distance > 72.0:
-		segment_step = 1.9
+		segment_step = 2.6
 	var segment_count: int = maxi(2, int(ceil(start_point.distance_to(finish_point) / segment_step)))
 	var previous_left := Vector3.ZERO
 	var previous_right := Vector3.ZERO
