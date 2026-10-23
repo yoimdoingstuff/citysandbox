@@ -151,6 +151,25 @@ jobs:
               if ($stressCsv) {
                 Copy-Item -LiteralPath $stressCsv.FullName -Destination (Join-Path $PWD "logs/runtime-stresstests.csv") -Force
               }
+              # Screenshots are saved under user:// by Godot. Copy every scenario
+              # image into this run's artifact and retain one rolling preview in git.
+              $screenshotDir = Get-ChildItem -LiteralPath $appDataRoot -Directory -Filter "civiterra-screenshots" -Recurse -ErrorAction SilentlyContinue | Select-Object -First 1
+              if ($screenshotDir) {
+                $screenshotFiles = @(Get-ChildItem -LiteralPath $screenshotDir.FullName -Filter "*.png" -File -ErrorAction SilentlyContinue)
+                if ($screenshotFiles.Count -gt 0) {
+                  $screenshotOutputDir = Join-Path $PWD "logs/runtime-stresstests-screenshots"
+                  New-Item -ItemType Directory -Force -Path $screenshotOutputDir | Out-Null
+                  $screenshotFiles | Copy-Item -Destination $screenshotOutputDir -Force
+                  $latestScreenshot = $screenshotFiles | Sort-Object Name | Select-Object -Last 1
+                  Copy-Item -LiteralPath $latestScreenshot.FullName -Destination (Join-Path $PWD "logs/civiterra-latest.png") -Force
+                  Add-Content -LiteralPath $summaryPath -Value "Rendered screenshots captured: $($screenshotFiles.Count)"
+                  Add-Content -LiteralPath $summaryPath -Value "Latest screenshot: logs/civiterra-latest.png"
+                } else {
+                  Add-Content -LiteralPath $summaryPath -Value "Rendered screenshots captured: 0 (screenshot folder was empty)"
+                }
+              } else {
+                Add-Content -LiteralPath $summaryPath -Value "Rendered screenshots captured: 0 (Godot screenshot folder not found)"
+              }
             }
             if (Test-Path -LiteralPath (Join-Path $PWD "logs/runtime-stresstests.csv")) {
               try {
@@ -189,7 +208,9 @@ jobs:
         uses: actions/upload-artifact@v4
         with:
           name: Civiterra-runtime-stresstests-${{ github.run_id }}-${{ github.run_attempt }}
-          path: logs/runtime-stresstests*
+          path: |
+            logs/runtime-stresstests*
+            logs/civiterra-latest.png
           if-no-files-found: warn
           retention-days: 14
 
@@ -212,6 +233,9 @@ jobs:
           New-Item -ItemType Directory -Force -Path $snapshot | Out-Null
           Get-ChildItem -LiteralPath "logs" -Filter "runtime-stresstests*" -File |
             Copy-Item -Destination $snapshot -Force
+          if (Test-Path -LiteralPath "logs/civiterra-latest.png") {
+            Copy-Item -LiteralPath "logs/civiterra-latest.png" -Destination $snapshot -Force
+          }
 
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
@@ -231,7 +255,13 @@ jobs:
             New-Item -ItemType Directory -Force -Path "logs" | Out-Null
             Get-ChildItem -LiteralPath $snapshot -File |
               Copy-Item -Destination "logs" -Force
-            git add logs/runtime-stresstests*
+            # Stage rolling text/CSV logs only. The per-scenario screenshot
+            # directory is uploaded as an Actions artifact, not committed wholesale.
+            Get-ChildItem -LiteralPath "logs" -Filter "runtime-stresstests*" -File |
+              ForEach-Object { git add $_.FullName }
+            if (Test-Path -LiteralPath "logs/civiterra-latest.png") {
+              git add "logs/civiterra-latest.png"
+            }
             git diff --cached --quiet
             if ($LASTEXITCODE -eq 0) {
               Write-Output "The latest diagnostic logs already match the repository."
