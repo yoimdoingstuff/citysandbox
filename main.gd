@@ -109,7 +109,7 @@ var falling_meteors: Array = []
 var tornadoes: Array = []
 var wars: Array = []
 var city_relations: Dictionary = {}
-var trade_timer: float = 0.0
+var trade_timer: float = 6.0
 var trade_events_total: int = 0
 var transport_timer: float = 0.0
 var oil_update_timer: float = 0.0
@@ -135,7 +135,7 @@ var in_simulation_frame: bool = false
 var is_loading_world: bool = false
 var people_lod_proxy: MultiMeshInstance3D
 var construction_tick_timer: float = 0.0
-var abandoned_check_timer: float = 0.0
+var abandoned_check_timer: float = 1.5
 var rubble_aging_timer: float = 0.0
 var log_entries: Array[String] = []
 
@@ -157,8 +157,9 @@ var traffic_spawn_timer: float = 0.0
 var growth_timer: float = 0.0
 var city_event_timer: float = 16.0
 var city_events_total: int = 0
-var resource_timer: float = 0.0
-var founding_timer: float = 0.0
+var resource_timer: float = 1.1
+var economy_timer: float = 3.0
+var founding_timer: float = 2.25
 var settlement_timer: float = 70.0
 var auto_war_timer: float = 24.0
 var ui_timer: float = 0.0
@@ -184,6 +185,8 @@ var stress_last_frame_end_usec: int = 0
 var stress_capture_name: String = ""
 var stress_capture_wait_frames: int = 0
 var stress_capture_sequence: int = 0
+var stress_screenshots_scheduled: int = 0
+var stress_screenshot_interval_seconds: float = 0.0
 
 var camera: Camera3D
 var camera_target: Vector3 = Vector3.ZERO
@@ -299,6 +302,16 @@ func _start_runtime_stress_tests() -> void:
 		{"name": "save_load_large_world_rebuild", "duration": 8.0, "speed": 1.0, "action": "save_load"},
 		{"name": "combined_16x_city_load", "duration": 12.0, "speed": 16.0, "action": "combined"}
 	]
+	var planned_stress_duration: float = 0.0
+	for scenario in stress_scenarios:
+		planned_stress_duration += float(scenario.get("duration", 8.0))
+	# Ten checkpoints spaced through the run, leaving a small tail at the end
+	# so the final image captures the last high-load scenario before exit.
+	stress_screenshot_interval_seconds = planned_stress_duration / 11.0
+	stress_screenshots_scheduled = 0
+	stress_capture_sequence = 0
+	stress_capture_name = ""
+	stress_capture_wait_frames = 0
 	stress_suite_active = true
 	stress_suite_started_usec = Time.get_ticks_usec()
 	stress_scenario_index = -1
@@ -366,9 +379,6 @@ func _begin_next_runtime_stress_scenario() -> void:
 	stress_last_sample_usec = stress_scenario_started_usec
 	stress_last_frame_end_usec = stress_scenario_started_usec
 	stress_repeat_started_usec = stress_scenario_started_usec
-	stress_capture_sequence = stress_scenario_index + 1
-	stress_capture_name = "%02d_%s" % [stress_capture_sequence, scenario_name]
-	stress_capture_wait_frames = 3
 
 
 func _tick_runtime_stress_screenshot() -> void:
@@ -406,6 +416,16 @@ func _tick_runtime_stress_tests() -> void:
 	if scenario_elapsed >= float(scenario.get("duration", 8.0)):
 		_begin_next_runtime_stress_scenario()
 		return
+	# Capture no more than ten checkpoints at evenly spaced suite-time milestones.
+	# The frame-delay lets the camera/UI and any scheduled visual changes settle.
+	var suite_elapsed_seconds: float = float(now_usec - stress_suite_started_usec) / 1000000.0
+	if stress_screenshots_scheduled < 10 and stress_capture_name.is_empty():
+		var next_checkpoint_seconds: float = stress_screenshot_interval_seconds * float(stress_screenshots_scheduled + 1)
+		if suite_elapsed_seconds >= next_checkpoint_seconds:
+			stress_screenshots_scheduled += 1
+			stress_capture_sequence = stress_screenshots_scheduled
+			stress_capture_name = "checkpoint_%02d_%02d_%s" % [stress_capture_sequence, stress_scenario_index + 1, str(scenario.get("name", "scenario"))]
+			stress_capture_wait_frames = 3
 	var active_action: String = str(scenario.get("action", ""))
 	var repeat_interval_usec: int = 2500000
 	var repeat_action: String = "combined_pulse"
@@ -2954,7 +2974,7 @@ func _refresh_city_development(city_id: int) -> void:
 		if next_stage > previous_stage:
 			_log("%s developed into a %s." % [city["name"], _city_stage_name(next_stage).to_lower()])
 	var sync_started_usec: int = Time.get_ticks_usec()
-	var houses_changed: bool = _sync_city_buildings(city_id) if population > 0 and not bool(city.get("ruined", false)) else false
+	var houses_changed: bool = _sync_city_buildings(city_id, population) if population > 0 and not bool(city.get("ruined", false)) else false
 	_trace_slow_operation("development-building-sync", sync_started_usec)
 	if population > 0 and not bool(city.get("ruined", false)):
 		# Cached era/population/wealth bands make this check cheap unless a building needs to change.
@@ -3404,15 +3424,17 @@ func _city_road_grid_size(city_id: int, year_override: int = -1) -> float:
 	return ROAD_GRID_SIZE * clampf(scale, 1.0, 2.0)
 
 
-func _sync_city_buildings(city_id: int) -> bool:
-	if city_id < 0 or city_id >= cities.size() or _city_population(city_id) <= 0 or bool(cities[city_id].get("ruined", false)):
+func _sync_city_buildings(city_id: int, population_override: int = -1) -> bool:
+	if city_id < 0 or city_id >= cities.size() or bool(cities[city_id].get("ruined", false)):
+		return false
+	var population: int = _city_population(city_id) if population_override < 0 else population_override
+	if population <= 0:
 		return false
 	# Loading must restore the saved building list exactly; it must never trigger
 	# new purchases or rewrite the saved treasury during development refresh.
 	if is_loading_world:
 		return false
 	var city: Dictionary = cities[city_id]
-	var population: int = _city_population(city_id)
 	var stage: int = int(city.get("stage", 0))
 	var city_grid_spacing: float = _city_road_grid_size(city_id, _world_year())
 	var theoretical_houses: int = min(MAX_CITY_HOUSES, max(1, 1 + int(population / 3) + stage * 2))
@@ -3585,11 +3607,13 @@ func _add_road_segment(surface: SurfaceTool, city_position: Vector3, from_point:
 	# Match the underlying terrain's 3.2-unit sample spacing at overview zoom.
 	# Sub-sampling that grid more densely doesn't add real terrain detail, it just
 	# creates extra vertices and repeated terrain interpolation during road rebuilds.
-	var segment_step: float = 2.0
+	var segment_step: float = 2.6
 	if camera_distance > 100.0:
 		segment_step = 3.2
 	elif camera_distance > 72.0:
-		segment_step = 2.6
+		segment_step = 3.0
+	elif camera_distance < 30.0:
+		segment_step = 2.0
 	var segment_count: int = maxi(2, int(ceil(start_point.distance_to(finish_point) / segment_step)))
 	var previous_left := Vector3.ZERO
 	var previous_right := Vector3.ZERO
@@ -4822,9 +4846,13 @@ func _update_simulation_timers(delta: float) -> void:
 		var collection_started_usec: int = Time.get_ticks_usec()
 		_collect_resources()
 		_trace_slow_operation("resource-collection", collection_started_usec)
+		economy_timer = minf(economy_timer, 3.0)
+	if economy_timer >= 4.0:
+		economy_timer = fmod(economy_timer, 4.0)
 		var economies_started_usec: int = Time.get_ticks_usec()
 		_update_city_economies()
 		_trace_slow_operation("city-economy-production", economies_started_usec)
+	economy_timer += 0.0
 	if trade_timer >= 12.0:
 		trade_timer = fmod(trade_timer, 12.0)
 		var trade_started_usec: int = Time.get_ticks_usec()
