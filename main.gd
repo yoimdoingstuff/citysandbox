@@ -6127,8 +6127,10 @@ func _update_defender_army(defender_index: int, delta: float) -> void:
 		armies[defender_index] = defender
 		return
 	var position: Vector3 = defender["pos"]
+	var defender_type: String = str(defender.get("unit_type", "infantry"))
+	var defender_range: float = float(defender.get("attack_range", _military_unit_range(defender_type)))
 	var threat_index: int = -1
-	var threat_distance_squared: float = 34.0 * 34.0
+	var threat_distance_squared: float = 58.0 * 58.0
 	for index in range(armies.size()):
 		if index == defender_index:
 			continue
@@ -6161,27 +6163,55 @@ func _update_defender_army(defender_index: int, delta: float) -> void:
 			return
 	else:
 		defender["idle_timer"] = 0.0
-		var threat_position: Vector3 = armies[threat_index]["pos"]
+		var threat: Dictionary = armies[threat_index]
+		var threat_position: Vector3 = threat["pos"]
 		var distance: float = Vector2(position.x - threat_position.x, position.z - threat_position.z).length()
-		if distance > 1.3:
+		if distance > defender_range:
 			var direction := Vector3(threat_position.x - position.x, 0.0, threat_position.z - position.z).normalized()
-			position.x += direction.x * delta * 3.6
-			position.z += direction.z * delta * 3.6
+			var move_speed: float = 3.6
+			if defender_type == "artillery":
+				move_speed = 1.8
+			elif defender_type == "tank":
+				move_speed = 3.5
+			elif defender_type == "aircraft":
+				move_speed = 9.0
+			elif defender_type == "helicopter":
+				move_speed = 5.5
+			elif defender_type == "apc":
+				move_speed = 4.0
+			position.x += direction.x * delta * move_speed
+			position.z += direction.z * delta * move_speed
 			position.y = _height_at(position.x, position.z)
-			defender["attack_timer"] = 0.0
+			if defender_type == "aircraft":
+				position.y += 8.0
+			elif defender_type == "helicopter":
+				position.y += 4.5
 		else:
 			defender["attack_timer"] = float(defender.get("attack_timer", 0.0)) + delta
-			if float(defender["attack_timer"]) >= 1.25:
+			var attack_interval: float = 1.25
+			if defender_type == "artillery":
+				attack_interval = 3.8
+			elif defender_type == "tank" or defender_type == "aircraft":
+				attack_interval = 2.1
+			elif defender_type == "helicopter":
+				attack_interval = 1.8
+			elif defender_type == "apc":
+				attack_interval = 2.5
+			if float(defender.get("attack_timer", 0.0)) >= attack_interval:
 				defender["attack_timer"] = 0.0
-				var threat: Dictionary = armies[threat_index]
-				threat["alive"] = false
-				if is_instance_valid(threat.get("node")):
-					threat["node"].queue_free()
+				threat["hp"] = float(threat.get("hp", 1.0)) - float(defender.get("attack_power", 1.0))
+				if float(threat["hp"]) <= 0.0:
+					threat["alive"] = false
+					if is_instance_valid(threat.get("node")):
+						threat["node"].queue_free()
+					_log("CITY DEFENCE: %s %s destroyed an invading %s." % [cities[home_city]["name"], defender_type, str(threat.get("unit_type", "unit"))])
 				armies[threat_index] = threat
-				if randf() < 0.18:
-					defender["alive"] = false
-					if is_instance_valid(defender.get("node")):
-						defender["node"].queue_free()
+				if randf() < (0.05 if defender_type in ["tank", "apc", "aircraft", "helicopter"] else 0.16):
+					defender["hp"] = float(defender.get("hp", 1.0)) - 1.0
+					if float(defender["hp"]) <= 0.0:
+						defender["alive"] = false
+						if is_instance_valid(defender.get("node")):
+							defender["node"].queue_free()
 		defender["target"] = enemy_city
 	defender["pos"] = position
 	if is_instance_valid(defender.get("node")):
