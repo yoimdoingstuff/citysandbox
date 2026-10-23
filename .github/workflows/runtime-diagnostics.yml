@@ -319,8 +319,10 @@ jobs:
             throw "Construction/rubble indexes or per-frame population caching is missing."
           }
           if ($source -notmatch 'airport_render_range_squared' -or
+              $source -notmatch 'airport_road_range_squared: float = airport_render_range_squared' -or
+              $source -notmatch 'airport_road_node\) as Node3D\)\.visible = not ruined_transport_city and camera_distance <= 900\.0' -or
               $source -notmatch '_spawn_transport\(first_airport_city, first_airport_city, "air"\)') {
-            throw "Aircraft visibility or first-airport flight fallback is missing."
+            throw "Airport visibility, connected access-road visibility, or first-airport flight fallback is missing."
           }
           if (-not (Test-Path -LiteralPath $summaryPath)) { throw "The stress-test summary is missing." }
           $summary = Get-Content -LiteralPath $summaryPath -Raw
