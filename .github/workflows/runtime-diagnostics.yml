@@ -293,13 +293,34 @@ jobs:
         run: |
           $summaryPath = "logs/runtime-stresstests-summary.txt"
           $stdoutPath = "logs/runtime-stresstests.stdout.log"
+          $stderrPath = "logs/runtime-stresstests.stderr.log"
           $csvPath = "logs/runtime-stresstests.csv"
+          $sourcePath = "main.gd"
+          if (-not (Test-Path -LiteralPath $sourcePath)) { throw "The main game script is missing." }
+          $source = Get-Content -LiteralPath $sourcePath -Raw
+          if ($source -notmatch 'const AIRPORT_INTRODUCTION_YEAR: int = 1945' -or
+              $source -notmatch 'const MARITIME_INTRODUCTION_YEAR: int = AIRPORT_INTRODUCTION_YEAR - 60') {
+            throw "Transport era regression: maritime availability must begin 60 years before the airport milestone."
+          }
+          if ($source -notmatch 'func _create_airport_access_road\(' -or
+              $source -notmatch 'traffic_light_records_by_city\.get\(city_id') {
+            throw "Airport road connection or city-local traffic-light optimization is missing."
+          }
           if (-not (Test-Path -LiteralPath $summaryPath)) { throw "The stress-test summary is missing." }
           $summary = Get-Content -LiteralPath $summaryPath -Raw
           if ($summary -notmatch "Stress suite completed: True") { throw "The game did not report a completed stress suite. Check the uploaded logs." }
           if ($summary -match "Timed out: True") { throw "The game exceeded the stress-test timeout." }
           if ($summary -notmatch "Game process exit code: 0") { throw "The game did not exit successfully." }
           if (-not (Test-Path -LiteralPath $stdoutPath)) { throw "The game's standard output log is missing." }
+          $scriptErrors = @()
+          $logPaths = @($stdoutPath, $stderrPath) | Where-Object { Test-Path -LiteralPath $_ }
+          if ($logPaths.Count -gt 0) {
+            $scriptErrors = @(Select-String -LiteralPath $logPaths -Pattern "SCRIPT ERROR:|SCRIPT WARNING:|Parse Error:|Failed to load script" -ErrorAction SilentlyContinue)
+          }
+          if ($scriptErrors.Count -gt 0) {
+            $examples = ($scriptErrors | Select-Object -First 5 | ForEach-Object { $_.Line }) -join "; "
+            throw "Godot reported $($scriptErrors.Count) script error/warning line(s): $examples"
+          }
           $scenarioCount = @(Select-String -LiteralPath $stdoutPath -Pattern "STRESS_SCENARIO_COMPLETE\|" -ErrorAction SilentlyContinue).Count
           if ($scenarioCount -lt 15) { throw "Expected at least 15 completed scenarios, but found $scenarioCount." }
           if (-not (Test-Path -LiteralPath $csvPath)) { throw "The FPS telemetry CSV was not generated." }
