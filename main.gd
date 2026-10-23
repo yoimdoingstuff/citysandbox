@@ -2983,14 +2983,17 @@ func _refresh_city_development(city_id: int) -> void:
 	var sync_started_usec: int = Time.get_ticks_usec()
 	var houses_changed: bool = _sync_city_buildings(city_id, population) if population > 0 and not bool(city.get("ruined", false)) else false
 	_trace_slow_operation("development-building-sync", sync_started_usec)
-	if population > 0 and not bool(city.get("ruined", false)):
-		# Cached era/population/wealth bands make this check cheap unless a building needs to change.
+	if population > 0 and not bool(city.get("ruined", false)) and not is_loading_world:
+		# During load, all facades are rebuilt in one deliberate visual pass once
+		# every city/person is restored. Rebuilding partial facades here as well
+		# duplicates mesh creation before the final pass.
 		var appearance_started_usec: int = Time.get_ticks_usec()
 		_apply_building_era_appearance(city_id, _world_year(), -1, false, population)
 		_trace_slow_operation("development-era-appearance", appearance_started_usec)
-	var infrastructure_started_usec: int = Time.get_ticks_usec()
-	_ensure_city_infrastructure(city_id, _world_year(), population)
-	_trace_slow_operation("development-infrastructure", infrastructure_started_usec)
+	if not is_loading_world:
+		var infrastructure_started_usec: int = Time.get_ticks_usec()
+		_ensure_city_infrastructure(city_id, _world_year(), population)
+		_trace_slow_operation("development-infrastructure", infrastructure_started_usec)
 	if houses_changed or stage_changed:
 		_schedule_city_territory_refresh()
 	city = cities[city_id]
@@ -9378,9 +9381,12 @@ func _load_world() -> void:
 				house.scale = Vector3.ONE * (1.0 + float(cities[city_id].get("stage", 0)) * (0.04 if bool(house.get_meta("large_plot", false)) else 0.07))
 		_apply_building_era_appearance(city_id, _world_year(), -1, true)
 	_refresh_city_territory(0)
+	# Only roads that are currently in view need rebuilding immediately. Queue
+	# all city meshes so loading a large saved world does not synchronously create
+	# eighteen road/sidewalk/crosswalk meshes in a single frame.
 	for city_id in range(cities.size()):
-		_rebuild_city_roads(city_id)
-		_ensure_city_infrastructure(city_id, _world_year())
+		_queue_city_roads_rebuild(city_id)
+		_ensure_city_infrastructure(city_id, _world_year(), int(cities[city_id].get("population", 0)))
 
 	for rubble_entry_data in saved_rubble:
 		if typeof(rubble_entry_data) != TYPE_DICTIONARY:
