@@ -275,6 +275,7 @@ func _write_performance_sample(operation_name: String, elapsed_usec: int) -> voi
 
 func _start_runtime_stress_tests() -> void:
 	stress_scenarios = [
+		{"name": "expanded_world_overview", "duration": 5.0, "speed": 1.0, "action": "world_overview"},
 		{"name": "baseline_1x", "duration": 7.0, "speed": 1.0, "action": "none"},
 		{"name": "simulation_4x", "duration": 6.0, "speed": 4.0, "action": "none"},
 		{"name": "simulation_16x", "duration": 8.0, "speed": 16.0, "action": "none"},
@@ -545,6 +546,11 @@ func _runtime_stress_counts() -> Dictionary:
 
 func _run_runtime_stress_action(action_name: String) -> void:
 	match action_name:
+		"world_overview":
+			camera_target = Vector3.ZERO
+			camera_distance = 630.0
+			_update_camera()
+			_update_world_detail_levels()
 		"dense_cities":
 			_stress_create_extra_cities(MAX_CITIES)
 			_stress_spawn_crowd(mini(MAX_PEOPLE, maxi(people.size(), 560)))
@@ -2868,7 +2874,11 @@ func _refresh_city_development(city_id: int) -> void:
 	city = cities[city_id]
 	if is_instance_valid(city["label"]):
 		var status: String = "RUINS" if bool(city.get("ruined", false)) else ("ABANDONED" if population <= 0 else _city_stage_name(next_stage))
-		city["label"].text = "%s\n%s | POP %d" % [city["name"], status, population]
+		var polity_status: String = "CAPITAL"
+		if not bool(city.get("is_capital", true)):
+			var capital_id: int = clampi(int(city.get("capital_id", city_id)), 0, cities.size() - 1)
+			polity_status = "SATELLITE · LOYALTY %d%%" % roundi(float(city.get("loyalty", 70.0)))
+		city["label"].text = "%s\n%s | POP %d\n%s" % [city["name"], status, population, polity_status]
 		city["label"].modulate = Color(0.66, 0.70, 0.72) if population <= 0 else Color.WHITE
 	cities[city_id] = city
 
