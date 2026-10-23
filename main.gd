@@ -3272,10 +3272,32 @@ func _queue_city_roads_rebuild(city_id: int) -> void:
 func _process_one_pending_city_road_rebuild() -> void:
 	if Time.get_ticks_usec() < next_city_road_rebuild_usec or pending_city_road_rebuilds.is_empty():
 		return
-	var city_id: int = pending_city_road_rebuilds.pop_front()
-	pending_city_road_rebuild_set.erase(city_id)
-	if city_id < 0 or city_id >= cities.size() or bool(cities[city_id].get("ruined", false)):
+	# The road mesh is hidden at overview zoom. Keep queued damage/repair updates
+	# until their city is close enough to render instead of rebuilding invisible cities.
+	if camera_distance > 135.0:
 		return
+	var road_detail_radius: float = maxf(220.0, camera_distance * 1.35 + 110.0)
+	var road_detail_radius_squared: float = road_detail_radius * road_detail_radius
+	var selected_queue_index: int = -1
+	# Search from the back so invalid entries can be removed safely while the list
+	# is walked, and select a visible city without letting distant work block it.
+	for queue_index in range(pending_city_road_rebuilds.size() - 1, -1, -1):
+		var candidate_city_id: int = int(pending_city_road_rebuilds[queue_index])
+		if candidate_city_id < 0 or candidate_city_id >= cities.size() or bool(cities[candidate_city_id].get("ruined", false)):
+			pending_city_road_rebuilds.remove_at(queue_index)
+			pending_city_road_rebuild_set.erase(candidate_city_id)
+			continue
+		var candidate_position: Vector3 = cities[candidate_city_id]["pos"]
+		var dx: float = candidate_position.x - camera_target.x
+		var dz: float = candidate_position.z - camera_target.z
+		if dx * dx + dz * dz <= road_detail_radius_squared:
+			selected_queue_index = queue_index
+			break
+	if selected_queue_index < 0:
+		return
+	var city_id: int = int(pending_city_road_rebuilds[selected_queue_index])
+	pending_city_road_rebuilds.remove_at(selected_queue_index)
+	pending_city_road_rebuild_set.erase(city_id)
 	var road_started_usec: int = Time.get_ticks_usec()
 	_rebuild_city_roads(city_id)
 	_trace_slow_operation("city-road-mesh-rebuild", road_started_usec)
