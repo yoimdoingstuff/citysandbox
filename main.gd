@@ -90,6 +90,9 @@ var city_colors: Array[Color] = [
 ]
 var cities: Array = []
 var people: Array = []
+var population_counts_cache: Array[int] = []
+var population_counts_cache_frame: int = -1
+var population_counts_cache_dirty: bool = true
 var cars: Array = []
 var resources: Array = []
 var transports: Array = []
@@ -263,6 +266,10 @@ var city_context_panel: PanelContainer
 var tool_buttons: Dictionary = {}
 
 
+func _invalidate_population_counts() -> void:
+	population_counts_cache_dirty = true
+
+
 func _spatial_cell(position: Vector3) -> Vector2i:
 	return Vector2i(floori(position.x / SPATIAL_CELL_SIZE), floori(position.z / SPATIAL_CELL_SIZE))
 
@@ -368,6 +375,7 @@ func _remove_person_at(person_index: int) -> void:
 		return
 	people.remove_at(person_index)
 	_invalidate_people_spatial_index()
+	_invalidate_population_counts()
 
 func _compact_dead_people() -> void:
 	if not dead_people_pending_compaction:
@@ -380,6 +388,7 @@ func _compact_dead_people() -> void:
 	dead_people_pending_compaction = false
 	people_update_cursor = posmod(people_update_cursor, maxi(1, people.size()))
 	_invalidate_people_spatial_index()
+	_invalidate_population_counts()
 
 
 func _terrain_edit_bounds(edits: Array[Dictionary], padding: float = 0.0) -> Rect2:
@@ -836,9 +845,11 @@ func _run_runtime_stress_action(action_name: String) -> void:
 				city["iron"] = maxf(30.0, float(city.get("iron", 0.0)))
 				city["copper"] = maxf(25.0, float(city.get("copper", 0.0)))
 				cities[city_id] = city
-				while _city_population(city_id) < 24 and people.size() < MAX_PEOPLE:
+				var test_population: int = _city_population(city_id)
+				while test_population < 24 and people.size() < MAX_PEOPLE:
 					var home: Vector3 = cities[city_id]["pos"]
 					_spawn_human(_surface_position(home.x + randf_range(-12.0, 12.0), home.z + randf_range(-12.0, 12.0)), city_id)
+					test_population += 1
 			last_architecture_era = -1
 			_update_historical_era(true)
 			if oil_rigs.is_empty():
@@ -4399,6 +4410,7 @@ func _spawn_human(position: Vector3, city_id: int) -> void:
 	p.y = _height_at(p.x, p.z)
 	human.position = p
 	_invalidate_people_spatial_index()
+	_invalidate_population_counts()
 	people.append({
 		"node": human,
 		"pos": p,
@@ -5445,25 +5457,25 @@ func _trade_city_good(seller_id: int, buyer_id: int, good: String, distance: flo
 	return true
 
 func _population_counts_by_city() -> Array[int]:
+	if not population_counts_cache_dirty and population_counts_cache_frame == performance_frame_count and population_counts_cache.size() == cities.size():
+		return population_counts_cache
 	var counts: Array[int] = []
-	for city_id in range(cities.size()):
-		counts.append(0)
+	counts.resize(cities.size())
+	counts.fill(0)
 	for person in people:
 		var city_id: int = int(person.get("city_id", -1))
 		if city_id >= 0 and city_id < counts.size():
 			counts[city_id] += 1
-	return counts
-
+	population_counts_cache = counts
+	population_counts_cache_frame = performance_frame_count
+	population_counts_cache_dirty = false
+	return population_counts_cache
 
 func _city_population(city_id: int) -> int:
 	if city_id < 0 or city_id >= cities.size():
 		return 0
-	var total: int = 0
-	for person in people:
-		if int(person["city_id"]) == city_id:
-			total += 1
-	return total
-
+	var population_counts: Array[int] = _population_counts_by_city()
+	return population_counts[city_id] if city_id < population_counts.size() else 0
 
 func _collect_resources() -> void:
 	_ensure_resource_spatial_index()
@@ -5571,6 +5583,7 @@ func _assign_wild_people() -> void:
 		if closest >= 0:
 			person["city_id"] = closest
 			people[i] = person
+			_invalidate_population_counts()
 
 
 func _try_found_colonial_settlement() -> void:
@@ -5728,6 +5741,8 @@ func _try_found_cities() -> void:
 				city_relations[_city_relation_key(new_city_id, parent_capital)] = 45.0
 			for member_id in members:
 				people[member_id]["city_id"] = new_city_id
+			if not members.is_empty():
+				_invalidate_population_counts()
 				var member: Dictionary = people[member_id]
 				var city_position: Vector3 = cities[new_city_id]["pos"]
 				member["home_offset"] = Vector2(member["pos"].x - city_position.x, member["pos"].z - city_position.z)
@@ -9889,6 +9904,9 @@ func _clear_loaded_world() -> void:
 	city_event_scenes.clear()
 	cities.clear()
 	people.clear()
+	_invalidate_population_counts()
+	population_counts_cache.clear()
+	population_counts_cache_frame = -1
 	cars.clear()
 	resources.clear()
 	_invalidate_all_spatial_indices()
