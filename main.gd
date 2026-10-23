@@ -300,7 +300,8 @@ func _ensure_people_spatial_index() -> void:
 		var person: Dictionary = people[person_index]
 		if not bool(person.get("alive", true)):
 			continue
-		_append_spatial_index(people_spatial_grid, _spatial_cell(person.get("pos", Vector3.ZERO)), person_index)
+		var person_position: Vector3 = person.get("pos", Vector3.ZERO)
+		_append_spatial_index(people_spatial_grid, _spatial_cell(person_position), person_index)
 	people_spatial_index_frame = performance_frame_count
 
 
@@ -312,7 +313,8 @@ func _ensure_resource_spatial_index() -> void:
 		var resource: Dictionary = resources[resource_index]
 		if not bool(resource.get("alive", true)) or int(resource.get("amount", 0)) <= 0:
 			continue
-		_append_spatial_index(resource_spatial_grid, _spatial_cell(resource.get("pos", Vector3.ZERO)), resource_index)
+		var resource_position: Vector3 = resource.get("pos", Vector3.ZERO)
+		_append_spatial_index(resource_spatial_grid, _spatial_cell(resource_position), resource_index)
 	resource_spatial_index_frame = performance_frame_count
 
 
