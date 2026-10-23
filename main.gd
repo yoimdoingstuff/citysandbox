@@ -5954,20 +5954,48 @@ func _create_military_unit_node(unit_type: String, faction_color: Color) -> Node
 func _spawn_defenders(defending_city_id: int, aggressor_city_id: int) -> void:
 	if defending_city_id < 0 or aggressor_city_id < 0 or defending_city_id >= cities.size() or aggressor_city_id >= cities.size():
 		return
-	var count: int = clampi(1 + int(_city_population(defending_city_id) / 10), 1, 4)
-	for index in range(count):
-		var p: Vector3 = cities[defending_city_id]["pos"]
-		var soldier: Node3D = _create_military_unit_node("infantry", cities[defending_city_id]["color"])
+	# A defensive force now reflects the era and the specialist bases that the
+	# city has actually built, instead of every city spawning identical soldiers.
+	var year: int = _world_year()
+	var population: int = _city_population(defending_city_id)
+	var unit_types: Array[String] = []
+	var infantry_count: int = clampi(1 + int(population / 10), 1, 4)
+	for index in range(infantry_count):
+		unit_types.append("infantry")
+	if year >= 1850 and population >= 18:
+		unit_types.append("artillery")
+	if year >= 1916 and population >= 14:
+		unit_types.append("tank")
+	if year >= 2000 and population >= 28:
+		unit_types.append("apc")
+	var city: Dictionary = cities[defending_city_id]
+	var has_airbase: bool = is_instance_valid(city.get("airport"))
+	if year >= 1945 and has_airbase and is_instance_valid(cities[aggressor_city_id].get("airport")):
+		unit_types.append("aircraft")
+	if year >= 1970 and has_airbase and is_instance_valid(cities[aggressor_city_id].get("airport")):
+		unit_types.append("helicopter")
+	var city_position: Vector3 = city["pos"]
+	var total_units: int = unit_types.size()
+	for index in range(total_units):
+		var unit_type: String = unit_types[index]
+		var angle: float = float(index) * TAU / float(maxi(1, total_units))
+		var radius: float = 3.0 + float(index % 2) * 1.4
+		var spawn: Vector3 = _surface_position(city_position.x + cos(angle) * radius, city_position.z + sin(angle) * radius)
+		var soldier: Node3D = _create_military_unit_node(unit_type, city["color"])
 		add_child(soldier)
-		var spawn := _surface_position(p.x + randf_range(-2.5, 2.5), p.z + randf_range(-2.5, 2.5))
+		if unit_type == "aircraft":
+			spawn.y += 8.0
+		elif unit_type == "helicopter":
+			spawn.y += 4.5
 		soldier.position = spawn
 		armies.append({
 			"node": soldier, "pos": spawn, "source": defending_city_id, "target": aggressor_city_id,
-			"attack_timer": 0.0, "idle_timer": 0.0, "home_city": defending_city_id,
-			"unit_type": "infantry", "hp": 1.0, "attack_power": 1.0, "attack_range": 1.5,
+			"attack_timer": randf_range(0.0, 0.8), "idle_timer": 0.0, "home_city": defending_city_id,
+			"unit_type": unit_type, "hp": _military_unit_health(unit_type),
+			"attack_power": _military_unit_attack(unit_type), "attack_range": _military_unit_range(unit_type),
 			"is_defender": true, "alive": true
 		})
-	_log("%s has mobilised %d defenders." % [cities[defending_city_id]["name"], count])
+	_log("%s mobilised %d defenders: %s." % [city["name"], total_units, _military_unit_roster(unit_types)])
 
 
 func _update_armies(delta: float) -> void:
