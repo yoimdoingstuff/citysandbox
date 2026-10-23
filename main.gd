@@ -2638,7 +2638,7 @@ func _add_territory_edge(surface: SurfaceTool, start_point: Vector3, end_point: 
 	surface.add_vertex(c)
 
 
-func _apply_building_era_appearance(city_id: int, year: int, only_house_index: int = -1, update_all: bool = false) -> void:
+func _apply_building_era_appearance(city_id: int, year: int, only_house_index: int = -1, update_all: bool = false, population_override: int = -1) -> void:
 	var appearance_started_usec: int = Time.get_ticks_usec()
 	if city_id < 0 or city_id >= cities.size():
 		return
@@ -2651,7 +2651,13 @@ func _apply_building_era_appearance(city_id: int, year: int, only_house_index: i
 	var city: Dictionary = cities[city_id]
 	var stage: int = int(city.get("stage", 0))
 	var era: int = _historical_era_index(year)
-	var population: int = int(city.get("population", _city_population(city_id)))
+	var population: int
+	if population_override >= 0:
+		population = population_override
+	elif city.has("population"):
+		population = int(city["population"])
+	else:
+		population = _city_population(city_id)
 	var wealth: float = float(city.get("wealth", 12.0))
 	var pop_band: int = int(population / 15)
 	var wealth_band: int = 3 if wealth >= 50.0 else (2 if wealth >= 25.0 else (1 if wealth >= 18.0 else 0))
@@ -2953,10 +2959,10 @@ func _refresh_city_development(city_id: int) -> void:
 	if population > 0 and not bool(city.get("ruined", false)):
 		# Cached era/population/wealth bands make this check cheap unless a building needs to change.
 		var appearance_started_usec: int = Time.get_ticks_usec()
-		_apply_building_era_appearance(city_id, _world_year())
+		_apply_building_era_appearance(city_id, _world_year(), -1, false, population)
 		_trace_slow_operation("development-era-appearance", appearance_started_usec)
 	var infrastructure_started_usec: int = Time.get_ticks_usec()
-	_ensure_city_infrastructure(city_id, _world_year())
+	_ensure_city_infrastructure(city_id, _world_year(), population)
 	_trace_slow_operation("development-infrastructure", infrastructure_started_usec)
 	if houses_changed or stage_changed:
 		_schedule_city_territory_refresh()
@@ -4838,12 +4844,13 @@ func _update_simulation_timers(delta: float) -> void:
 
 
 func _update_city_economies() -> void:
-	# Game time can run at 16x. Cache static building counts and resolve the
-	# simulation year once instead of rescanning every building on every tick.
+	# Compute actual population once. Calling _city_population for each city
+	# repeatedly rescans the complete crowd list (cities × citizens).
 	var current_year: int = _world_year()
+	var population_counts: Array[int] = _population_counts_by_city()
 	for city_id in range(cities.size()):
 		var city: Dictionary = cities[city_id]
-		var population: int = _city_population(city_id)
+		var population: int = population_counts[city_id]
 		if population <= 0 or bool(city.get("ruined", false)):
 			city["wealth"] = maxf(0.0, float(city.get("wealth", 0.0)) - 0.04)
 			cities[city_id] = city
@@ -4917,8 +4924,8 @@ func _update_city_economies() -> void:
 
 		# Facade checks are bounded and rotated, so era upgrades keep progressing
 		# without inspecting every building in every city on every economy tick.
-		_apply_building_era_appearance(city_id, current_year)
-		_ensure_city_infrastructure(city_id, current_year)
+		_apply_building_era_appearance(city_id, current_year, -1, false, population)
+		_ensure_city_infrastructure(city_id, current_year, population)
 
 
 func _city_relation_key(a: int, b: int) -> String:
@@ -4975,9 +4982,10 @@ func _city_relationship_summary(city_id: int) -> String:
 func _update_city_trade() -> void:
 	if cities.size() < 2:
 		return
+	var population_counts: Array[int] = _population_counts_by_city()
 	for source_id in range(cities.size()):
 		var source: Dictionary = cities[source_id]
-		if _city_population(source_id) <= 0 or bool(source.get("ruined", false)):
+		if population_counts[source_id] <= 0 or bool(source.get("ruined", false)):
 			continue
 		for target_id in range(source_id + 1, cities.size()):
 			if _are_at_war(source_id, target_id):
@@ -4985,7 +4993,7 @@ func _update_city_trade() -> void:
 			if _city_relation(source_id, target_id) < -35.0:
 				continue
 			var target: Dictionary = cities[target_id]
-			if _city_population(target_id) <= 0 or bool(target.get("ruined", false)):
+			if population_counts[target_id] <= 0 or bool(target.get("ruined", false)):
 				continue
 			var distance: float = Vector2(source["pos"].x - target["pos"].x, source["pos"].z - target["pos"].z).length()
 			var traded: bool = false
@@ -5089,8 +5097,11 @@ func _collect_resources() -> void:
 				continue
 			var resource_pos: Vector3 = resource["pos"]
 			var city_pos: Vector3 = city["pos"]
-			var distance: float = Vector2(resource_pos.x - city_pos.x, resource_pos.z - city_pos.z).length()
-			if distance > 15.0:
+			var dx: float = resource_pos.x - city_pos.x
+			var dz: float = resource_pos.z - city_pos.z
+			# Collection is a hot O(cities × resources) path. Squared distance is
+			# enough for a radius check and avoids one square root per pair.
+			if dx * dx + dz * dz > 225.0:
 				continue
 			var kind: String = str(resource.get("type", ""))
 			var inventory_key: String = ""
@@ -6511,10 +6522,11 @@ func _update_defender_army(defender_index: int, delta: float) -> void:
 
 
 func _update_city_defences() -> void:
+	var population_counts: Array[int] = _population_counts_by_city()
 	for city_id in range(cities.size()):
 		var city: Dictionary = cities[city_id]
 		city["defence_cooldown"] = maxf(0.0, float(city.get("defence_cooldown", 0.0)) - 1.0)
-		if float(city["defence_cooldown"]) > 0.0 or _city_population(city_id) < 8 or float(city.get("security", 44.0)) < 8.0:
+		if float(city["defence_cooldown"]) > 0.0 or population_counts[city_id] < 8 or float(city.get("security", 44.0)) < 8.0:
 			cities[city_id] = city
 			continue
 		var incoming_city: int = -1
@@ -6547,7 +6559,7 @@ func _update_city_defences() -> void:
 			for ally_id in range(cities.size()):
 				if ally_id == city_id or not _are_allied(ally_id, city_id):
 					continue
-				if _city_population(ally_id) < 8 or float(cities[ally_id].get("security", 44.0)) < 8.0:
+				if population_counts[ally_id] < 8 or float(cities[ally_id].get("security", 44.0)) < 8.0:
 					continue
 				if float(cities[ally_id].get("defence_cooldown", 0.0)) > 0.0:
 					continue
@@ -9455,7 +9467,7 @@ func _create_city_internet_hub(city_id: int) -> void:
 	_log("%s established a telecommunications exchange. Internet service is now available." % city["name"])
 
 
-func _ensure_city_infrastructure(city_id: int, year: int) -> void:
+func _ensure_city_infrastructure(city_id: int, year: int, population_override: int = -1) -> void:
 	if city_id < 0 or city_id >= cities.size():
 		return
 	var city: Dictionary = cities[city_id]
@@ -9478,7 +9490,7 @@ func _ensure_city_infrastructure(city_id: int, year: int) -> void:
 		city["internet_hub"] = null
 		city["internet"] = 0.0
 	cities[city_id] = city
-	var population: int = _city_population(city_id)
+	var population: int = _city_population(city_id) if population_override < 0 else population_override
 	if not bool(city.get("ruined", false)) and year >= 1450 and population >= 16 and not bool(city.get("seaport_attempted", false)):
 		# Port construction is paid for and retryable if the city is still poor.
 		if float(city.get("treasury", 0.0)) >= 20.0 and float(city.get("wood", 0.0)) >= 2.0:
