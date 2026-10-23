@@ -2348,6 +2348,8 @@ func _create_city(position: Vector3, city_name: String, color: Color) -> int:
 		"hostage_cooldown": 0.0,
 		"airport": null,
 		"seaport": null,
+		"airport_attempted": false,
+		"seaport_attempted": false,
 		"food": 8.0,
 		"wood": 5.0,
 		"stone": 3.0,
@@ -4607,6 +4609,9 @@ func _update_simulation_timers(delta: float) -> void:
 	trade_timer += delta
 	founding_timer += delta
 	auto_war_timer += delta
+	transport_timer += delta
+	oil_update_timer += delta
+	diplomacy_timer += delta
 	if city_event_timer >= 22.0:
 		city_event_timer = fmod(city_event_timer, 22.0)
 		var events_started_usec: int = Time.get_ticks_usec()
@@ -4625,6 +4630,15 @@ func _update_simulation_timers(delta: float) -> void:
 		var trade_started_usec: int = Time.get_ticks_usec()
 		_update_city_trade()
 		_trace_slow_operation("diplomacy-trade", trade_started_usec)
+	if diplomacy_timer >= 12.0:
+		diplomacy_timer = fmod(diplomacy_timer, 12.0)
+		_update_diplomacy()
+	if oil_update_timer >= 8.0:
+		oil_update_timer = fmod(oil_update_timer, 8.0)
+		_update_oil_rigs()
+	if transport_timer >= 5.0:
+		transport_timer = fmod(transport_timer, 5.0)
+		_spawn_transport_wave()
 	if growth_timer >= 9.0:
 		growth_timer = fmod(growth_timer, 9.0)
 		var growth_started_usec: int = Time.get_ticks_usec()
@@ -4712,6 +4726,7 @@ func _update_city_economies() -> void:
 		city["wealth"] = minf(100.0, float(city["wealth"]) + float(city.get("electricity", 0.0)) * 0.0007 + float(city.get("internet", 0.0)) * 0.001)
 		cities[city_id] = city
 		_apply_building_era_appearance(city_id, _world_year())
+		_ensure_city_infrastructure(city_id, _world_year())
 
 
 func _city_relation_key(a: int, b: int) -> String:
@@ -8913,6 +8928,477 @@ func _ensure_city_infrastructure(city_id: int, year: int) -> void:
 		city["internet_hub"] = null
 		city["internet"] = 0.0
 	cities[city_id] = city
+	var population: int = _city_population(city_id)
+	if not bool(city.get("ruined", false)) and year >= 1450 and population >= 16 and not bool(city.get("seaport_attempted", false)):
+		city["seaport_attempted"] = true
+		cities[city_id] = city
+		_create_city_seaport(city_id)
+	city = cities[city_id]
+	if not bool(city.get("ruined", false)) and year >= 1945 and population >= 24 and not bool(city.get("airport_attempted", false)):
+		city["airport_attempted"] = true
+		cities[city_id] = city
+		_create_city_airport(city_id)
+
+func _find_city_waterfront_site(city_id: int) -> Vector3:
+	if city_id < 0 or city_id >= cities.size():
+		return Vector3(0.0, -999.0, 0.0)
+	var city_position: Vector3 = cities[city_id]["pos"]
+	for ring_index in range(22):
+		var radius: float = 32.0 + float(ring_index) * 8.0
+		for spoke in range(16):
+			var angle: float = float(spoke) * TAU / 16.0 + float(city_id) * 0.29
+			var world_x: float = city_position.x + cos(angle) * radius
+			var world_z: float = city_position.z + sin(angle) * radius
+			if absf(world_x) >= TERRAIN_SIZE * 0.46 or absf(world_z) >= TERRAIN_SIZE * 0.46:
+				continue
+			if _height_at(world_x, world_z) <= WATER_LEVEL + 0.20:
+				continue
+			var water_x: float = world_x + cos(angle) * 8.0
+			var water_z: float = world_z + sin(angle) * 8.0
+			if _height_at(water_x, water_z) > WATER_LEVEL - 0.10:
+				continue
+			var clear: bool = true
+			for house in cities[city_id]["houses"]:
+				if is_instance_valid(house) and Vector2(house.global_position.x - world_x, house.global_position.z - world_z).length() < 5.5:
+					clear = false
+					break
+			if clear:
+				return _surface_position(world_x, world_z) - city_position
+	return Vector3(0.0, -999.0, 0.0)
+
+
+func _create_city_airport(city_id: int) -> void:
+	if city_id < 0 or city_id >= cities.size() or is_instance_valid(cities[city_id].get("airport")):
+		return
+	var city: Dictionary = cities[city_id]
+	var airport := Node3D.new()
+	airport.name = "AirportAuthority"
+	airport.position = _find_city_utility_site(city_id, 46.0, 88.0)
+	cities[city_id]["node"].add_child(airport)
+	var concrete := _material(Color(0.35, 0.37, 0.37))
+	var tarmac := BoxMesh.new()
+	tarmac.size = Vector3(8.5, 0.14, 46.0)
+	_add_mesh(airport, tarmac, concrete, Vector3(0.0, 0.08, 0.0))
+	var runway_mark := BoxMesh.new()
+	runway_mark.size = Vector3(0.18, 0.025, 37.0)
+	_add_mesh(airport, runway_mark, _material(Color(0.88, 0.88, 0.78)), Vector3(0.0, 0.17, 0.0))
+	var terminal := BoxMesh.new()
+	terminal.size = Vector3(8.2, 3.0, 5.0)
+	_add_mesh(airport, terminal, _material(Color(0.49, 0.54, 0.55)), Vector3(0.0, 1.60, -7.5))
+	var roof := BoxMesh.new()
+	roof.size = Vector3(8.8, 0.25, 5.5)
+	_add_mesh(airport, roof, _material(Color(0.23, 0.29, 0.32)), Vector3(0.0, 3.25, -7.5))
+	var tower := BoxMesh.new()
+	tower.size = Vector3(1.5, 5.0, 1.5)
+	_add_mesh(airport, tower, _material(Color(0.52, 0.58, 0.60)), Vector3(5.5, 2.7, -11.0))
+	var glass := BoxMesh.new()
+	glass.size = Vector3(1.7, 0.35, 1.7)
+	_add_mesh(airport, glass, _material(Color(0.16, 0.47, 0.61)), Vector3(5.5, 5.2, -11.0))
+	city = cities[city_id]
+	city["airport"] = airport
+	city["treasury"] = maxf(0.0, float(city.get("treasury", 0.0)) - 30.0)
+	city["iron"] = maxf(0.0, float(city.get("iron", 0.0)) - 3.0)
+	cities[city_id] = city
+	_log("AIRPORT BUILT: %s can now operate passenger and cargo aircraft." % city["name"])
+
+
+func _create_city_seaport(city_id: int) -> void:
+	if city_id < 0 or city_id >= cities.size() or is_instance_valid(cities[city_id].get("seaport")):
+		return
+	var city: Dictionary = cities[city_id]
+	var site: Vector3 = _find_city_waterfront_site(city_id)
+	if site.y < -100.0:
+		city["seaport_attempted"] = true
+		cities[city_id] = city
+		return
+	var port := Node3D.new()
+	port.name = "SeaportAuthority"
+	port.position = site
+	var facing: Vector2 = Vector2(site.x, site.z).normalized()
+	port.rotation.y = atan2(facing.x, facing.y)
+	cities[city_id]["node"].add_child(port)
+	var pier := BoxMesh.new()
+	pier.size = Vector3(3.0, 0.35, 12.0)
+	_add_mesh(port, pier, _material(Color(0.38, 0.34, 0.28)), Vector3(0.0, 0.25, 5.0))
+	var quay := BoxMesh.new()
+	quay.size = Vector3(10.0, 0.35, 6.0)
+	_add_mesh(port, quay, _material(Color(0.47, 0.48, 0.45)), Vector3(0.0, 0.22, -1.5))
+	for container_index in range(3):
+		var container := BoxMesh.new()
+		container.size = Vector3(1.8, 1.3, 2.8)
+		var container_color: Color = [Color(0.68, 0.26, 0.15), Color(0.15, 0.37, 0.58), Color(0.71, 0.60, 0.22)][container_index]
+		_add_mesh(port, container, _material(container_color), Vector3(float(container_index - 1) * 2.2, 1.05, -2.0))
+	var crane := BoxMesh.new()
+	crane.size = Vector3(0.24, 5.0, 0.24)
+	_add_mesh(port, crane, _material(Color(0.80, 0.66, 0.23)), Vector3(4.1, 2.6, -2.0))
+	var boom := BoxMesh.new()
+	boom.size = Vector3(4.8, 0.22, 0.22)
+	_add_mesh(port, boom, _material(Color(0.80, 0.66, 0.23)), Vector3(2.1, 4.9, -2.0))
+	city = cities[city_id]
+	city["seaport"] = port
+	city["treasury"] = maxf(0.0, float(city.get("treasury", 0.0)) - 18.0)
+	cities[city_id] = city
+	_log("SEAPORT BUILT: %s can now operate coastal passenger and cargo shipping." % city["name"])
+
+
+func _create_oil_rig_visual(position: Vector3) -> Node3D:
+	var rig := Node3D.new()
+	rig.name = "OffshoreOilRig"
+	rig.position = Vector3(position.x, WATER_LEVEL, position.z)
+	add_child(rig)
+	var platform := BoxMesh.new()
+	platform.size = Vector3(7.2, 0.55, 7.2)
+	_add_mesh(rig, platform, _material(Color(0.35, 0.39, 0.38)), Vector3(0.0, 0.5, 0.0))
+	for leg_x in [-2.7, 2.7]:
+		for leg_z in [-2.7, 2.7]:
+			var leg := BoxMesh.new()
+			leg.size = Vector3(0.34, 3.4, 0.34)
+			_add_mesh(rig, leg, _material(Color(0.24, 0.29, 0.29)), Vector3(leg_x, -1.2, leg_z))
+	var derrick_base := BoxMesh.new()
+	derrick_base.size = Vector3(2.8, 0.4, 2.8)
+	_add_mesh(rig, derrick_base, _material(Color(0.48, 0.50, 0.46)), Vector3(0.0, 1.0, 0.0))
+	var tower := BoxMesh.new()
+	tower.size = Vector3(0.28, 4.3, 0.28)
+	_add_mesh(rig, tower, _material(Color(0.83, 0.59, 0.18)), Vector3(0.0, 3.25, 0.0))
+	for brace_index in range(3):
+		var brace := BoxMesh.new()
+		brace.size = Vector3(2.5 - float(brace_index) * 0.55, 0.14, 0.14)
+		_add_mesh(rig, brace, _material(Color(0.81, 0.60, 0.22)), Vector3(0.0, 2.0 + float(brace_index) * 1.1, 0.0))
+	var cab := BoxMesh.new()
+	cab.size = Vector3(1.7, 1.25, 1.4)
+	_add_mesh(rig, cab, _material(Color(0.18, 0.31, 0.39)), Vector3(-1.7, 1.25, -0.3))
+	var sign := Label3D.new()
+	sign.text = "OIL"
+	sign.font_size = 30
+	sign.pixel_size = 0.018
+	sign.outline_size = 5
+	sign.position = Vector3(0.0, 5.9, 0.0)
+	sign.modulate = Color(1.0, 0.78, 0.28)
+	rig.add_child(sign)
+	return rig
+
+
+func _seed_oil_rigs() -> void:
+	if not oil_rigs.is_empty():
+		return
+	var created: int = 0
+	for rig_index in range(MAX_OIL_RIGS):
+		var site_found: bool = false
+		var chosen_position: Vector3 = Vector3.ZERO
+		for attempt in range(90):
+			var land_x: float = randf_range(-TERRAIN_SIZE * 0.43, TERRAIN_SIZE * 0.43)
+			var land_z: float = randf_range(-TERRAIN_SIZE * 0.43, TERRAIN_SIZE * 0.43)
+			if _height_at(land_x, land_z) <= WATER_LEVEL + 0.35:
+				continue
+			var angle: float = randf() * TAU
+			for step_index in range(1, 36):
+				var distance: float = float(step_index) * 6.0
+				var candidate_x: float = land_x + cos(angle) * distance
+				var candidate_z: float = land_z + sin(angle) * distance
+				if absf(candidate_x) >= TERRAIN_SIZE * 0.46 or absf(candidate_z) >= TERRAIN_SIZE * 0.46:
+					break
+				if _height_at(candidate_x, candidate_z) > WATER_LEVEL - 0.1:
+					continue
+				candidate_x += cos(angle) * 6.0
+				candidate_z += sin(angle) * 6.0
+				var clear: bool = true
+				for existing_rig in oil_rigs:
+					var existing_position: Vector3 = existing_rig["pos"]
+					if Vector2(existing_position.x - candidate_x, existing_position.z - candidate_z).length() < 32.0:
+						clear = false
+						break
+				if clear:
+					chosen_position = Vector3(candidate_x, WATER_LEVEL, candidate_z)
+					site_found = true
+					break
+			if site_found:
+				break
+		if not site_found:
+			continue
+		var owner_city: int = -1
+		var nearest_distance: float = INF
+		for city_id in range(cities.size()):
+			var city_position: Vector3 = cities[city_id]["pos"]
+			var distance_to_city: float = Vector2(city_position.x - chosen_position.x, city_position.z - chosen_position.z).length()
+			if distance_to_city < nearest_distance:
+				nearest_distance = distance_to_city
+				owner_city = city_id
+		var node: Node3D = _create_oil_rig_visual(chosen_position)
+		oil_rigs.append({"node": node, "pos": chosen_position, "owner_city": owner_city, "reserves": randf_range(800.0, 1800.0), "production": randf_range(0.28, 0.72), "health": 100.0})
+		created += 1
+	_log("OIL DISCOVERY: %d offshore oil rigs were placed in navigable waters. Control brings revenue; wars can change ownership." % created)
+
+
+func _update_oil_rigs() -> void:
+	for rig_index in range(oil_rigs.size()):
+		var rig: Dictionary = oil_rigs[rig_index]
+		if float(rig.get("reserves", 0.0)) <= 0.0 or float(rig.get("health", 100.0)) <= 0.0:
+			continue
+		var owner_city: int = int(rig.get("owner_city", -1))
+		var rig_position: Vector3 = rig["pos"]
+		var hostile_source: int = -1
+		var hostile_distance_squared: float = 15.0 * 15.0
+		for army in armies:
+			if not bool(army.get("alive", true)) or bool(army.get("is_defender", false)):
+				continue
+			var source_id: int = int(army.get("source", -1))
+			if source_id < 0 or source_id >= cities.size() or owner_city < 0 or owner_city >= cities.size():
+				continue
+			if _same_faction(source_id, owner_city) or not _are_at_war(source_id, owner_city):
+				continue
+			var unit_position: Vector3 = army["pos"]
+			var dx: float = unit_position.x - rig_position.x
+			var dz: float = unit_position.z - rig_position.z
+			var distance_squared: float = dx * dx + dz * dz
+			if distance_squared < hostile_distance_squared:
+				hostile_distance_squared = distance_squared
+				hostile_source = source_id
+		if hostile_source >= 0:
+			rig["owner_city"] = hostile_source
+			rig["health"] = maxf(25.0, float(rig.get("health", 100.0)) - 18.0)
+			if owner_city >= 0 and owner_city < cities.size():
+				_adjust_city_relation(owner_city, hostile_source, -18.0)
+				_log("OIL RIG SEIZED: %s forces captured an offshore platform from %s. Production and its revenue have changed hands." % [cities[hostile_source]["name"], cities[owner_city]["name"]])
+		owner_city = int(rig.get("owner_city", -1))
+		if owner_city >= 0 and owner_city < cities.size() and float(rig.get("reserves", 0.0)) > 0.0 and float(rig.get("health", 100.0)) > 0.0:
+			var income: float = float(rig.get("production", 0.5))
+			if _city_population(owner_city) > 0 and not bool(cities[owner_city].get("ruined", false)):
+				cities[owner_city]["treasury"] = minf(5000.0, float(cities[owner_city].get("treasury", 0.0)) + income)
+			rig["reserves"] = maxf(0.0, float(rig.get("reserves", 0.0)) - income * 0.7)
+		oil_rigs[rig_index] = rig
+
+
+func _spawn_transport_wave() -> void:
+	if transports.size() >= MAX_TRANSPORTS or cities.size() < 2:
+		return
+	var kind: String = "air" if randf() < 0.62 else "sea"
+	var eligible: Array[int] = []
+	for city_id in range(cities.size()):
+		if kind == "air" and _world_year() >= 1945 and is_instance_valid(cities[city_id].get("airport")):
+			eligible.append(city_id)
+		elif kind == "sea" and _world_year() >= 1450 and is_instance_valid(cities[city_id].get("seaport")):
+			eligible.append(city_id)
+	if eligible.size() < 2:
+		# Try the other transport mode before giving up this spawn cycle.
+		kind = "sea" if kind == "air" else "air"
+		eligible.clear()
+		for city_id in range(cities.size()):
+			if kind == "air" and _world_year() >= 1945 and is_instance_valid(cities[city_id].get("airport")):
+				eligible.append(city_id)
+			elif kind == "sea" and _world_year() >= 1450 and is_instance_valid(cities[city_id].get("seaport")):
+				eligible.append(city_id)
+	if eligible.size() < 2:
+		return
+	var source_id: int = eligible[randi_range(0, eligible.size() - 1)]
+	var target_id: int = -1
+	var target_distance: float = INF
+	for candidate_id in eligible:
+		if candidate_id == source_id or _are_at_war(source_id, candidate_id):
+			continue
+		var a: Vector3 = cities[source_id]["pos"]
+		var b: Vector3 = cities[candidate_id]["pos"]
+		var distance: float = Vector2(a.x - b.x, a.z - b.z).length()
+		if distance < target_distance:
+			target_distance = distance
+			target_id = candidate_id
+	if target_id >= 0:
+		_spawn_transport(source_id, target_id, kind)
+
+
+func _create_transport_node(kind: String) -> Node3D:
+	var vehicle := Node3D.new()
+	vehicle.name = "Airliner" if kind == "air" else "CargoShip"
+	if kind == "air":
+		_add_mesh(vehicle, _cached_box_mesh(Vector3(0.78, 0.48, 4.4)), _material(Color(0.80, 0.83, 0.82)), Vector3.ZERO)
+		_add_mesh(vehicle, _cached_box_mesh(Vector3(5.0, 0.14, 0.82)), _material(Color(0.77, 0.79, 0.76)), Vector3(0.0, -0.02, 0.1))
+		_add_mesh(vehicle, _cached_box_mesh(Vector3(1.8, 0.12, 0.48)), _material(Color(0.70, 0.73, 0.71)), Vector3(0.0, 0.08, -1.72))
+		_add_mesh(vehicle, _cached_box_mesh(Vector3(0.16, 0.68, 0.5)), _material(Color(0.21, 0.37, 0.51)), Vector3(0.0, 0.38, -1.80))
+		_add_mesh(vehicle, _cached_box_mesh(Vector3(0.08, 0.10, 0.25)), _material(Color(0.19, 0.50, 0.74)), Vector3(0.0, -0.03, -0.4))
+	else:
+		_add_mesh(vehicle, _cached_box_mesh(Vector3(2.9, 0.72, 6.2)), _material(Color(0.18, 0.27, 0.34)), Vector3(0.0, 0.1, 0.0))
+		_add_mesh(vehicle, _cached_box_mesh(Vector3(2.2, 0.85, 3.6)), _material(Color(0.74, 0.76, 0.71)), Vector3(0.0, 0.78, -0.4))
+		for container_index in range(3):
+			var container := BoxMesh.new()
+			container.size = Vector3(0.68, 0.8, 1.45)
+			var container_color: Color = [Color(0.74, 0.25, 0.16), Color(0.17, 0.40, 0.62), Color(0.81, 0.66, 0.22)][container_index]
+			_add_mesh(vehicle, container, _material(container_color), Vector3((float(container_index) - 1.0) * 0.75, 1.55, 1.05))
+	return vehicle
+
+
+func _spawn_transport(source_id: int, target_id: int, kind: String) -> void:
+	if source_id < 0 or target_id < 0 or source_id >= cities.size() or target_id >= cities.size() or transports.size() >= MAX_TRANSPORTS:
+		return
+	var source_facility: Node3D = cities[source_id].get("airport" if kind == "air" else "seaport") as Node3D
+	var target_facility: Node3D = cities[target_id].get("airport" if kind == "air" else "seaport") as Node3D
+	if not is_instance_valid(source_facility) or not is_instance_valid(target_facility):
+		return
+	var start: Vector3 = source_facility.global_position
+	var finish: Vector3 = target_facility.global_position
+	if kind == "air":
+		start.y += 2.0
+		finish.y += 2.0
+	else:
+		start += source_facility.global_transform.basis.z.normalized() * 9.0 + Vector3(0.0, 0.7, 0.0)
+		finish += target_facility.global_transform.basis.z.normalized() * 9.0 + Vector3(0.0, 0.7, 0.0)
+	var vehicle: Node3D = _create_transport_node(kind)
+	vehicle.position = start
+	add_child(vehicle)
+	var incident: String = "none"
+	if kind == "air":
+		var roll: float = randf()
+		if roll < 0.018:
+			incident = "crash"
+		elif roll < 0.036:
+			incident = "hijack"
+	transports.append({"node": vehicle, "kind": kind, "from": source_id, "to": target_id, "start": start, "finish": finish, "pos": start, "progress": 0.0, "duration": clampf(Vector2(start.x - finish.x, start.z - finish.z).length() / (24.0 if kind == "air" else 7.0), 12.0, 45.0), "incident": incident})
+
+
+func _update_transports(delta: float) -> void:
+	for transport_index in range(transports.size() - 1, -1, -1):
+		var transport: Dictionary = transports[transport_index]
+		var node: Node3D = transport.get("node") as Node3D
+		if not is_instance_valid(node):
+			transports.remove_at(transport_index)
+			continue
+		var progress: float = clampf(float(transport.get("progress", 0.0)) + delta / float(transport.get("duration", 20.0)), 0.0, 1.0)
+		var start: Vector3 = transport["start"]
+		var finish: Vector3 = transport["finish"]
+		var kind: String = str(transport.get("kind", "air"))
+		var position: Vector3 = start.lerp(finish, progress)
+		if kind == "air":
+			position.y += sin(progress * PI) * 18.0
+		else:
+			position.y = WATER_LEVEL + 0.65
+		var direction: Vector3 = finish - start
+		if direction.length_squared() > 0.1:
+			node.look_at(position + direction.normalized(), Vector3.UP)
+		node.position = position
+		node.visible = camera_distance < 570.0 or Vector2(position.x - camera_target.x, position.z - camera_target.z).length() < camera_distance * 0.85
+		transport["progress"] = progress
+		transport["pos"] = position
+		if progress >= 1.0:
+			var source_id: int = int(transport.get("from", -1))
+			var target_id: int = int(transport.get("to", -1))
+			var incident: String = str(transport.get("incident", "none"))
+			if kind == "air" and target_id >= 0 and target_id < cities.size() and incident == "crash":
+				_log("AIR DISASTER: A civilian aircraft crashed near %s. Emergency services are responding." % cities[target_id]["name"])
+				_record_city_event(target_id, "PLANE CRASH", Color(1.0, 0.28, 0.12))
+				_power_damage(position, 5.2, 4, 0.15, 1, false)
+			elif kind == "air" and target_id >= 0 and target_id < cities.size() and incident == "hijack":
+				cities[target_id]["stability"] = maxf(0.0, float(cities[target_id].get("stability", 72.0)) - 8.0)
+				cities[target_id]["security"] = maxf(0.0, float(cities[target_id].get("security", 44.0)) - 12.0)
+				cities[target_id]["treasury"] = maxf(0.0, float(cities[target_id].get("treasury", 0.0)) - 5.0)
+				_log("AIR HIJACKING: An aircraft bound for %s was seized. Security is tightened and negotiators are involved." % cities[target_id]["name"])
+				_record_city_event(target_id, "AIR HIJACK", Color(1.0, 0.18, 0.12))
+			elif kind == "sea" and source_id >= 0 and target_id >= 0 and _are_at_war(source_id, target_id):
+				_log("BLOCKADE: A cargo ship travelling between %s and %s was intercepted by the wartime blockade." % [cities[source_id]["name"], cities[target_id]["name"]])
+				_adjust_city_relation(source_id, target_id, -2.5)
+			if kind == "air" and incident == "crash" and target_id >= 0 and target_id < cities.size():
+				pass
+			if is_instance_valid(node):
+				node.queue_free()
+			transports.remove_at(transport_index)
+		else:
+			transports[transport_index] = transport
+
+
+func _capture_city_hostages(city_id: int, captor_city_id: int, maximum: int = 2) -> int:
+	if city_id < 0 or captor_city_id < 0 or city_id >= cities.size() or captor_city_id >= cities.size() or maximum <= 0:
+		return 0
+	var city: Dictionary = cities[city_id]
+	if float(city.get("hostage_cooldown", 0.0)) > 0.0:
+		return 0
+	var already_held: int = int(city.get("hostage_count", 0))
+	var available: int = mini(maximum, maxi(0, 4 - already_held))
+	if available <= 0:
+		return 0
+	var taken: int = 0
+	var city_position: Vector3 = city["pos"]
+	for person_index in range(people.size()):
+		if taken >= available:
+			break
+		var person: Dictionary = people[person_index]
+		if int(person.get("city_id", -1)) != city_id or str(person.get("activity", "wandering")) in ["hostage", "indoors", "riding", "boarding"]:
+			continue
+		var person_position: Vector3 = person["pos"]
+		if Vector2(person_position.x - city_position.x, person_position.z - city_position.z).length() > 42.0:
+			continue
+		person["activity"] = "hostage"
+		person["hostage_home_city"] = city_id
+		person["hostage_captor"] = captor_city_id
+		person["hostage_timer"] = randf_range(18.0, 34.0)
+		person["hostage_offset"] = Vector3(randf_range(1.0, 2.6), 0.0, randf_range(1.0, 2.7))
+		person["pos"] = person_position
+		people[person_index] = person
+		taken += 1
+	if taken > 0:
+		city["hostage_count"] = already_held + taken
+		city["hostage_cooldown"] = 20.0
+		city["stability"] = maxf(0.0, float(city.get("stability", 72.0)) - float(taken) * 2.8)
+		cities[city_id] = city
+		_adjust_city_relation(city_id, captor_city_id, -float(taken) * 5.0)
+		_log("HOSTAGES: %s forces seized %d civilian(s) in %s to pressure its leadership." % [cities[captor_city_id]["name"], taken, city["name"]])
+	return taken
+
+
+func _update_hostages(delta: float) -> void:
+	for person_index in range(people.size()):
+		var person: Dictionary = people[person_index]
+		if str(person.get("activity", "")) != "hostage":
+			continue
+		var home_city: int = int(person.get("hostage_home_city", person.get("city_id", -1)))
+		var captor_city: int = int(person.get("hostage_captor", -1))
+		var timer: float = float(person.get("hostage_timer", 0.0)) - delta
+		var escort_index: int = -1
+		var nearest_distance_squared: float = 65.0 * 65.0
+		for army_index in range(armies.size()):
+			var army: Dictionary = armies[army_index]
+			if not bool(army.get("alive", true)) or bool(army.get("is_defender", false)):
+				continue
+			if int(army.get("source", -1)) != captor_city or int(army.get("target", -1)) != home_city:
+				continue
+			if str(army.get("unit_type", "infantry")) not in ["infantry", "tank", "apc"]:
+				continue
+			var army_pos: Vector3 = army["pos"]
+			var person_pos: Vector3 = person["pos"]
+			var dx: float = army_pos.x - person_pos.x
+			var dz: float = army_pos.z - person_pos.z
+			var distance_squared: float = dx * dx + dz * dz
+			if distance_squared < nearest_distance_squared:
+				nearest_distance_squared = distance_squared
+				escort_index = army_index
+		var release: bool = timer <= 0.0 or home_city < 0 or home_city >= cities.size() or captor_city < 0 or captor_city >= cities.size() or not _are_at_war(home_city, captor_city)
+		if escort_index < 0 and timer <= 8.0:
+			release = true
+		if release:
+			if home_city >= 0 and home_city < cities.size():
+				cities[home_city]["hostage_count"] = maxi(0, int(cities[home_city].get("hostage_count", 0)) - 1)
+			var released_position: Vector3 = person["pos"]
+			if home_city >= 0 and home_city < cities.size():
+				released_position = _surface_position(cities[home_city]["pos"].x + randf_range(-7.0, 7.0), cities[home_city]["pos"].z + randf_range(-7.0, 7.0))
+			person["activity"] = "wandering"
+			person["hostage_timer"] = 0.0
+			person["hostage_captor"] = -1
+			person["pos"] = released_position
+			person["target"] = released_position
+			person["walk_timer"] = 0.0
+			if is_instance_valid(person.get("node") as Node3D):
+				(person["node"] as Node3D).position = released_position
+				(person["node"] as Node3D).visible = true
+		else:
+			person["hostage_timer"] = timer
+			var army: Dictionary = armies[escort_index]
+			var escort_position: Vector3 = army["pos"]
+			var offset: Vector3 = person.get("hostage_offset", Vector3(1.5, 0.0, 1.8))
+			var hostage_position: Vector3 = escort_position + offset
+			hostage_position.y = _height_at(hostage_position.x, hostage_position.z)
+			person["pos"] = hostage_position
+			if is_instance_valid(person.get("node") as Node3D):
+				(person["node"] as Node3D).position = hostage_position
+				(person["node"] as Node3D).visible = true
+		people[person_index] = person
+	for city_id in range(cities.size()):
+		cities[city_id]["hostage_cooldown"] = maxf(0.0, float(cities[city_id].get("hostage_cooldown", 0.0)) - delta)
 
 func _world_year() -> int:
 	return STARTING_YEAR + int(game_clock / SECONDS_PER_YEAR)
