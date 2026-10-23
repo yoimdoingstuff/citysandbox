@@ -7876,7 +7876,19 @@ func _refresh_people_lod_proxy(show_proxy: bool) -> void:
 	var instance_index: int = 0
 	var proxy_range: float = clampf(camera_distance * 0.92, 85.0, TERRAIN_SIZE * 0.78)
 	var range_squared: float = proxy_range * proxy_range
-	for person in people:
+	# Distant individual models collapse to a MultiMesh crowd. Sampling a subset
+	# keeps that far-field proxy inexpensive without changing simulation population.
+	var crowd_stride: int = 1
+	if camera_distance > 450.0:
+		crowd_stride = 4
+	elif camera_distance > 250.0:
+		crowd_stride = 3
+	elif camera_distance > 160.0:
+		crowd_stride = 2
+	for person_index in range(people.size()):
+		if crowd_stride > 1 and person_index % crowd_stride != 0:
+			continue
+		var person: Dictionary = people[person_index]
 		if not bool(person.get("alive", true)):
 			continue
 		var activity: String = str(person.get("activity", ""))
@@ -8510,18 +8522,30 @@ func _update_world_detail_levels() -> void:
 		for house in city["houses"]:
 			if not is_instance_valid(house):
 				continue
+			# At overview zoom every neighbourhood mesh is hidden. Avoid doing
+			# projections and occlusion bookkeeping for thousands of invisible nodes.
+			if not show_neighbourhoods or ruined:
+				house.visible = false
+				continue
+			var house_position: Vector3 = house.global_position
+			var distance_squared: float = house_position.distance_squared_to(camera.global_position)
+			if distance_squared > 220.0 * 220.0:
+				house.visible = false
+				continue
 			var building_height: float = float(house.get_meta("building_height", 3.0))
-			var building_width: float = float(house.get_meta("building_width", 2.8))
-			var view_point: Vector3 = house.global_position + Vector3(0.0, building_height * 0.5, 0.0)
-			var top_point: Vector3 = house.global_position + Vector3(0.0, building_height, 0.0)
-			var in_frustum: bool = _is_point_in_camera_view_fast(view_point, 54.0, view_inverse, viewport_rect, focal_pixels) or _is_point_in_camera_view_fast(top_point, 54.0, view_inverse, viewport_rect, focal_pixels)
-			var distance_squared: float = house.global_position.distance_squared_to(camera.global_position)
-			var base_visible: bool = show_neighbourhoods and not ruined and distance_squared <= 220.0 * 220.0 and in_frustum
-			if building_occlusion_refresh_cooldown > 0.0:
+			var view_point: Vector3 = house_position + Vector3(0.0, building_height * 0.5, 0.0)
+			var in_frustum: bool = _is_point_in_camera_view_fast(view_point, 54.0, view_inverse, viewport_rect, focal_pixels)
+			# Tall towers may still be visible when their middle lies above/below
+			# the viewport; small houses do not need a second projection.
+			if not in_frustum and building_height >= 10.0:
+				var top_point: Vector3 = house_position + Vector3(0.0, building_height, 0.0)
+				in_frustum = _is_point_in_camera_view_fast(top_point, 54.0, view_inverse, viewport_rect, focal_pixels)
+			var base_visible: bool = in_frustum
+			if building_occlusion_refresh_cooldown > 0.0 and camera_distance <= 95.0 and building_count <= 360:
 				house.visible = base_visible and not bool(house.get_meta("lod_occluded", false))
 			else:
 				house.visible = base_visible
-	if building_occlusion_refresh_cooldown <= 0.0:
+	if camera_distance <= 95.0 and building_count <= 360 and building_occlusion_refresh_cooldown <= 0.0:
 		var occlusion_started_usec: int = Time.get_ticks_usec()
 		_cull_buildings_behind_nearby_structures()
 		_trace_slow_operation("building-occlusion-culling", occlusion_started_usec)
