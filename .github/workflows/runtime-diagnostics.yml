@@ -306,6 +306,14 @@ jobs:
               $source -notmatch 'traffic_light_records_by_city\.get\(city_id') {
             throw "Airport road connection or city-local traffic-light optimization is missing."
           }
+          if ($source -notmatch 'construction_site_indices\.get\(requested_site_id' -or
+              $source -notmatch 'rubble_index_by_id\.get\(rubble_id') {
+            throw "Construction-site or rubble ID-index optimization is missing."
+          }
+          if ($source -notmatch 'airport_render_range_squared' -or
+              $source -notmatch '_spawn_transport\(first_airport_city, first_airport_city, "air"\)') {
+            throw "Aircraft visibility or first-airport flight fallback is missing."
+          }
           if (-not (Test-Path -LiteralPath $summaryPath)) { throw "The stress-test summary is missing." }
           $summary = Get-Content -LiteralPath $summaryPath -Raw
           if ($summary -notmatch "Stress suite completed: True") { throw "The game did not report a completed stress suite. Check the uploaded logs." }
