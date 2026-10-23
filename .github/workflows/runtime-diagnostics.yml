@@ -210,6 +210,7 @@ jobs:
           name: Civiterra-runtime-stresstests-${{ github.run_id }}-${{ github.run_attempt }}
           path: |
             logs/runtime-stresstests*
+            logs/runtime-stresstests-screenshots/**
             logs/civiterra-latest.png
           if-no-files-found: warn
           retention-days: 14
@@ -300,7 +301,12 @@ jobs:
           $scenarioCount = @(Select-String -LiteralPath $stdoutPath -Pattern "STRESS_SCENARIO_COMPLETE\|" -ErrorAction SilentlyContinue).Count
           if ($scenarioCount -lt 15) { throw "Expected at least 15 completed scenarios, but found $scenarioCount." }
           if (-not (Test-Path -LiteralPath $csvPath)) { throw "The FPS telemetry CSV was not generated." }
+          $screenshotDirectory = "logs/runtime-stresstests-screenshots"
+          if (-not (Test-Path -LiteralPath $screenshotDirectory)) { throw "The rendered screenshot directory is missing." }
+          $screenshotCount = @(Get-ChildItem -LiteralPath $screenshotDirectory -Filter "*.png" -File -ErrorAction SilentlyContinue).Count
+          if ($screenshotCount -lt $scenarioCount) { throw "Expected at least $scenarioCount rendered screenshots, but found $screenshotCount." }
+          if (-not (Test-Path -LiteralPath "logs/civiterra-latest.png")) { throw "The rolling latest screenshot is missing." }
           $rows = @(Import-Csv -LiteralPath $csvPath)
           $sampleRows = @($rows | Where-Object { $_.record_type -eq "sample" })
           if ($sampleRows.Count -lt 30) { throw "Expected at least 30 one-second FPS samples, but found $($sampleRows.Count)." }
-          Write-Output "Stress suite passed: $scenarioCount scenarios and $($sampleRows.Count) FPS sampling windows."
+          Write-Output "Stress suite passed: $scenarioCount scenarios, $($sampleRows.Count) FPS sampling windows, and $screenshotCount rendered screenshots."
