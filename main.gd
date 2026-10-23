@@ -2600,7 +2600,17 @@ func _apply_building_era_appearance(city_id: int, year: int, only_house_index: i
 	var wealth: float = float(city.get("wealth", 12.0))
 	var pop_band: int = int(population / 15)
 	var wealth_band: int = 3 if wealth >= 50.0 else (2 if wealth >= 25.0 else (1 if wealth >= 18.0 else 0))
-	for house_index in range((city["houses"] as Array).size()):
+	var house_count: int = (city["houses"] as Array).size()
+	var rotating_scan: bool = only_house_index < 0 and not update_all
+	var scan_start: int = 0
+	var scan_limit: int = house_count
+	if rotating_scan and house_count > 0:
+		scan_start = posmod(int(city.get("appearance_scan_cursor", 0)), house_count)
+		scan_limit = mini(house_count, 24)
+	var scanned_count: int = 0
+	for scan_offset in range(scan_limit):
+		scanned_count = scan_offset + 1
+		var house_index: int = (scan_start + scan_offset) % maxi(1, house_count)
 		if only_house_index >= 0 and house_index != only_house_index:
 			continue
 		var house: Node3D = city["houses"][house_index]
@@ -2803,6 +2813,8 @@ func _apply_building_era_appearance(city_id: int, year: int, only_house_index: i
 		var door := BoxMesh.new()
 		door.size = Vector3(0.22, 0.42, 0.045)
 		_add_mesh(house, door, _material(Color(0.23, 0.16, 0.11)), Vector3(0.0, 0.22, depth * 0.5 + 0.03))
+		if int(house.get_meta("building_type", original_type)) != kind:
+			cities[city_id]["building_economy_counts_cache_valid"] = false
 		house.set_meta("building_type", kind)
 		house.set_meta("visual_era", era)
 		house.set_meta("visual_stage", stage)
@@ -2815,6 +2827,8 @@ func _apply_building_era_appearance(city_id: int, year: int, only_house_index: i
 		if only_house_index < 0 and not update_all:
 			# One eligible old building is either refurbished or refreshed per call.
 			break
+	if rotating_scan and house_count > 0:
+		cities[city_id]["appearance_scan_cursor"] = (scan_start + scanned_count) % house_count
 	_trace_slow_operation("building-facade-render", appearance_started_usec)
 
 
@@ -3422,6 +3436,7 @@ func _sync_city_buildings(city_id: int) -> bool:
 		house.set_meta("large_plot", large_plot)
 		house.set_meta("plot_footprint", 8.8 if large_plot else 3.6)
 		houses.append(house)
+		city["building_economy_counts_cache_valid"] = false
 		var construction_setup_started_usec: int = Time.get_ticks_usec()
 		_setup_construction_site(house, city_id, building_type, chosen_plot_index)
 		_trace_slow_operation("new-building-construction-setup", construction_setup_started_usec)
@@ -4731,6 +4746,9 @@ func _update_simulation_timers(delta: float) -> void:
 
 
 func _update_city_economies() -> void:
+	# Game time can run at 16x. Cache static building counts and resolve the
+	# simulation year once instead of rescanning every building on every tick.
+	var current_year: int = _world_year()
 	for city_id in range(cities.size()):
 		var city: Dictionary = cities[city_id]
 		var population: int = _city_population(city_id)
@@ -4738,35 +4756,43 @@ func _update_city_economies() -> void:
 			city["wealth"] = maxf(0.0, float(city.get("wealth", 0.0)) - 0.04)
 			cities[city_id] = city
 			continue
-		var farms: int = 0
-		var workshops: int = 0
-		var commercial: int = 0
-		var apartments: int = 0
-		var mines: int = 0
-		for house in city["houses"]:
-			if not is_instance_valid(house):
-				continue
-			match int(house.get_meta("building_type", 0)):
-				1:
-					apartments += 1
-				2:
-					workshops += 1
-				3:
-					commercial += 1
-				4:
-					farms += 1
-				7:
-					mines += 1
 
-		# Farms sustain the population. Workshops turn timber into value;
-		# commerce, taxes and rent feed the treasury that actually pays builders.
+		var houses: Array = city["houses"]
+		var cache_valid: bool = bool(city.get("building_economy_counts_cache_valid", false)) and int(city.get("building_economy_counts_cache_size", -1)) == houses.size()
+		var counts: Dictionary = city.get("building_economy_counts_cache", {})
+		if not cache_valid:
+			var fresh_counts: Dictionary = {"farms": 0, "workshops": 0, "commercial": 0, "apartments": 0, "mines": 0}
+			for house in houses:
+				if not is_instance_valid(house):
+					continue
+				match int(house.get_meta("building_type", 0)):
+					1:
+						fresh_counts["apartments"] += 1
+					2:
+						fresh_counts["workshops"] += 1
+					3:
+						fresh_counts["commercial"] += 1
+					4:
+						fresh_counts["farms"] += 1
+					7:
+						fresh_counts["mines"] += 1
+			counts = fresh_counts
+			city["building_economy_counts_cache"] = counts
+			city["building_economy_counts_cache_size"] = houses.size()
+			city["building_economy_counts_cache_valid"] = true
+		var farms: int = int(counts.get("farms", 0))
+		var workshops: int = int(counts.get("workshops", 0))
+		var commercial: int = int(counts.get("commercial", 0))
+		var apartments: int = int(counts.get("apartments", 0))
+		var mines: int = int(counts.get("mines", 0))
+
 		city["food"] = minf(60.0, float(city["food"]) + float(farms) * 0.28)
 		if workshops > 0 and float(city["wood"]) > 0.0:
 			city["wood"] = maxf(0.0, float(city["wood"]) - minf(float(city["wood"]), float(workshops) * 0.035))
 			city["wealth"] = minf(100.0, float(city["wealth"]) + float(workshops) * 0.16)
 		city["wealth"] = minf(100.0, float(city["wealth"]) + float(commercial) * 0.14 + float(apartments) * 0.025)
-		city["treasury"] = clampf(float(city.get("treasury", 85.0)) + float(population) * 0.035 + float(workshops) * 0.22 + float(commercial) * 0.28 + float(apartments) * 0.06 + float(mines) * 0.08 - float(city["houses"].size()) * 0.012, 0.0, 5000.0)
-		if mines > 0 and _world_year() >= 1780 and float(city["treasury"]) >= float(mines) * 0.04:
+		city["treasury"] = clampf(float(city.get("treasury", 85.0)) + float(population) * 0.035 + float(workshops) * 0.22 + float(commercial) * 0.28 + float(apartments) * 0.06 + float(mines) * 0.08 - float(houses.size()) * 0.012, 0.0, 5000.0)
+		if mines > 0 and current_year >= 1780 and float(city["treasury"]) >= float(mines) * 0.04:
 			city["iron"] = minf(100.0, float(city.get("iron", 0.0)) + float(mines) * 0.20)
 			city["coal"] = minf(100.0, float(city.get("coal", 0.0)) + float(mines) * 0.14)
 			city["treasury"] = maxf(0.0, float(city["treasury"]) - float(mines) * 0.04)
@@ -4776,28 +4802,31 @@ func _update_city_economies() -> void:
 			city["stability"] = minf(100.0, float(city["stability"]) + 0.035 * float(farms))
 
 		var plant: Node3D = city.get("power_plant") as Node3D
-		if _world_year() >= 1880 and is_instance_valid(plant) and float(city.get("coal", 0.0)) >= 0.10 and float(city["treasury"]) >= 0.05:
+		if current_year >= 1880 and is_instance_valid(plant) and float(city.get("coal", 0.0)) >= 0.10 and float(city["treasury"]) >= 0.05:
 			city["coal"] = maxf(0.0, float(city["coal"]) - 0.10)
 			city["treasury"] = maxf(0.0, float(city["treasury"]) - 0.05)
 			city["electricity"] = minf(100.0, float(city.get("electricity", 0.0)) + 0.8 + float(workshops) * 0.08 + float(commercial) * 0.05)
-		elif _world_year() < 1880:
+		elif current_year < 1880:
 			city["electricity"] = 0.0
 		else:
 			city["electricity"] = maxf(0.0, float(city.get("electricity", 0.0)) - 0.18)
 
 		var hub: Node3D = city.get("internet_hub") as Node3D
-		if _world_year() >= 2000 and is_instance_valid(hub) and float(city.get("electricity", 0.0)) >= 12.0 and float(city.get("copper", 0.0)) >= 0.02 and float(city["treasury"]) >= 0.03:
+		if current_year >= 2000 and is_instance_valid(hub) and float(city.get("electricity", 0.0)) >= 12.0 and float(city.get("copper", 0.0)) >= 0.02 and float(city["treasury"]) >= 0.03:
 			city["copper"] = maxf(0.0, float(city["copper"]) - 0.02)
 			city["treasury"] = maxf(0.0, float(city["treasury"]) - 0.03)
 			city["internet"] = minf(100.0, float(city.get("internet", 0.0)) + 0.9 + float(commercial) * 0.12)
-		elif _world_year() < 2000:
+		elif current_year < 2000:
 			city["internet"] = 0.0
 		else:
 			city["internet"] = maxf(0.0, float(city.get("internet", 0.0)) - 0.12)
 		city["wealth"] = minf(100.0, float(city["wealth"]) + float(city.get("electricity", 0.0)) * 0.0007 + float(city.get("internet", 0.0)) * 0.001)
 		cities[city_id] = city
-		_apply_building_era_appearance(city_id, _world_year())
-		_ensure_city_infrastructure(city_id, _world_year())
+
+		# Facade checks are bounded and rotated, so era upgrades keep progressing
+		# without inspecting every building in every city on every economy tick.
+		_apply_building_era_appearance(city_id, current_year)
+		_ensure_city_infrastructure(city_id, current_year)
 
 
 func _city_relation_key(a: int, b: int) -> String:
@@ -6777,6 +6806,7 @@ func _collapse_specific_building(city_id: int, house: Node3D, allow_chain: bool 
 	_animate_building_fall(house, tall_building, city["color"], fall_direction, impact_strength)
 	houses.remove_at(house_index)
 	city["houses"] = houses
+	city["building_economy_counts_cache_valid"] = false
 	city["destroyed_building_debt"] = int(city.get("destroyed_building_debt", 0)) + 1
 	cities[city_id] = city
 	last_detail_signature = ""
