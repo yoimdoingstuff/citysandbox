@@ -9195,7 +9195,7 @@ func _update_world_detail_levels() -> void:
 			(airport_node as Node3D).visible = not ruined_transport_city and camera_distance <= 900.0 and transport_distance_squared <= airport_render_range_squared
 		var airport_road_node: Variant = city.get("airport_access_road", null)
 		if is_instance_valid(airport_road_node) and airport_road_node is Node3D:
-			(airport_road_node as Node3D).visible = not ruined_transport_city and camera_distance <= 340.0 and transport_distance_squared <= airport_road_range_squared
+			(airport_road_node as Node3D).visible = not ruined_transport_city and camera_distance <= 900.0 and transport_distance_squared <= airport_road_range_squared
 	var focus_cell_x: int = floori(camera_target.x / 10.0)
 	var focus_cell_z: int = floori(camera_target.z / 10.0)
 	var building_count: int = 0
