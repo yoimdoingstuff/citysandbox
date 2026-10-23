@@ -4180,18 +4180,30 @@ func _update_traffic_lights(delta: float) -> void:
 
 
 func _update_traffic_light_states() -> void:
+	# City rebuilds can free lamp meshes before the registry is rebuilt. Check
+	# each object before casting and prune records with no surviving lamps.
+	var surviving_records: Array[Dictionary] = []
 	for record in traffic_light_records:
 		var local_phase: int = (traffic_light_phase + int(record.get("phase_offset", 0))) % 3
-		var red: MeshInstance3D = record.get("red") as MeshInstance3D
-		var amber: MeshInstance3D = record.get("amber") as MeshInstance3D
-		var green: MeshInstance3D = record.get("green") as MeshInstance3D
-		if is_instance_valid(red):
+		var any_live_lamp: bool = false
+		var red_value: Variant = record.get("red", null)
+		if is_instance_valid(red_value) and red_value is MeshInstance3D:
+			var red: MeshInstance3D = red_value as MeshInstance3D
 			red.visible = local_phase == 0
-		if is_instance_valid(amber):
+			any_live_lamp = true
+		var amber_value: Variant = record.get("amber", null)
+		if is_instance_valid(amber_value) and amber_value is MeshInstance3D:
+			var amber: MeshInstance3D = amber_value as MeshInstance3D
 			amber.visible = local_phase == 2
-		if is_instance_valid(green):
+			any_live_lamp = true
+		var green_value: Variant = record.get("green", null)
+		if is_instance_valid(green_value) and green_value is MeshInstance3D:
+			var green: MeshInstance3D = green_value as MeshInstance3D
 			green.visible = local_phase == 1
-
+			any_live_lamp = true
+		if any_live_lamp:
+			surviving_records.append(record)
+	traffic_light_records = surviving_records
 
 func _car_should_stop_for_signal(city_id: int, waypoint: Vector3) -> bool:
 	if city_id < 0 or city_id >= cities.size() or _world_year() < 1900:
@@ -4520,7 +4532,7 @@ func _update_people(delta: float) -> void:
 				node.visible = false
 			if activity_timer <= 0.0:
 				var indoor_house: Variant = person.get("indoor_house", null)
-				if indoor_house is Node3D and is_instance_valid(indoor_house):
+				if is_instance_valid(indoor_house) and indoor_house is Node3D:
 					position = indoor_house.global_position + Vector3(0.0, 0.0, 1.65)
 				position = _surface_position(position.x, position.z)
 				person["pos"] = position
@@ -4539,7 +4551,7 @@ func _update_people(delta: float) -> void:
 
 		if activity == "riding" or activity == "boarding":
 			var vehicle: Variant = person.get("vehicle_node", null)
-			if not (vehicle is Node3D) or not is_instance_valid(vehicle):
+			if not is_instance_valid(vehicle) or not (vehicle is Node3D):
 				if activity == "riding":
 					_adjust_car_occupancy(vehicle, -1)
 				person["activity"] = "wandering"
@@ -4664,7 +4676,7 @@ func _update_people(delta: float) -> void:
 		var distance_to_target_squared: float = target_dx * target_dx + target_dz * target_dz
 		if activity == "entering":
 			var target_house: Variant = person.get("indoor_house", null)
-			if not (target_house is Node3D) or not is_instance_valid(target_house):
+			if not is_instance_valid(target_house) or not (target_house is Node3D):
 				person["activity"] = "wandering"
 				person["indoor_house"] = null
 				person["walk_timer"] = 0.0
@@ -7718,8 +7730,27 @@ func _capture_city(city_id: int, source_id: int) -> void:
 	cities[city_id]["roof"].material_override = _material(conquered_color.lightened(0.12))
 	cities[city_id]["label"].modulate = Color(1.0, 1.0, 1.0)
 	for house in cities[city_id]["houses"]:
-		if is_instance_valid(house):
-			house.modulate = conquered_color.lightened(0.2)
+		if not is_instance_valid(house) or not (house is Node3D):
+			continue
+		var house_root: Node3D = house as Node3D
+		# Building roots are Node3D containers, not CanvasItems, so tint their
+		# mesh materials instead of assigning the unsupported Node3D.modulate.
+		for mesh_value in house_root.find_children("*", "MeshInstance3D", true, false):
+			if not is_instance_valid(mesh_value) or not (mesh_value is MeshInstance3D):
+				continue
+			var mesh_node: MeshInstance3D = mesh_value as MeshInstance3D
+			var source_value: Variant = mesh_node.material_override
+			if not is_instance_valid(source_value) or not (source_value is StandardMaterial3D):
+				continue
+			var source_material: StandardMaterial3D = source_value as StandardMaterial3D
+			var original_color: Color = source_material.albedo_color
+			if mesh_node.has_meta("faction_base_albedo"):
+				original_color = mesh_node.get_meta("faction_base_albedo")
+			else:
+				mesh_node.set_meta("faction_base_albedo", original_color)
+			var faction_material: StandardMaterial3D = source_material.duplicate() as StandardMaterial3D
+			faction_material.albedo_color = original_color.lerp(conquered_color.lightened(0.2), 0.14)
+			mesh_node.material_override = faction_material
 	# Satellite towns that were loyal to a captured capital become part of the
 	# occupying government's wider polity, but with reduced loyalty and high autonomy.
 	for child_city_id in range(cities.size()):
