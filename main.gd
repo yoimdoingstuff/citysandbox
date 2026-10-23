@@ -4829,6 +4829,7 @@ func _update_simulation_timers(delta: float) -> void:
 	growth_timer += delta
 	city_event_timer += delta
 	resource_timer += delta
+	economy_timer += delta
 	trade_timer += delta
 	founding_timer += delta
 	settlement_timer += delta
@@ -4846,13 +4847,11 @@ func _update_simulation_timers(delta: float) -> void:
 		var collection_started_usec: int = Time.get_ticks_usec()
 		_collect_resources()
 		_trace_slow_operation("resource-collection", collection_started_usec)
-		economy_timer = minf(economy_timer, 3.0)
 	if economy_timer >= 4.0:
 		economy_timer = fmod(economy_timer, 4.0)
 		var economies_started_usec: int = Time.get_ticks_usec()
 		_update_city_economies()
 		_trace_slow_operation("city-economy-production", economies_started_usec)
-	economy_timer += 0.0
 	if trade_timer >= 12.0:
 		trade_timer = fmod(trade_timer, 12.0)
 		var trade_started_usec: int = Time.get_ticks_usec()
