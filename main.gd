@@ -3431,15 +3431,12 @@ func _cancel_construction_site(house: Node3D) -> void:
 		return
 
 
-func _update_construction_sites(_delta: float) -> void:
-	var update_batch_started_usec: int = Time.get_ticks_usec()
+func _update_construction_sites(delta: float) -> void:
 	if construction_sites.is_empty():
-		construction_site_update_cursor = 0
 		return
-	# Worker/scaffold updates can be surprisingly expensive when a large city has
-	# dozens of active sites. Rotate through a small batch per frame, but calculate
-	# each site's progress from the full accumulated simulation-time gap so the
-	# animation cadence does not change the actual construction duration.
+	var update_batch_started_usec: int = Time.get_ticks_usec()
+	# Rotate through a bounded number of active sites per frame, while advancing
+	# each site's clock by the full accumulated simulation gap.
 	var initial_count: int = construction_sites.size()
 	var update_count: int = mini(MAX_CONSTRUCTION_SITE_UPDATES_PER_FRAME, initial_count)
 	var start_index: int = posmod(construction_site_update_cursor, initial_count)
@@ -3458,9 +3455,15 @@ func _update_construction_sites(_delta: float) -> void:
 		if site_index < 0:
 			continue
 		var site: Dictionary = construction_sites[site_index]
-		var house: Node3D = site.get("node") as Node3D
+		# Test object validity before casting or reading transforms. A construction
+		# house can be queued for deletion by a disaster in the same frame.
+		var house_value: Variant = site.get("node", null)
+		if not is_instance_valid(house_value) or not (house_value is Node3D) or not (house_value as Node3D).is_inside_tree():
+			construction_sites.remove_at(site_index)
+			continue
+		var house: Node3D = house_value as Node3D
 		var city_id: int = int(site.get("city_id", -1))
-		if not is_instance_valid(house) or city_id < 0 or city_id >= cities.size():
+		if city_id < 0 or city_id >= cities.size():
 			construction_sites.remove_at(site_index)
 			continue
 
@@ -3473,16 +3476,21 @@ func _update_construction_sites(_delta: float) -> void:
 		site["progress"] = progress
 		house.set_meta("construction_progress", progress)
 		site["phase"] = float(site.get("phase", 0.0)) + site_delta * 2.8
-		var scaffold: Node3D = site.get("scaffold") as Node3D
-		if is_instance_valid(scaffold):
-			scaffold.scale.y = 0.32 + progress * 0.68
+		var scaffold_value: Variant = site.get("scaffold", null)
+		if is_instance_valid(scaffold_value) and scaffold_value is Node3D:
+			var scaffold: Node3D = scaffold_value as Node3D
+			if scaffold.is_inside_tree():
+				scaffold.scale.y = 0.32 + progress * 0.68
 		var worker_entries: Array = site.get("worker_entries", [])
 		for worker_entry in worker_entries:
 			var person: Dictionary = worker_entry.get("person", {})
-			if int(person.get("construction_site_id", -1)) != int(site["id"]):
+			if int(person.get("construction_site_id", -1)) != int(site["id"]) or not bool(person.get("alive", true)):
 				continue
-			var worker_node: Node3D = person.get("node") as Node3D
-			if not bool(person.get("alive", true)) or not is_instance_valid(worker_node):
+			var worker_value: Variant = person.get("node", null)
+			if not is_instance_valid(worker_value) or not (worker_value is Node3D):
+				continue
+			var worker_node: Node3D = worker_value as Node3D
+			if not worker_node.is_inside_tree():
 				continue
 			if str(person.get("activity", "")) == "constructing":
 				var phase_index: int = int(worker_entry.get("phase_index", 0))
@@ -3493,9 +3501,11 @@ func _update_construction_sites(_delta: float) -> void:
 				person["target"] = worker_position
 				worker_node.position = worker_position
 				worker_node.rotation.y = -phase
-				var arm: Node3D = person.get("right_arm") as Node3D
-				if is_instance_valid(arm):
-					arm.rotation.x = sin(phase * 3.0) * 0.75
+				var arm_value: Variant = person.get("right_arm", null)
+				if is_instance_valid(arm_value) and arm_value is Node3D:
+					var arm: Node3D = arm_value as Node3D
+					if arm.is_inside_tree():
+						arm.rotation.x = sin(phase * 3.0) * 0.75
 		construction_sites[site_index] = site
 		if progress < 1.0:
 			continue
@@ -3535,7 +3545,6 @@ func _update_construction_sites(_delta: float) -> void:
 			_log("%s completed a new building." % cities[completed_city_id]["name"])
 		last_detail_signature = ""
 	_trace_slow_operation("construction-site-batch", update_batch_started_usec)
-
 func _queue_city_roads_rebuild(city_id: int) -> void:
 	if city_id < 0 or city_id >= cities.size() or bool(cities[city_id].get("ruined", false)):
 		return
