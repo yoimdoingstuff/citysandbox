@@ -286,6 +286,9 @@ func _start_runtime_stress_tests() -> void:
 		{"name": "wildfire_plague_tornado", "duration": 8.0, "speed": 8.0, "action": "fire_plague"},
 		{"name": "meteors_lightning_disasters", "duration": 9.0, "speed": 16.0, "action": "meteor_storm"},
 		{"name": "earthquake_terrain_edits", "duration": 8.0, "speed": 4.0, "action": "terrain_edits"},
+		{"name": "settlement_transport_network", "duration": 9.0, "speed": 8.0, "action": "transport_network"},
+		{"name": "oil_rig_diplomacy_war", "duration": 9.0, "speed": 16.0, "action": "oil_wars"},
+		{"name": "urban_battle_hostages_artillery", "duration": 9.0, "speed": 8.0, "action": "battle_hostages"},
 		{"name": "mass_building_collapse", "duration": 9.0, "speed": 8.0, "action": "collapse"},
 		{"name": "save_load_large_world_rebuild", "duration": 8.0, "speed": 1.0, "action": "save_load"},
 		{"name": "combined_16x_city_load", "duration": 12.0, "speed": 16.0, "action": "combined"}
@@ -357,7 +360,36 @@ func _begin_next_runtime_stress_scenario() -> void:
 	stress_last_sample_usec = stress_scenario_started_usec
 	stress_last_frame_end_usec = stress_scenario_started_usec
 	stress_repeat_started_usec = stress_scenario_started_usec
+	stress_capture_sequence = stress_scenario_index + 1
+	stress_capture_name = "%02d_%s" % [stress_capture_sequence, scenario_name]
+	stress_capture_wait_frames = 3
 
+
+func _tick_runtime_stress_screenshot() -> void:
+	if stress_capture_wait_frames <= 0 or stress_capture_name.is_empty():
+		return
+	stress_capture_wait_frames -= 1
+	if stress_capture_wait_frames > 0:
+		return
+	var screenshot_dir: String = "user://civiterra-screenshots"
+	var absolute_dir: String = ProjectSettings.globalize_path(screenshot_dir)
+	var make_dir_error: Error = DirAccess.make_dir_recursive_absolute(absolute_dir)
+	if make_dir_error != OK and make_dir_error != ERR_ALREADY_EXISTS:
+		_stress_emit("STRESS_SCREENSHOT_FAILED|scenario=%s|reason=directory_error_%d" % [stress_capture_name, make_dir_error])
+		stress_capture_name = ""
+		return
+	var image: Image = get_viewport().get_texture().get_image()
+	if image == null or image.is_empty():
+		_stress_emit("STRESS_SCREENSHOT_FAILED|scenario=%s|reason=empty_viewport" % stress_capture_name)
+		stress_capture_name = ""
+		return
+	var image_path: String = screenshot_dir.path_join(stress_capture_name + ".png")
+	var save_error: Error = image.save_png(image_path)
+	if save_error == OK:
+		_stress_emit("STRESS_SCREENSHOT|scenario=%s|path=%s|width=%d|height=%d" % [stress_capture_name, image_path, image.get_width(), image.get_height()])
+	else:
+		_stress_emit("STRESS_SCREENSHOT_FAILED|scenario=%s|reason=save_error_%d" % [stress_capture_name, save_error])
+	stress_capture_name = ""
 
 func _tick_runtime_stress_tests() -> void:
 	if not stress_suite_active or stress_scenario_index < 0 or stress_scenario_index >= stress_scenarios.size():
@@ -864,6 +896,8 @@ func _process(delta: float) -> void:
 				_update_cars(cars_delta)
 
 		_update_armies(sim_delta)
+		_update_transports(sim_delta)
+		_update_hostages(sim_delta)
 		_update_missiles(sim_delta)
 		_update_explosions(sim_delta)
 		_update_god_effects(sim_delta)
@@ -900,6 +934,7 @@ func _process(delta: float) -> void:
 		_trace_slow_operation("ui-refresh", ui_started_usec)
 	if stress_suite_active:
 		_tick_runtime_stress_tests()
+		_tick_runtime_stress_screenshot()
 	var frame_elapsed_usec: int = Time.get_ticks_usec() - frame_started_usec
 	if frame_elapsed_usec >= FRAME_HITCH_THRESHOLD_USEC:
 		_write_performance_sample("FRAME-HITCH", frame_elapsed_usec)
