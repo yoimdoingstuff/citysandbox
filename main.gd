@@ -55,6 +55,9 @@ var terrain_material: StandardMaterial3D
 var terrain_lod_nodes: Array[MeshInstance3D] = []
 var terrain_lod_chunk_nodes: Array = []
 var terrain_lod_dirty: Array[bool] = [true, true, true, true]
+var visible_terrain_lod: int = -1
+var terrain_lod_transition_target: int = -1
+var terrain_lod_transition_cursor: int = 0
 var pending_terrain_edits: Array[Dictionary] = []
 var pending_terrain_chunk_updates: Dictionary = {}
 var pending_terrain_shoreline_change: bool = false
@@ -990,6 +993,7 @@ func _process(delta: float) -> void:
 		_trace_slow_operation("era-refurbishment", era_started_usec)
 	if not pending_terrain_edits.is_empty() and terrain_rebuild_cooldown <= 0.0:
 		_flush_pending_terrain_edits()
+	_process_terrain_lod_transition()
 	_process_pending_terrain_chunk_updates()
 	ui_timer += delta
 	if ui_timer >= 0.50:
@@ -1198,6 +1202,9 @@ func _rebuild_terrain() -> void:
 		terrain_lod_dirty[lod_index] = true
 	var active_lod: int = _terrain_lod_index_for_distance(camera_distance)
 	_build_terrain_lod(active_lod)
+	visible_terrain_lod = active_lod
+	terrain_lod_transition_target = -1
+	terrain_lod_transition_cursor = 0
 	_set_active_terrain_lod_visibility(active_lod)
 
 
@@ -1288,11 +1295,59 @@ func _rebuild_terrain_around_many(edits: Array[Dictionary]) -> void:
 	# meshes per frame instead of committing several chunks on the brush/disaster
 	# frame. A full LOD rebuild remains the fallback when the camera changes LOD.
 	terrain_lod_dirty[active_lod] = false
-	_set_active_terrain_lod_visibility(active_lod)
+	if terrain_lod_transition_target < 0:
+		visible_terrain_lod = active_lod
+		_set_active_terrain_lod_visibility(active_lod)
+	else:
+		_set_active_terrain_lod_visibility(maxi(0, visible_terrain_lod))
+
+
+func _queue_terrain_lod_transition(lod_index: int) -> void:
+	if lod_index < 0 or lod_index >= terrain_lod_dirty.size():
+		return
+	if terrain_lod_transition_target == lod_index:
+		return
+	terrain_lod_transition_target = lod_index
+	terrain_lod_transition_cursor = 0
+
+
+func _process_terrain_lod_transition() -> void:
+	var desired_lod: int = _terrain_lod_index_for_distance(camera_distance)
+	if desired_lod < 0 or desired_lod >= terrain_lod_dirty.size():
+		return
+	if terrain_lod_transition_target != desired_lod:
+		if not terrain_lod_dirty[desired_lod]:
+			# The destination mesh is already current; switch without rebuilding it.
+			terrain_lod_transition_target = -1
+			terrain_lod_transition_cursor = 0
+			visible_terrain_lod = desired_lod
+			_set_active_terrain_lod_visibility(desired_lod)
+			return
+		_queue_terrain_lod_transition(desired_lod)
+	if terrain_lod_transition_target < 0:
+		return
+	var target_lod: int = terrain_lod_transition_target
+	# Replace just one of the 25 terrain chunks per frame. Keep the old LOD visible
+	# until the new one is complete, avoiding a long frame hitch while zooming.
+	var chunk_index: int = terrain_lod_transition_cursor
+	var chunk_x: int = posmod(chunk_index, TERRAIN_CHUNKS_PER_AXIS)
+	var chunk_z: int = floori(float(chunk_index) / float(TERRAIN_CHUNKS_PER_AXIS))
+	var started_usec: int = Time.get_ticks_usec()
+	_build_terrain_chunk(target_lod, chunk_x, chunk_z)
+	_trace_slow_operation("terrain-lod-transition-chunk", started_usec)
+	terrain_lod_transition_cursor += 1
+	if terrain_lod_transition_cursor >= TERRAIN_CHUNKS_PER_AXIS * TERRAIN_CHUNKS_PER_AXIS:
+		terrain_lod_dirty[target_lod] = false
+		terrain_lod_transition_target = -1
+		terrain_lod_transition_cursor = 0
+		if target_lod == _terrain_lod_index_for_distance(camera_distance):
+			pending_terrain_chunk_updates.clear()
+			visible_terrain_lod = target_lod
+			_set_active_terrain_lod_visibility(target_lod)
 
 
 func _process_pending_terrain_chunk_updates() -> void:
-	if pending_terrain_chunk_updates.is_empty():
+	if terrain_lod_transition_target >= 0 or pending_terrain_chunk_updates.is_empty():
 		return
 	var active_lod: int = _terrain_lod_index_for_distance(camera_distance)
 	if active_lod < 0 or active_lod >= terrain_lod_dirty.size() or terrain_lod_dirty[active_lod]:
@@ -8516,7 +8571,7 @@ func _cull_buildings_behind_nearby_structures() -> void:
 func _update_world_detail_levels() -> void:
 	var active_lod: int = _terrain_lod_index_for_distance(camera_distance)
 	if active_lod < terrain_lod_dirty.size() and terrain_lod_dirty[active_lod]:
-		_build_terrain_lod(active_lod)
+		_queue_terrain_lod_transition(active_lod)
 	var city_detail_radius: float = maxf(220.0, camera_distance * 1.35 + 110.0)
 	var city_detail_radius_squared: float = city_detail_radius * city_detail_radius
 	if active_lod != last_road_terrain_lod:
@@ -8530,7 +8585,7 @@ func _update_world_detail_levels() -> void:
 				var road_city_dz: float = road_city_position.z - camera_target.z
 				if road_city_dx * road_city_dx + road_city_dz * road_city_dz <= city_detail_radius_squared:
 					_queue_city_roads_rebuild(city_id)
-	_set_active_terrain_lod_visibility(active_lod)
+	_set_active_terrain_lod_visibility(visible_terrain_lod if visible_terrain_lod >= 0 else active_lod)
 	var show_city_models: bool = camera_distance <= 165.0
 	var show_neighbourhoods: bool = camera_distance <= 135.0
 	var show_resources: bool = camera_distance <= 110.0
