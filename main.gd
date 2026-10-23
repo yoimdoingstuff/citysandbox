@@ -324,8 +324,11 @@ func _ensure_rubble_spatial_index() -> void:
 	rubble_spatial_grid.clear()
 	for rubble_index in range(rubble_nodes.size()):
 		var entry: Dictionary = rubble_nodes[rubble_index]
-		var node: Node3D = entry.get("node") as Node3D
-		if not is_instance_valid(node):
+		var node_value: Variant = entry.get("node", null)
+		if not is_instance_valid(node_value) or not (node_value is Node3D):
+			continue
+		var node: Node3D = node_value as Node3D
+		if not node.is_inside_tree():
 			continue
 		_append_spatial_index(rubble_spatial_grid, _spatial_cell(node.global_position), rubble_index)
 	rubble_spatial_index_frame = performance_frame_count
@@ -338,8 +341,9 @@ func _mark_person_dead(person_index: int) -> bool:
 	if not bool(person.get("alive", true)):
 		return false
 	person["alive"] = false
-	var node: Node3D = person.get("node") as Node3D
-	if is_instance_valid(node):
+	var node_value: Variant = person.get("node", null)
+	if is_instance_valid(node_value) and node_value is Node3D:
+		var node: Node3D = node_value as Node3D
 		node.queue_free()
 	people[person_index] = person
 	dead_people_pending_compaction = true
@@ -4524,7 +4528,13 @@ func _update_people(delta: float) -> void:
 		var person: Dictionary = people[i]
 		if not bool(person.get("alive", true)):
 			continue
-		var node: Node3D = person["node"]
+		var node_value: Variant = person.get("node", null)
+		if not is_instance_valid(node_value) or not (node_value is Node3D):
+			person["alive"] = false
+			people[i] = person
+			dead_people_pending_compaction = true
+			continue
+		var node: Node3D = node_value as Node3D
 		var position: Vector3 = person["pos"]
 		var activity: String = str(person.get("activity", "wandering"))
 		var activity_timer: float = float(person.get("activity_timer", 0.0))
@@ -4608,8 +4618,15 @@ func _update_people(delta: float) -> void:
 		if activity == "constructing_walk" or activity == "constructing":
 			var site_id: int = int(person.get("construction_site_id", -1))
 			var site: Dictionary = _get_construction_site(site_id)
-			var site_node: Node3D = site.get("node") as Node3D
-			if site.is_empty() or not is_instance_valid(site_node):
+			var site_node_value: Variant = site.get("node", null)
+			if site.is_empty() or not is_instance_valid(site_node_value) or not (site_node_value is Node3D):
+				person["activity"] = "wandering"
+				person["construction_site_id"] = -1
+				person["walk_timer"] = 0.0
+				people[i] = person
+				continue
+			var site_node: Node3D = site_node_value as Node3D
+			if not site_node.is_inside_tree():
 				person["activity"] = "wandering"
 				person["construction_site_id"] = -1
 				person["walk_timer"] = 0.0
@@ -7064,8 +7081,8 @@ func _spawn_explosion(position: Vector3, target_id: int) -> void:
 		if dx * dx + dz * dz <= blast_radius_squared:
 			resource["amount"] = 0
 			resource["alive"] = false
-			var resource_node: Node3D = resource.get("node") as Node3D
-			if is_instance_valid(resource_node):
+			var resource_node: Variant = resource.get("node", null)
+			if is_instance_valid(resource_node) and resource_node is Node3D:
 				resource_node.visible = false
 			resources[resource_index] = resource
 	if damaged_city_names.is_empty():
@@ -7644,8 +7661,11 @@ func _find_nearby_cleanup_rubble(position: Vector3, max_distance: float = 22.0) 
 		var entry: Dictionary = rubble_nodes[rubble_index]
 		if bool(entry.get("reserved", false)):
 			continue
-		var node: Node3D = entry.get("node") as Node3D
-		if not is_instance_valid(node):
+		var node_value: Variant = entry.get("node", null)
+		if not is_instance_valid(node_value) or not (node_value is Node3D):
+			continue
+		var node: Node3D = node_value as Node3D
+		if not node.is_inside_tree():
 			continue
 		var rubble_position: Vector3 = node.global_position
 		var dx: float = rubble_position.x - position.x
@@ -7896,8 +7916,8 @@ func _power_damage(center: Vector3, radius: float, people_limit: int, resource_c
 			if randf() < chance:
 				resource["amount"] = 0
 				resource["alive"] = false
-				var resource_node: Node3D = resource.get("node") as Node3D
-				if is_instance_valid(resource_node):
+				var resource_node: Variant = resource.get("node", null)
+				if is_instance_valid(resource_node) and resource_node is Node3D:
 					resource_node.visible = false
 				resources[resource_index] = resource
 	_destroy_cars_in_radius(center, radius)
