@@ -135,6 +135,7 @@ var rubble_id_sequence: int = 1
 var active_building_smoke_puffs: int = 0
 var construction_sites: Array = []
 var construction_sites_by_id: Dictionary = {}
+var construction_site_indices: Dictionary = {}
 var construction_id_sequence: int = 1
 var construction_site_update_cursor: int = 0
 var construction_simulation_clock: float = 0.0
@@ -3418,6 +3419,7 @@ func _setup_construction_site(house: Node3D, city_id: int, building_type: int, p
 		"last_simulation_clock": construction_simulation_clock
 	})
 	construction_sites_by_id[site_id] = construction_sites[construction_sites.size() - 1]
+	construction_site_indices[site_id] = construction_sites.size() - 1
 	_trace_slow_operation("construction-scaffold-full-setup", setup_started_usec)
 
 
@@ -3437,8 +3439,12 @@ func _remove_construction_site_at(site_index: int) -> void:
 	if site_index < 0 or site_index >= construction_sites.size():
 		return
 	var site: Dictionary = construction_sites[site_index]
-	construction_sites_by_id.erase(int(site.get("id", -1)))
+	var removed_site_id: int = int(site.get("id", -1))
+	construction_sites_by_id.erase(removed_site_id)
+	construction_site_indices.erase(removed_site_id)
 	construction_sites.remove_at(site_index)
+	for reindex in range(site_index, construction_sites.size()):
+		construction_site_indices[int(construction_sites[reindex].get("id", -1))] = reindex
 
 
 func _cancel_construction_site(house: Node3D) -> void:
@@ -3476,12 +3482,14 @@ func _update_construction_sites(delta: float) -> void:
 	construction_site_update_cursor = (start_index + update_count) % maxi(1, initial_count)
 
 	for requested_site_id in site_ids_to_update:
-		var site_index: int = -1
-		for lookup_index in range(construction_sites.size()):
-			if int(construction_sites[lookup_index].get("id", -1)) == requested_site_id:
-				site_index = lookup_index
-				break
-		if site_index < 0:
+		var site_index: int = int(construction_site_indices.get(requested_site_id, -1))
+		if site_index < 0 or site_index >= construction_sites.size():
+			construction_site_indices.erase(requested_site_id)
+			construction_sites_by_id.erase(requested_site_id)
+			continue
+		if int(construction_sites[site_index].get("id", -1)) != requested_site_id:
+			construction_site_indices.erase(requested_site_id)
+			construction_sites_by_id.erase(requested_site_id)
 			continue
 		var site: Dictionary = construction_sites[site_index]
 		# Test object validity before casting or reading transforms. A construction
@@ -3537,6 +3545,7 @@ func _update_construction_sites(delta: float) -> void:
 						arm.rotation.x = sin(phase * 3.0) * 0.75
 		construction_sites[site_index] = site
 		construction_sites_by_id[requested_site_id] = site
+		construction_site_indices[requested_site_id] = site_index
 		if progress < 1.0:
 			continue
 
@@ -9834,6 +9843,7 @@ func _clear_loaded_world() -> void:
 	rubble_id_sequence = 1
 	construction_sites.clear()
 	construction_sites_by_id.clear()
+	construction_site_indices.clear()
 	construction_id_sequence = 1
 	construction_site_update_cursor = 0
 	construction_simulation_clock = 0.0
