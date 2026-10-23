@@ -155,7 +155,9 @@ jobs:
               # image into this run's artifact and retain one rolling preview in git.
               $screenshotDir = Get-ChildItem -LiteralPath $appDataRoot -Directory -Filter "civiterra-screenshots" -Recurse -ErrorAction SilentlyContinue | Select-Object -First 1
               if ($screenshotDir) {
-                $screenshotFiles = @(Get-ChildItem -LiteralPath $screenshotDir.FullName -Filter "*.png" -File -ErrorAction SilentlyContinue)
+                # Keep the published artifact capped at ten checkpoints, ordered
+                # by milestone name so the first and last samples span the run.
+                $screenshotFiles = @(Get-ChildItem -LiteralPath $screenshotDir.FullName -Filter "*.png" -File -ErrorAction SilentlyContinue | Sort-Object Name | Select-Object -First 10)
                 if ($screenshotFiles.Count -gt 0) {
                   $screenshotOutputDir = Join-Path $PWD "logs/runtime-stresstests-screenshots"
                   New-Item -ItemType Directory -Force -Path $screenshotOutputDir | Out-Null
@@ -304,7 +306,8 @@ jobs:
           $screenshotDirectory = "logs/runtime-stresstests-screenshots"
           if (-not (Test-Path -LiteralPath $screenshotDirectory)) { throw "The rendered screenshot directory is missing." }
           $screenshotCount = @(Get-ChildItem -LiteralPath $screenshotDirectory -Filter "*.png" -File -ErrorAction SilentlyContinue).Count
-          if ($screenshotCount -lt $scenarioCount) { throw "Expected at least $scenarioCount rendered screenshots, but found $screenshotCount." }
+          $expectedScreenshotCount = [math]::Min(10, $scenarioCount)
+          if ($screenshotCount -ne $expectedScreenshotCount) { throw "Expected $expectedScreenshotCount evenly spaced screenshots (maximum 10), but found $screenshotCount." }
           if (-not (Test-Path -LiteralPath "logs/civiterra-latest.png")) { throw "The rolling latest screenshot is missing." }
           $rows = @(Import-Csv -LiteralPath $csvPath)
           $sampleRows = @($rows | Where-Object { $_.record_type -eq "sample" })
