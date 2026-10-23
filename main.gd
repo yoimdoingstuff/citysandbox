@@ -19,6 +19,8 @@ const MAX_BUILDING_STARTS_PER_FRAME: int = 1
 const BUILDING_VISUAL_MUTATION_INTERVAL_USEC: int = 120000
 const CITY_ROAD_REBUILD_INTERVAL_USEC: int = 450000
 const MAX_CONSTRUCTION_SITE_UPDATES_PER_FRAME: int = 16
+const MAX_ACTIVE_CONSTRUCTION_SITES: int = 64
+const MAX_CONSTRUCTION_SITES_PER_CITY: int = 6
 const MAX_CARS: int = 36
 const ROAD_GRID_SIZE: float = 7.5
 const WATER_LEVEL: float = -0.15
@@ -2714,6 +2716,8 @@ func _apply_building_era_appearance(city_id: int, year: int, only_house_index: i
 			if in_simulation_frame and building_start_budget_remaining <= 0:
 				_queue_city_development(city_id)
 				break
+			if not _can_start_construction_site(city_id):
+				break
 			_setup_construction_site(house, city_id, original_type, plot_id, 0.0, true)
 			if in_simulation_frame:
 				building_start_budget_remaining = maxi(0, building_start_budget_remaining - 1)
@@ -3132,9 +3136,21 @@ func _is_large_city_plot(city_id: int, plot_index: int, year: int) -> bool:
 	return (plot_index + city_id * 3) % period == int(period / 2)
 
 
+func _can_start_construction_site(city_id: int) -> bool:
+	if city_id < 0 or city_id >= cities.size() or construction_sites.size() >= MAX_ACTIVE_CONSTRUCTION_SITES:
+		return false
+	var city_site_count: int = 0
+	for site in construction_sites:
+		if int(site.get("city_id", -1)) == city_id:
+			city_site_count += 1
+			if city_site_count >= MAX_CONSTRUCTION_SITES_PER_CITY:
+				return false
+	return true
+
+
 func _setup_construction_site(house: Node3D, city_id: int, building_type: int, plot_index: int, progress: float = 0.0, refurbishment: bool = false) -> void:
 	var setup_started_usec: int = Time.get_ticks_usec()
-	if not is_instance_valid(house):
+	if not is_instance_valid(house) or not _can_start_construction_site(city_id):
 		return
 	for child in house.get_children():
 		child.free()
@@ -3151,22 +3167,30 @@ func _setup_construction_site(house: Node3D, city_id: int, building_type: int, p
 	_add_mesh(house, foundation, _material(Color(0.43, 0.43, 0.40)), Vector3(0.0, 0.09, 0.0))
 	var scaffold := Node3D.new()
 	scaffold.name = "ConstructionScaffold"
+	scaffold.visible = camera_distance <= 56.0
 	house.add_child(scaffold)
+	# Three MultiMeshes batch all scaffold parts, replacing sixteen individual
+	# mesh nodes per site with three instanced draws.
+	var half: float = pad_size * 0.5
 	var post_mesh: Mesh = _cached_box_mesh(Vector3(0.10, 1.0, 0.10))
 	var post_material: Material = _material(Color(0.78, 0.57, 0.27))
-	var half: float = pad_size * 0.5
+	var post_transforms: Array[Transform3D] = []
 	for sign_x in [-1.0, 1.0]:
 		for sign_z in [-1.0, 1.0]:
-			_add_mesh(scaffold, post_mesh, post_material, Vector3(float(sign_x) * half, 1.0, float(sign_z) * half))
+			post_transforms.append(Transform3D(Basis.IDENTITY, Vector3(float(sign_x) * half, 1.0, float(sign_z) * half)))
+	_add_multimesh_instances(scaffold, post_mesh, post_material, post_transforms)
+	var rail_material: Material = _material(Color(0.55, 0.43, 0.28))
+	var rail_mesh: Mesh = _cached_box_mesh(Vector3(pad_size, 0.07, 0.07))
+	var side_rail_mesh: Mesh = _cached_box_mesh(Vector3(0.07, 0.07, pad_size))
+	var rail_transforms: Array[Transform3D] = []
+	var side_rail_transforms: Array[Transform3D] = []
 	for level in range(1, 4):
-		var rail := BoxMesh.new()
-		rail.size = Vector3(pad_size, 0.07, 0.07)
-		_add_mesh(scaffold, rail, _material(Color(0.55, 0.43, 0.28)), Vector3(0.0, float(level) * 0.65, -half))
-		_add_mesh(scaffold, rail, _material(Color(0.55, 0.43, 0.28)), Vector3(0.0, float(level) * 0.65, half))
-		var side_rail := BoxMesh.new()
-		side_rail.size = Vector3(0.07, 0.07, pad_size)
-		_add_mesh(scaffold, side_rail, _material(Color(0.55, 0.43, 0.28)), Vector3(-half, float(level) * 0.65, 0.0))
-		_add_mesh(scaffold, side_rail, _material(Color(0.55, 0.43, 0.28)), Vector3(half, float(level) * 0.65, 0.0))
+		for sign_z in [-1.0, 1.0]:
+			rail_transforms.append(Transform3D(Basis.IDENTITY, Vector3(0.0, float(level) * 0.65, float(sign_z) * half)))
+		for sign_x in [-1.0, 1.0]:
+			side_rail_transforms.append(Transform3D(Basis.IDENTITY, Vector3(float(sign_x) * half, float(level) * 0.65, 0.0)))
+	_add_multimesh_instances(scaffold, rail_mesh, rail_material, rail_transforms)
+	_add_multimesh_instances(scaffold, side_rail_mesh, rail_material, side_rail_transforms)
 	var site_id: int = construction_id_sequence
 	construction_id_sequence += 1
 	var worker_targets: Array[Vector3] = [
@@ -3456,6 +3480,11 @@ func _sync_city_buildings(city_id: int, population_override: int = -1) -> bool:
 	# A population or era update must not synchronously instantiate an entire
 	# neighbourhood in one frame. Queue at most one new lot per development call.
 	while houses.size() < desired_houses and houses.size() < MAX_CITY_HOUSES and houses.size() - houses_before < MAX_BUILDINGS_PER_DEVELOPMENT_TICK:
+		if not _can_start_construction_site(city_id):
+			# Let active work finish instead of accumulating hundreds of scaffold
+			# hierarchies; queued development resumes when a slot frees up.
+			_queue_city_development(city_id)
+			break
 		var offset_x: float = 0.0
 		var offset_z: float = 0.0
 		var found_building_site: bool = false
@@ -4244,6 +4273,20 @@ func _add_mesh(parent: Node3D, mesh: Mesh, material: Material, local_position: V
 	instance.scale = local_scale
 	parent.add_child(instance)
 	return instance
+
+
+func _add_multimesh_instances(parent: Node3D, mesh: Mesh, material: Material, transforms: Array[Transform3D]) -> MultiMeshInstance3D:
+	var multimesh := MultiMesh.new()
+	multimesh.transform_format = MultiMesh.TRANSFORM_3D
+	multimesh.mesh = mesh
+	multimesh.instance_count = transforms.size()
+	for instance_index in range(transforms.size()):
+		multimesh.set_instance_transform(instance_index, transforms[instance_index])
+	var visual := MultiMeshInstance3D.new()
+	visual.multimesh = multimesh
+	visual.material_override = material
+	parent.add_child(visual)
+	return visual
 
 
 func _update_people(delta: float) -> void:
@@ -8729,6 +8772,9 @@ func _update_world_detail_levels() -> void:
 		for house in city["houses"]:
 			if not is_instance_valid(house):
 				continue
+			var construction_scaffold: Node3D = house.get_node_or_null("ConstructionScaffold") as Node3D
+			if is_instance_valid(construction_scaffold):
+				construction_scaffold.visible = show_building_details
 			# At overview zoom every neighbourhood mesh is hidden. Avoid doing
 			# projections and occlusion bookkeeping for thousands of invisible nodes.
 			if not show_neighbourhoods or ruined:
@@ -9306,8 +9352,16 @@ func _load_world() -> void:
 	# are calculated against the final city population and neighbouring zones.
 	for city_id in range(cities.size()):
 		for saved_house in cities[city_id]["houses"]:
-			if is_instance_valid(saved_house) and bool(saved_house.get_meta("is_construction_site", false)):
+			if not is_instance_valid(saved_house) or not bool(saved_house.get_meta("is_construction_site", false)):
+				continue
+			if _can_start_construction_site(city_id):
 				_setup_construction_site(saved_house, city_id, int(saved_house.get_meta("base_building_type", 0)), int(saved_house.get_meta("plot_index", 0)), float(saved_house.get_meta("construction_progress", 0.0)), bool(saved_house.get_meta("is_refurbishment_site", false)))
+			else:
+				# Legacy saves can contain hundreds of open sites. Restore overflow
+				# as completed buildings instead of reintroducing the same load spike.
+				saved_house.set_meta("is_construction_site", false)
+				saved_house.set_meta("visual_era", -1)
+				saved_house.set_meta("visual_stage", -1)
 		var loaded_population: int = _city_population(city_id)
 		if loaded_population > 0:
 			cities[city_id]["stage"] = _city_stage_for_population(loaded_population)
