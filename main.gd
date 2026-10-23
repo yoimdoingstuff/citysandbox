@@ -6087,9 +6087,11 @@ func _create_military_unit_node(unit_type: String, faction_color: Color) -> Node
 			_add_mesh(root, helmet, _material(Color(0.26, 0.28, 0.27)), Vector3(0.0, 1.14, 0.0))
 	return root
 
-func _spawn_defenders(defending_city_id: int, aggressor_city_id: int) -> void:
+func _spawn_defenders(defending_city_id: int, aggressor_city_id: int, protected_city_id: int = -1) -> void:
 	if defending_city_id < 0 or aggressor_city_id < 0 or defending_city_id >= cities.size() or aggressor_city_id >= cities.size():
 		return
+	if protected_city_id < 0 or protected_city_id >= cities.size():
+		protected_city_id = defending_city_id
 	# A defensive force now reflects the era and the specialist bases that the
 	# city has actually built, instead of every city spawning identical soldiers.
 	var year: int = _world_year()
@@ -6127,6 +6129,7 @@ func _spawn_defenders(defending_city_id: int, aggressor_city_id: int) -> void:
 		armies.append({
 			"node": soldier, "pos": spawn, "source": defending_city_id, "target": aggressor_city_id,
 			"attack_timer": randf_range(0.0, 0.8), "idle_timer": 0.0, "home_city": defending_city_id,
+			"protected_city": protected_city_id,
 			"unit_type": unit_type, "hp": _military_unit_health(unit_type),
 			"attack_power": _military_unit_attack(unit_type), "attack_range": _military_unit_range(unit_type),
 			"is_defender": true, "alive": true
@@ -6258,7 +6261,8 @@ func _update_defender_army(defender_index: int, delta: float) -> void:
 	var defender: Dictionary = armies[defender_index]
 	var home_city: int = int(defender.get("home_city", defender.get("source", -1)))
 	var enemy_city: int = int(defender.get("target", -1))
-	if home_city < 0 or home_city >= cities.size() or enemy_city < 0 or enemy_city >= cities.size():
+	var protected_city: int = int(defender.get("protected_city", home_city))
+	if home_city < 0 or home_city >= cities.size() or enemy_city < 0 or enemy_city >= cities.size() or protected_city < 0 or protected_city >= cities.size():
 		defender["alive"] = false
 		armies[defender_index] = defender
 		return
@@ -6273,7 +6277,7 @@ func _update_defender_army(defender_index: int, delta: float) -> void:
 		var threat: Dictionary = armies[index]
 		if not bool(threat.get("alive", true)) or bool(threat.get("is_defender", false)):
 			continue
-		if int(threat.get("source", -1)) != enemy_city or int(threat.get("target", -1)) != home_city:
+		if int(threat.get("source", -1)) != enemy_city or int(threat.get("target", -1)) != protected_city:
 			continue
 		var threat_position: Vector3 = threat["pos"]
 		var dx: float = threat_position.x - position.x
@@ -6387,6 +6391,25 @@ func _update_city_defences() -> void:
 			if not defenders_present:
 				_spawn_defenders(city_id, incoming_city)
 				city["defence_cooldown"] = 18.0
+			# Alliances are military pacts, not just a line in the diplomacy UI.
+			# A capable ally can dispatch support once a city is under attack.
+			for ally_id in range(cities.size()):
+				if ally_id == city_id or not _are_allied(ally_id, city_id):
+					continue
+				if _city_population(ally_id) < 8 or float(cities[ally_id].get("security", 44.0)) < 8.0:
+					continue
+				if float(cities[ally_id].get("defence_cooldown", 0.0)) > 0.0:
+					continue
+				var support_exists: bool = false
+				for army in armies:
+					if bool(army.get("is_defender", false)) and bool(army.get("alive", true)) and int(army.get("home_city", -1)) == ally_id and int(army.get("protected_city", ally_id)) == city_id:
+						support_exists = true
+						break
+				if not support_exists:
+					_spawn_defenders(ally_id, incoming_city, city_id)
+					cities[ally_id]["defence_cooldown"] = 24.0
+					_log("ALLIED REINFORCEMENTS: %s sent troops to help defend %s from %s." % [cities[ally_id]["name"], cities[city_id]["name"], cities[incoming_city]["name"]])
+					break
 		cities[city_id] = city
 
 
