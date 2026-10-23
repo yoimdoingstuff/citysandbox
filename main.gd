@@ -5949,6 +5949,16 @@ func _launch_army(source_id: int, target_id: int, automatic: bool) -> void:
 		unit_types.append("apc")
 
 	var source_position: Vector3 = cities[source_id]["pos"]
+	var target_city: Dictionary = cities[target_id]
+	var target_position: Vector3 = target_city["pos"]
+	var target_grid_spacing: float = _city_road_grid_size(target_id, year)
+	var target_min_x: float = float(target_city.get("road_grid_min_x", -7.5))
+	var target_max_x: float = float(target_city.get("road_grid_max_x", 7.5))
+	var target_min_z: float = float(target_city.get("road_grid_min_z", -7.5))
+	var target_max_z: float = float(target_city.get("road_grid_max_z", 7.5))
+	var battle_x: float = clampf(roundf(randf_range(-24.0, 24.0) / target_grid_spacing) * target_grid_spacing, target_min_x, target_max_x)
+	var battle_z: float = clampf(roundf(randf_range(-24.0, 24.0) / target_grid_spacing) * target_grid_spacing, target_min_z, target_max_z)
+	var battle_target: Vector3 = _surface_position(target_position.x + battle_x, target_position.z + battle_z)
 	var total_units: int = unit_types.size()
 	for unit_index in range(total_units):
 		var angle: float = float(unit_index) * TAU / float(maxi(1, total_units))
@@ -5964,6 +5974,7 @@ func _launch_army(source_id: int, target_id: int, automatic: bool) -> void:
 			"pos": spawn_position,
 			"source": source_id,
 			"target": target_id,
+			"battle_target": battle_target,
 			"unit_type": unit_type,
 			"hp": _military_unit_health(unit_type),
 			"attack_power": _military_unit_attack(unit_type),
@@ -6147,7 +6158,7 @@ func _update_armies(delta: float) -> void:
 			_update_defender_army(i, delta)
 			continue
 		var position: Vector3 = army["pos"]
-		var destination: Vector3 = cities[target_id]["pos"]
+		var destination: Vector3 = army.get("battle_target", cities[target_id]["pos"])
 		var unit_type: String = str(army.get("unit_type", "infantry"))
 		var distance: float = Vector2(position.x - destination.x, position.z - destination.z).length()
 		var attack_range: float = float(army.get("attack_range", _military_unit_range(unit_type)))
