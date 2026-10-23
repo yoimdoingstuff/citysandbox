@@ -1001,13 +1001,16 @@ func _process(delta: float) -> void:
 		var simulation_timers_started_usec: int = Time.get_ticks_usec()
 		_update_simulation_timers(sim_delta)
 		_trace_slow_operation("economy-growth-trade-events-total", simulation_timers_started_usec)
-		var queued_development_started_usec: int = Time.get_ticks_usec()
-		_process_one_pending_city_development()
-		_trace_slow_operation("queued-city-development", queued_development_started_usec)
 		_update_rubble_aging(sim_delta)
+		# Complete construction before spending this frame's shared visual-mutation
+		# budget on another new lot. Previously, queued development routinely used
+		# the budget first and left completed scaffolds stuck at 99% indefinitely.
 		var construction_started_usec: int = Time.get_ticks_usec()
 		_update_construction_sites(sim_delta)
 		_trace_slow_operation("construction-site-update", construction_started_usec)
+		var queued_development_started_usec: int = Time.get_ticks_usec()
+		_process_one_pending_city_development()
+		_trace_slow_operation("queued-city-development", queued_development_started_usec)
 		_update_city_event_markers(sim_delta)
 		_update_city_event_scenes(sim_delta)
 		var era_started_usec: int = Time.get_ticks_usec()
