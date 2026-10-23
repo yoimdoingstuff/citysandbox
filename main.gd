@@ -9274,14 +9274,19 @@ func _ensure_city_infrastructure(city_id: int, year: int) -> void:
 	cities[city_id] = city
 	var population: int = _city_population(city_id)
 	if not bool(city.get("ruined", false)) and year >= 1450 and population >= 16 and not bool(city.get("seaport_attempted", false)):
-		city["seaport_attempted"] = true
-		cities[city_id] = city
-		_create_city_seaport(city_id)
+		# Port construction is paid for and retryable if the city is still poor.
+		if float(city.get("treasury", 0.0)) >= 20.0 and float(city.get("wood", 0.0)) >= 2.0:
+			city["seaport_attempted"] = true
+			cities[city_id] = city
+			_create_city_seaport(city_id)
 	city = cities[city_id]
 	if not bool(city.get("ruined", false)) and year >= 1945 and population >= 24 and not bool(city.get("airport_attempted", false)):
-		city["airport_attempted"] = true
-		cities[city_id] = city
-		_create_city_airport(city_id)
+		# A landing strip and terminal are expensive enough that small towns
+		# have to grow their treasury and stockpile industrial materials first.
+		if float(city.get("treasury", 0.0)) >= 32.0 and float(city.get("iron", 0.0)) >= 3.0:
+			city["airport_attempted"] = true
+			cities[city_id] = city
+			_create_city_airport(city_id)
 
 func _find_city_waterfront_site(city_id: int) -> Vector3:
 	if city_id < 0 or city_id >= cities.size():
@@ -9381,8 +9386,9 @@ func _create_city_seaport(city_id: int) -> void:
 	city = cities[city_id]
 	city["seaport"] = port
 	city["treasury"] = maxf(0.0, float(city.get("treasury", 0.0)) - 18.0)
+	city["wood"] = maxf(0.0, float(city.get("wood", 0.0)) - 2.0)
 	cities[city_id] = city
-	_log("SEAPORT BUILT: %s can now operate coastal passenger and cargo shipping." % city["name"])
+	_log("SEAPORT BUILT: %s invested money and timber in a coastal terminal. Passenger and cargo shipping can now operate." % city["name"])
 
 
 func _create_oil_rig_visual(position: Vector3) -> Node3D:
