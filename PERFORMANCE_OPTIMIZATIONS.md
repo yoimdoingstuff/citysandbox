@@ -13,6 +13,7 @@ This pass adds CPU and allocation optimizations beyond the existing LOD, frustum
 7. **City-local traffic-light indexing.** Car signal checks search the current city's traffic signals rather than iterating through every signal in every city.
 8. **Bounded round-robin infrastructure checks.** Airport/seaport eligibility is rechecked in small city batches, so growing cities can qualify later without scanning/rebuilding every city in one frame.
 9. **Indexed construction, rubble and city work counts.** Construction workers resolve active sites in O(1), the update loop keeps an ID-to-array-index map, cleanup crews resolve/reserve rubble by an ID index, and city building-eligibility checks use a cached active-construction count. Maps/counters update on starts, removals, load resets and rubble-array shifts.
+10. **Per-frame city population cache.** One pass counts residents by city and serves repeated population queries in constant time. The cache invalidates on citizen spawn/removal, batch compaction, citizen reassignment, city founding and world reload. Stress-test city population setup now increments a local count instead of rescanning the whole crowd after each spawned citizen.
 
 ## Transport and timeline fixes
 
