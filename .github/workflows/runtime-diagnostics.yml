@@ -332,6 +332,22 @@ jobs:
             $examples = ($scriptErrors | Select-Object -First 5 | ForEach-Object { $_.Line }) -join "; "
             throw "Godot reported $($scriptErrors.Count) script error/warning line(s): $examples"
           }
+
+          $eraCheckLines = @(Select-String -LiteralPath $stdoutPath -Pattern "^STRESS_TRANSPORT_ERA_CHECK\|" -ErrorAction SilentlyContinue)
+          if ($eraCheckLines.Count -lt 4) { throw "Expected transport-era checks at 1884, 1885, 1944 and 1945." }
+          $era1884 = (@($eraCheckLines | Where-Object { $_.Line -match "year=1884\|" }) | Select-Object -First 1).Line
+          $era1885 = (@($eraCheckLines | Where-Object { $_.Line -match "year=1885\|" }) | Select-Object -First 1).Line
+          $era1944 = (@($eraCheckLines | Where-Object { $_.Line -match "year=1944\|" }) | Select-Object -First 1).Line
+          $era1945 = (@($eraCheckLines | Where-Object { $_.Line -match "year=1945\|" }) | Select-Object -First 1).Line
+          if (-not $era1884 -or $era1884 -notmatch "airports=0\|seaports=0.*\|oil_rigs=0") { throw "1884 transport check failed: $era1884" }
+          if (-not $era1885 -or $era1885 -notmatch "airports=0\|seaports=[1-9]\d*.*\|oil_rigs=[1-9]\d*") { throw "1885 maritime unlock check failed: $era1885" }
+          if (-not $era1944 -or $era1944 -notmatch "airports=0") { throw "Airports appeared before 1945: $era1944" }
+          if (-not $era1945 -or $era1945 -notmatch "airports=[1-9]\d*") { throw "No airport was available at the 1945 milestone: $era1945" }
+          $aircraftChecks = @(Select-String -LiteralPath $stdoutPath -Pattern "^STRESS_AIRCRAFT_CHECK\|" -ErrorAction SilentlyContinue)
+          if ($aircraftChecks.Count -lt 1 -or -not (($aircraftChecks | Where-Object { $_.Line -match "visible_aircraft=[1-9]\d*" }).Count -gt 0)) {
+            throw "Transport stress scenario did not record a visible aircraft: $($aircraftChecks.Line -join '; ')"
+          }
+
           $scenarioCount = @(Select-String -LiteralPath $stdoutPath -Pattern "STRESS_SCENARIO_COMPLETE\|" -ErrorAction SilentlyContinue).Count
           if ($scenarioCount -lt 15) { throw "Expected at least 15 completed scenarios, but found $scenarioCount." }
           if (-not (Test-Path -LiteralPath $csvPath)) { throw "The FPS telemetry CSV was not generated." }
