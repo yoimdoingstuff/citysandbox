@@ -7386,10 +7386,12 @@ func _update_god_effects(delta: float) -> void:
 func _power_damage(center: Vector3, radius: float, people_limit: int, resource_chance: float, house_damage: int, refresh_ui: bool = true) -> void:
 	var power_damage_started_usec: int = Time.get_ticks_usec()
 	var removed: int = 0
+	var radius_squared: float = radius * radius
 	for i in range(people.size() - 1, -1, -1):
 		var person_position: Vector3 = people[i]["pos"]
-		var distance: float = Vector2(person_position.x - center.x, person_position.z - center.z).length()
-		if distance <= radius and removed < people_limit:
+		var person_dx: float = person_position.x - center.x
+		var person_dz: float = person_position.z - center.z
+		if person_dx * person_dx + person_dz * person_dz <= radius_squared and removed < people_limit:
 			if is_instance_valid(people[i]["node"]):
 				people[i]["node"].queue_free()
 			people.remove_at(i)
@@ -7398,8 +7400,9 @@ func _power_damage(center: Vector3, radius: float, people_limit: int, resource_c
 		if int(resource["amount"]) <= 0:
 			continue
 		var resource_position: Vector3 = resource["pos"]
-		var distance: float = Vector2(resource_position.x - center.x, resource_position.z - center.z).length()
-		if distance <= radius:
+		var resource_dx: float = resource_position.x - center.x
+		var resource_dz: float = resource_position.z - center.z
+		if resource_dx * resource_dx + resource_dz * resource_dz <= radius_squared:
 			var chance: float = resource_chance if str(resource["type"]) == "tree" else resource_chance * 0.35
 			if randf() < chance:
 				resource["amount"] = 0
@@ -7407,7 +7410,9 @@ func _power_damage(center: Vector3, radius: float, people_limit: int, resource_c
 				if is_instance_valid(resource["node"]):
 					resource["node"].visible = false
 	_destroy_cars_in_radius(center, radius)
-	var radius_squared: float = radius * radius
+	var structure_search_radius: float = radius + 45.0
+	var structure_search_radius_squared: float = structure_search_radius * structure_search_radius
+	var city_food_radius_squared: float = radius_squared * 2.25
 	var road_affected_city_ids: Array[int] = _damage_roads_at_position(center, maxf(2.5, radius * 0.78), false)
 	# Rebuild every road mesh touched by the impact, even if the impact is far
 	# from the city anchor. The old code gated this inside the city-centre damage
@@ -7421,7 +7426,7 @@ func _power_damage(center: Vector3, radius: float, people_limit: int, resource_c
 		var city_dz: float = city_position.z - center.z
 		var city_distance_squared: float = city_dx * city_dx + city_dz * city_dz
 		var city_houses: Array = cities[city_id]["houses"]
-		if house_damage > 0 and city_distance_squared <= (radius + 45.0) * (radius + 45.0):
+		if house_damage > 0 and city_distance_squared <= structure_search_radius_squared:
 			var hit_houses: Array[Node3D] = []
 			for house in city_houses:
 				if not is_instance_valid(house):
@@ -7439,7 +7444,7 @@ func _power_damage(center: Vector3, radius: float, people_limit: int, resource_c
 					city_damaged = true
 			if city_damaged:
 				road_rebuild_city_ids[city_id] = true
-		if city_distance_squared <= radius * radius * 2.25:
+		if city_distance_squared <= city_food_radius_squared:
 			cities[city_id]["food"] = max(0.0, float(cities[city_id]["food"]) - float(removed) * 0.25)
 	for road_city_id in road_rebuild_city_ids.keys():
 		var affected_city_id: int = int(road_city_id)
