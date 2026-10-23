@@ -136,6 +136,7 @@ var active_building_smoke_puffs: int = 0
 var construction_sites: Array = []
 var construction_sites_by_id: Dictionary = {}
 var construction_site_indices: Dictionary = {}
+var construction_site_count_by_city: Dictionary = {}
 var construction_id_sequence: int = 1
 var construction_site_update_cursor: int = 0
 var construction_simulation_clock: float = 0.0
@@ -3326,13 +3327,7 @@ func _is_large_city_plot(city_id: int, plot_index: int, year: int) -> bool:
 func _can_start_construction_site(city_id: int) -> bool:
 	if city_id < 0 or city_id >= cities.size() or construction_sites.size() >= MAX_ACTIVE_CONSTRUCTION_SITES:
 		return false
-	var city_site_count: int = 0
-	for site in construction_sites:
-		if int(site.get("city_id", -1)) == city_id:
-			city_site_count += 1
-			if city_site_count >= MAX_CONSTRUCTION_SITES_PER_CITY:
-				return false
-	return true
+	return int(construction_site_count_by_city.get(city_id, 0)) < MAX_CONSTRUCTION_SITES_PER_CITY
 
 
 func _setup_construction_site(house: Node3D, city_id: int, building_type: int, plot_index: int, progress: float = 0.0, refurbishment: bool = false) -> void:
@@ -3420,6 +3415,7 @@ func _setup_construction_site(house: Node3D, city_id: int, building_type: int, p
 	})
 	construction_sites_by_id[site_id] = construction_sites[construction_sites.size() - 1]
 	construction_site_indices[site_id] = construction_sites.size() - 1
+	construction_site_count_by_city[city_id] = int(construction_site_count_by_city.get(city_id, 0)) + 1
 	_trace_slow_operation("construction-scaffold-full-setup", setup_started_usec)
 
 
@@ -3440,8 +3436,14 @@ func _remove_construction_site_at(site_index: int) -> void:
 		return
 	var site: Dictionary = construction_sites[site_index]
 	var removed_site_id: int = int(site.get("id", -1))
+	var removed_city_id: int = int(site.get("city_id", -1))
 	construction_sites_by_id.erase(removed_site_id)
 	construction_site_indices.erase(removed_site_id)
+	var city_site_count: int = int(construction_site_count_by_city.get(removed_city_id, 0))
+	if city_site_count <= 1:
+		construction_site_count_by_city.erase(removed_city_id)
+	else:
+		construction_site_count_by_city[removed_city_id] = city_site_count - 1
 	construction_sites.remove_at(site_index)
 	for reindex in range(site_index, construction_sites.size()):
 		construction_site_indices[int(construction_sites[reindex].get("id", -1))] = reindex
@@ -9863,6 +9865,7 @@ func _clear_loaded_world() -> void:
 	construction_sites.clear()
 	construction_sites_by_id.clear()
 	construction_site_indices.clear()
+	construction_site_count_by_city.clear()
 	construction_id_sequence = 1
 	construction_site_update_cursor = 0
 	construction_simulation_clock = 0.0
