@@ -1,17 +1,19 @@
 extends Node3D
 
 const TERRAIN_RES: int = 241
-const TERRAIN_SIZE: float = 256.0
+const TERRAIN_SIZE: float = 768.0
 const TERRAIN_LOD_STEPS: Array[int] = [1, 2, 4, 8]
 const TERRAIN_CHUNK_CELLS: int = 48
 const TERRAIN_CHUNKS_PER_AXIS: int = 5
 const TERRAIN_EDIT_REBUILD_INTERVAL: float = 0.12
 const MAX_TERRAIN_CHUNKS_PER_FRAME: int = 1
 const MAX_METEOR_IMPACTS_PER_FRAME: int = 2
-const MAX_CITIES: int = 10
-const MAX_PEOPLE: int = 800
-const MAX_CITY_POPULATION: int = 600
-const MAX_CITY_HOUSES: int = 140
+const MAX_CITIES: int = 18
+const MAX_PEOPLE: int = 1600
+const MAX_CITY_POPULATION: int = 900
+const MAX_CITY_HOUSES: int = 360
+const MAX_TRANSPORTS: int = 48
+const MAX_OIL_RIGS: int = 14
 const MAX_BUILDINGS_PER_DEVELOPMENT_TICK: int = 1
 const MAX_BUILDING_STARTS_PER_FRAME: int = 1
 const BUILDING_VISUAL_MUTATION_INTERVAL_USEC: int = 120000
@@ -24,7 +26,7 @@ const STARTING_YEAR: int = 1200
 const SECONDS_PER_YEAR: float = 3.0
 const TERRITORY_CELL_SIZE: float = 4.0
 const SAVE_PATH: String = "user://civiterra_world.json"
-const SAVE_VERSION: int = 5
+const SAVE_VERSION: int = 6
 const MISSILE_UNLOCK_YEAR: int = 1945
 const ERA_SKIP_YEARS: Array[int] = [1200, 1450, 1780, 1880, 1950, 2000, 2026]
 const TRADE_GOODS: Array[String] = ["food", "wood", "stone", "iron", "copper", "coal", "gold"]
@@ -68,7 +70,7 @@ var camera_auto_zoom_follow_city: bool = false
 var camera_auto_zoom_target: float = 94.0
 var camera_auto_focus_target: Vector3 = Vector3.ZERO
 var terrain_heights: Array = []
-var city_names: Array[String] = ["Asterfall", "Mossreach", "Copper Bay", "New Avalon", "Westhaven", "Emberplain", "Stonebridge", "Northstar", "Rivermark", "Sunfield"]
+var city_names: Array[String] = ["Asterfall", "Mossreach", "Copper Bay", "New Avalon", "Westhaven", "Emberplain", "Stonebridge", "Northstar", "Rivermark", "Sunfield", "Iron Harbor", "Redwood", "Cedar Flats", "Lakeview", "Port Sterling", "Mesa Vista", "Southpoint", "Clearwater"]
 var city_colors: Array[Color] = [
 	Color(0.17, 0.67, 0.93), Color(0.94, 0.48, 0.18), Color(0.62, 0.42, 0.88),
 	Color(0.22, 0.76, 0.48), Color(0.91, 0.32, 0.40), Color(0.91, 0.76, 0.22),
@@ -78,6 +80,9 @@ var cities: Array = []
 var people: Array = []
 var cars: Array = []
 var resources: Array = []
+var transports: Array = []
+var oil_rigs: Array = []
+var alliances: Dictionary = {}
 var _material_cache: Dictionary = {}
 var _box_mesh_cache: Dictionary = {}
 var spiral_grid_offsets: Array[Vector2i] = []
@@ -103,6 +108,9 @@ var wars: Array = []
 var city_relations: Dictionary = {}
 var trade_timer: float = 0.0
 var trade_events_total: int = 0
+var transport_timer: float = 0.0
+var oil_update_timer: float = 0.0
+var diplomacy_timer: float = 0.0
 var city_event_scenes: Array = []
 var rubble_records: Array = []
 var rubble_nodes: Array = []
@@ -168,12 +176,15 @@ var stress_scenario_process_ms: Array[float] = []
 var stress_scenario_max_action_ms: float = 0.0
 var stress_camera_lod_step: int = 0
 var stress_last_frame_end_usec: int = 0
+var stress_capture_name: String = ""
+var stress_capture_wait_frames: int = 0
+var stress_capture_sequence: int = 0
 
 var camera: Camera3D
 var camera_target: Vector3 = Vector3.ZERO
 var camera_yaw: float = -0.72
 var camera_pitch: float = 0.56
-var camera_distance: float = 94.0
+var camera_distance: float = 230.0
 var rotating_camera: bool = false
 var panning_camera: bool = false
 var last_mouse_position: Vector2 = Vector2.ZERO
@@ -226,6 +237,7 @@ func _ready() -> void:
 	_build_ui()
 	_seed_civilizations()
 	_scatter_world_resources()
+	_seed_oil_rigs()
 	_set_tool("select")
 	_log("Generated a multi-continent world. Seed: %d." % world_seed)
 	_log("The world is alive. Select a city to inspect it, then take control to issue orders.")
@@ -1002,12 +1014,12 @@ func _generate_terrain_heights() -> void:
 
 	# Scaled landmasses provide room for larger cities and expanding suburbs.
 	var continent_centers: Array[Vector2] = [
-		Vector2(-43.0, -27.0), Vector2(56.0, -28.0), Vector2(3.0, 53.0),
-		Vector2(-85.0, 32.0), Vector2(85.0, 61.0), Vector2(-82.0, -73.0)
+		Vector2(-129.0, -81.0), Vector2(168.0, -84.0), Vector2(9.0, 159.0),
+		Vector2(-255.0, 96.0), Vector2(255.0, 183.0), Vector2(-246.0, -219.0)
 	]
 	var continent_radii: Array[Vector2] = [
-		Vector2(55.5, 46.5), Vector2(42.0, 57.0), Vector2(66.0, 48.0),
-		Vector2(24.0, 31.5), Vector2(21.0, 25.5), Vector2(22.5, 19.5)
+		Vector2(166.5, 139.5), Vector2(126.0, 171.0), Vector2(198.0, 144.0),
+		Vector2(72.0, 94.5), Vector2(63.0, 76.5), Vector2(67.5, 58.5)
 	]
 	for z_index in range(TERRAIN_RES):
 		var row: Array = []
@@ -2041,7 +2053,7 @@ func _scatter_world_resources() -> void:
 	# starter towns. Forest patches, food clearings, and stone deposits make
 	# the continents feel inhabited beyond the initial city centres.
 	var resources_before: int = resources.size()
-	for patch_index in range(30):
+	for patch_index in range(90):
 		var patch_center := Vector3.ZERO
 		var found_land: bool = false
 		for attempt in range(24):
@@ -2090,11 +2102,11 @@ func _seed_civilizations() -> void:
 	# Start across the major continents and a few smaller islands so the map
 	# immediately feels like a world with room for competing civilizations.
 	var starts: Array[Vector2] = [
-		Vector2(-34.0, -24.0),
-		Vector2(38.0, -27.0),
-		Vector2(3.0, 51.0),
-		Vector2(-85.0, 32.0),
-		Vector2(85.0, 61.0)
+		Vector2(-102.0, -72.0),
+		Vector2(114.0, -81.0),
+		Vector2(9.0, 153.0),
+		Vector2(-255.0, 96.0),
+		Vector2(255.0, 183.0)
 	]
 	var populations: Array[int] = [6, 5, 5, 4, 4]
 	for i in range(starts.size()):
