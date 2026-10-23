@@ -300,7 +300,7 @@ func _start_runtime_stress_tests() -> void:
 	stress_frames_total = 0
 	stress_csv = FileAccess.open("user://civiterra-stresstests.csv", FileAccess.WRITE)
 	if stress_csv != null:
-		stress_csv.store_line("record_type,scenario,elapsed_seconds,frame_samples,engine_fps,mean_wall_fps,avg_frame_interval_ms,p95_frame_interval_ms,p99_frame_interval_ms,max_frame_interval_ms,max_process_ms,max_action_ms,cities,buildings,citizens,cars,resources,rubble,fire_zones,meteors,tornadoes,effects,construction_sites,armies,missiles")
+		stress_csv.store_line("record_type,scenario,elapsed_seconds,frame_samples,engine_fps,mean_wall_fps,avg_frame_interval_ms,p95_frame_interval_ms,p99_frame_interval_ms,max_frame_interval_ms,max_process_ms,max_action_ms,cities,buildings,citizens,cars,resources,rubble,fire_zones,meteors,tornadoes,effects,construction_sites,armies,missiles,transports,oil_rigs,alliances,hostages")
 		stress_csv.flush()
 	paused = false
 	game_clock = float(2026 - STARTING_YEAR) * SECONDS_PER_YEAR
@@ -466,15 +466,15 @@ func _write_runtime_stress_metrics(record_type: String, whole_scenario: bool) ->
 	if stress_scenario_started_usec > 0:
 		scenario_elapsed = float(Time.get_ticks_usec() - stress_scenario_started_usec) / 1000000.0
 	var counts: Dictionary = _runtime_stress_counts()
-	var metric_line: String = "STRESS_%s|scenario=%s|elapsed_s=%.2f|samples=%d|engine_fps=%d|mean_wall_fps=%.2f|avg_frame_ms=%.2f|p95_frame_ms=%.2f|p99_frame_ms=%.2f|max_frame_ms=%.2f|max_process_ms=%.2f|max_action_ms=%.2f|cities=%d|buildings=%d|citizens=%d|cars=%d|resources=%d|rubble=%d|fire_zones=%d|meteors=%d|tornadoes=%d|effects=%d|construction_sites=%d|armies=%d|missiles=%d" % [
+	var metric_line: String = "STRESS_%s|scenario=%s|elapsed_s=%.2f|samples=%d|engine_fps=%d|mean_wall_fps=%.2f|avg_frame_ms=%.2f|p95_frame_ms=%.2f|p99_frame_ms=%.2f|max_frame_ms=%.2f|max_process_ms=%.2f|max_action_ms=%.2f|cities=%d|buildings=%d|citizens=%d|cars=%d|resources=%d|rubble=%d|fire_zones=%d|meteors=%d|tornadoes=%d|effects=%d|construction_sites=%d|armies=%d|missiles=%d|transports=%d|oil_rigs=%d|alliances=%d|hostages=%d" % [
 		record_type, scenario_name, scenario_elapsed, frame_count, Engine.get_frames_per_second(), mean_fps, average_interval_ms, p95_frame_ms, p99_frame_ms, max_frame_ms, process_max_ms, stress_scenario_max_action_ms,
-		int(counts["cities"]), int(counts["buildings"]), int(counts["citizens"]), int(counts["cars"]), int(counts["resources"]), int(counts["rubble"]), int(counts["fires"]), int(counts["meteors"]), int(counts["tornadoes"]), int(counts["effects"]), int(counts["construction_sites"]), int(counts["armies"]), int(counts["missiles"])
+		int(counts["cities"]), int(counts["buildings"]), int(counts["citizens"]), int(counts["cars"]), int(counts["resources"]), int(counts["rubble"]), int(counts["fires"]), int(counts["meteors"]), int(counts["tornadoes"]), int(counts["effects"]), int(counts["construction_sites"]), int(counts["armies"]), int(counts["missiles"]), int(counts["transports"]), int(counts["oil_rigs"]), int(counts["alliances"]), int(counts["hostages"])
 	]
 	_stress_emit(metric_line)
 	if stress_csv != null:
-		stress_csv.store_line("%s,%s,%.3f,%d,%d,%.3f,%.3f,%.3f,%.3f,%.3f,%.3f,%.3f,%d,%d,%d,%d,%d,%d,%d,%d,%d,%d,%d,%d,%d" % [
+		stress_csv.store_line("%s,%s,%.3f,%d,%d,%.3f,%.3f,%.3f,%.3f,%.3f,%.3f,%.3f,%d,%d,%d,%d,%d,%d,%d,%d,%d,%d,%d,%d,%d,%d,%d,%d,%d" % [
 			record_type.to_lower(), scenario_name, scenario_elapsed, frame_count, Engine.get_frames_per_second(), mean_fps, average_interval_ms, p95_frame_ms, p99_frame_ms, max_frame_ms, process_max_ms, stress_scenario_max_action_ms,
-			int(counts["cities"]), int(counts["buildings"]), int(counts["citizens"]), int(counts["cars"]), int(counts["resources"]), int(counts["rubble"]), int(counts["fires"]), int(counts["meteors"]), int(counts["tornadoes"]), int(counts["effects"]), int(counts["construction_sites"]), int(counts["armies"]), int(counts["missiles"])
+			int(counts["cities"]), int(counts["buildings"]), int(counts["citizens"]), int(counts["cars"]), int(counts["resources"]), int(counts["rubble"]), int(counts["fires"]), int(counts["meteors"]), int(counts["tornadoes"]), int(counts["effects"]), int(counts["construction_sites"]), int(counts["armies"]), int(counts["missiles"]), int(counts["transports"]), int(counts["oil_rigs"]), int(counts["alliances"]), int(counts["hostages"])
 		])
 		stress_csv.flush()
 	if not whole_scenario:
@@ -517,6 +517,10 @@ func _stress_emit(line: String) -> void:
 
 
 func _runtime_stress_counts() -> Dictionary:
+	var total_hostages: int = 0
+	for person in people:
+		if str(person.get("activity", "")) == "hostage":
+			total_hostages += 1
 	return {
 		"cities": cities.size(),
 		"buildings": _total_building_count(),
@@ -530,7 +534,11 @@ func _runtime_stress_counts() -> Dictionary:
 		"effects": god_effects.size(),
 		"construction_sites": construction_sites.size(),
 		"armies": armies.size(),
-		"missiles": missiles.size()
+		"missiles": missiles.size(),
+		"transports": transports.size(),
+		"oil_rigs": oil_rigs.size(),
+		"alliances": alliances.size(),
+		"hostages": total_hostages
 	}
 
 
@@ -619,6 +627,58 @@ func _run_runtime_stress_action(action_name: String) -> void:
 			stress_camera_lod_step += 1
 			_sculpt_terrain(edit_target, -0.18, false)
 			_sculpt_terrain(edit_target + Vector3(5.0, 0.0, 4.0), 0.16, false)
+		"transport_network":
+			_stress_create_extra_cities(mini(12, MAX_CITIES))
+			_stress_spawn_crowd(mini(MAX_PEOPLE, maxi(people.size(), 900)))
+			for city_id in range(cities.size()):
+				var city: Dictionary = cities[city_id]
+				city["treasury"] = maxf(1200.0, float(city.get("treasury", 0.0)))
+				city["wood"] = maxf(45.0, float(city.get("wood", 0.0)))
+				city["stone"] = maxf(35.0, float(city.get("stone", 0.0)))
+				city["iron"] = maxf(30.0, float(city.get("iron", 0.0)))
+				city["copper"] = maxf(25.0, float(city.get("copper", 0.0)))
+				cities[city_id] = city
+				while _city_population(city_id) < 24 and people.size() < MAX_PEOPLE:
+					var home: Vector3 = cities[city_id]["pos"]
+					_spawn_human(_surface_position(home.x + randf_range(-12.0, 12.0), home.z + randf_range(-12.0, 12.0)), city_id)
+			last_architecture_era = -1
+			_update_historical_era(true)
+			if oil_rigs.is_empty():
+				_seed_oil_rigs()
+			for departure in range(10):
+				_spawn_transport_wave()
+			camera_target = Vector3.ZERO
+			camera_distance = 330.0
+			_update_camera()
+		"oil_wars":
+			if cities.size() < 2:
+				return
+			if oil_rigs.is_empty():
+				_seed_oil_rigs()
+			if not oil_rigs.is_empty():
+				var stress_rig_index: int = randi_range(0, oil_rigs.size() - 1)
+				oil_rigs[stress_rig_index]["owner_city"] = 0
+			_declare_war(0, 1)
+			_launch_army(0, 1, true)
+			_launch_army(1, 0, true)
+			_spawn_defenders(1, 0)
+			_update_oil_rigs()
+		"battle_hostages":
+			if cities.size() < 2:
+				return
+			_declare_war(0, 1)
+			_launch_army(0, 1, true)
+			_launch_army(1, 0, true)
+			_spawn_defenders(0, 1)
+			_spawn_defenders(1, 0)
+			_capture_city_hostages(1, 0, 3)
+			for city_id in [0, 1]:
+				var target_position: Vector3 = cities[city_id]["pos"]
+				_damage_roads_at_position(target_position, 7.0, false)
+				_queue_city_roads_rebuild(city_id)
+			camera_target = cities[1]["pos"]
+			camera_distance = 96.0
+			_update_camera()
 		"collapse":
 			var collapse_count: int = 0
 			for city_id in range(cities.size()):
