@@ -5023,6 +5023,27 @@ func _try_found_cities() -> void:
 			cities[new_city_id]["food"] = 9.0
 			cities[new_city_id]["wood"] = 6.0
 			cities[new_city_id]["stone"] = 3.0
+			var parent_capital: int = -1
+			var parent_distance: float = TERRAIN_SIZE * 0.34
+			for existing_city_id in range(new_city_id):
+				var existing_city: Dictionary = cities[existing_city_id]
+				var candidate_capital: int = int(existing_city.get("capital_id", existing_city_id))
+				if candidate_capital < 0 or candidate_capital >= cities.size():
+					candidate_capital = existing_city_id
+				if not bool(cities[candidate_capital].get("is_capital", true)):
+					continue
+				var existing_position: Vector3 = existing_city["pos"]
+				var distance_to_city: float = Vector2(existing_position.x - center_x, existing_position.z - center_z).length()
+				if distance_to_city < parent_distance:
+					parent_distance = distance_to_city
+					parent_capital = candidate_capital
+			if parent_capital >= 0:
+				cities[new_city_id]["owner"] = int(cities[parent_capital]["owner"])
+				cities[new_city_id]["capital_id"] = parent_capital
+				cities[new_city_id]["is_capital"] = false
+				cities[new_city_id]["loyalty"] = randf_range(65.0, 82.0)
+				cities[new_city_id]["autonomy"] = 100.0 - float(cities[new_city_id]["loyalty"])
+				city_relations[_city_relation_key(new_city_id, parent_capital)] = 45.0
 			for member_id in members:
 				people[member_id]["city_id"] = new_city_id
 				var member: Dictionary = people[member_id]
@@ -5032,7 +5053,13 @@ func _try_found_cities() -> void:
 			_refresh_city_development(new_city_id)
 			_schedule_city_territory_refresh()
 			_seed_resources_around(cities[new_city_id]["pos"])
-			_log("A new settlement, %s, has been founded by %d humans." % [new_name, members.size()])
+			if parent_capital >= 0:
+				_log("SETTLEMENT FOUNDED: %s was founded by %d settlers under the capital of %s. Loyalty and local stability will determine future independence." % [new_name, members.size(), cities[parent_capital]["name"]])
+			else:
+				cities[new_city_id]["is_capital"] = true
+				cities[new_city_id]["capital_id"] = new_city_id
+				cities[new_city_id]["owner"] = new_city_id
+				_log("NEW CAPITAL: %s was founded by %d settlers beyond the reach of existing polities." % [new_name, members.size()])
 			return
 
 
@@ -5195,6 +5222,25 @@ func _toggle_reset_speed_on_city_event() -> void:
 	_log("Reset-to-1x on city events %s." % ("enabled" if reset_speed_on_city_event else "disabled"))
 
 
+func _pick_city_event_location(city_id: int) -> Vector3:
+	if city_id < 0 or city_id >= cities.size():
+		return Vector3.ZERO
+	var city: Dictionary = cities[city_id]
+	var city_position: Vector3 = city["pos"]
+	var min_x: float = float(city.get("road_grid_min_x", -7.5))
+	var max_x: float = float(city.get("road_grid_max_x", 7.5))
+	var min_z: float = float(city.get("road_grid_min_z", -7.5))
+	var max_z: float = float(city.get("road_grid_max_z", 7.5))
+	for attempt in range(16):
+		var local_x: float = roundf(randf_range(min_x, max_x) / ROAD_GRID_SIZE) * ROAD_GRID_SIZE
+		var local_z: float = roundf(randf_range(min_z, max_z) / ROAD_GRID_SIZE) * ROAD_GRID_SIZE
+		var world_x: float = clampf(city_position.x + local_x, -TERRAIN_SIZE * 0.47, TERRAIN_SIZE * 0.47)
+		var world_z: float = clampf(city_position.z + local_z, -TERRAIN_SIZE * 0.47, TERRAIN_SIZE * 0.47)
+		if _height_at(world_x, world_z) > WATER_LEVEL + 0.2:
+			return _surface_position(world_x, world_z)
+	return city_position
+
+
 func _record_city_event(city_id: int, event_name: String, event_color: Color) -> void:
 	city_events_total += 1
 	if reset_speed_on_city_event:
@@ -5204,10 +5250,12 @@ func _record_city_event(city_id: int, event_name: String, event_color: Color) ->
 	if city_id < 0 or city_id >= cities.size():
 		return
 	var city: Dictionary = cities[city_id]
+	var event_position: Vector3 = _pick_city_event_location(city_id)
 	var marker: Label3D = city["event_marker"]
 	if is_instance_valid(marker):
 		marker.text = event_name
 		marker.modulate = event_color
+		marker.position = event_position - city["pos"] + Vector3(0.0, 9.0, 0.0)
 		marker.visible = true
 	city["event_timer"] = 12.0
 	var cooldown_min: float = 10.0
@@ -5227,14 +5275,56 @@ func _record_city_event(city_id: int, event_name: String, event_color: Color) ->
 			cooldown_max = 22.0
 	city["next_city_event_time"] = game_clock + randf_range(cooldown_min, cooldown_max)
 	cities[city_id] = city
-	_spawn_city_event_visual(city_id, event_name)
+	_spawn_city_event_visual(city_id, event_name, event_position)
 
 
-func _spawn_city_event_visual(city_id: int, event_name: String) -> void:
+func _spawn_city_event_visual(city_id: int, event_name: String, event_position: Vector3) -> void:
 	if city_id < 0 or city_id >= cities.size():
 		return
 	var city: Dictionary = cities[city_id]
-	var centre: Vector3 = city["pos"]
+	var centre: Vector3 = event_position
+	if event_name == "PLANE CRASH":
+		var crash_root := Node3D.new()
+		crash_root.name = "PlaneCrashSite"
+		crash_root.position = centre
+		add_child(crash_root)
+		_add_mesh(crash_root, _cached_box_mesh(Vector3(0.8, 0.5, 4.3)), _material(Color(0.28, 0.31, 0.32)), Vector3.ZERO)
+		_add_mesh(crash_root, _cached_box_mesh(Vector3(3.4, 0.12, 0.7)), _material(Color(0.35, 0.37, 0.37)), Vector3(0.0, 0.15, 0.15))
+		var flame := MeshInstance3D.new()
+		var flame_mesh := SphereMesh.new()
+		flame_mesh.radius = 1.3
+		flame_mesh.height = 2.6
+		flame.mesh = flame_mesh
+		flame.material_override = _material(Color(1.0, 0.28, 0.04, 0.82))
+		flame.position = Vector3(0.0, 1.2, 0.2)
+		crash_root.add_child(flame)
+		var smoke := MeshInstance3D.new()
+		var smoke_mesh := SphereMesh.new()
+		smoke_mesh.radius = 1.3
+		smoke_mesh.height = 2.6
+		smoke.mesh = smoke_mesh
+		var smoke_material := _material(Color(0.18, 0.18, 0.17, 0.65))
+		smoke_material.transparency = BaseMaterial3D.TRANSPARENCY_ALPHA
+		smoke.material_override = smoke_material
+		smoke.position = Vector3(0.0, 2.0, 0.0)
+		crash_root.add_child(smoke)
+		city_event_scenes.append({"node": crash_root, "kind": "crash", "flame": flame, "smoke": smoke, "age": 0.0, "duration": 9.0})
+		return
+	if event_name == "AIR HIJACK":
+		var hijack_root := Node3D.new()
+		hijack_root.name = "AircraftHijackingIncident"
+		hijack_root.position = centre
+		add_child(hijack_root)
+		var signal_label := Label3D.new()
+		signal_label.text = "AIR HIJACK"
+		signal_label.font_size = 42
+		signal_label.pixel_size = 0.012
+		signal_label.outline_size = 9
+		signal_label.modulate = Color(1.0, 0.18, 0.12)
+		signal_label.position = Vector3(0.0, 8.0, 0.0)
+		hijack_root.add_child(signal_label)
+		city_event_scenes.append({"node": hijack_root, "kind": "hijack", "label": signal_label, "age": 0.0, "duration": 7.0})
+		return
 	if event_name in ["PROTEST", "FOOD PROTEST", "FOOD RIOT", "STRIKE", "REBELLION", "FESTIVAL"]:
 		var crowd_root := Node3D.new()
 		crowd_root.name = "CityEventCrowd"
@@ -5432,6 +5522,19 @@ func _update_city_event_scenes(delta: float) -> void:
 				if age >= 1.08 and not bool(scene.get("collapsed", false)):
 					_collapse_specific_building(int(scene.get("city_id", -1)), house, true)
 					scene["collapsed"] = true
+		elif kind == "crash":
+			var flame: MeshInstance3D = scene.get("flame") as MeshInstance3D
+			var smoke: MeshInstance3D = scene.get("smoke") as MeshInstance3D
+			if is_instance_valid(flame):
+				flame.scale = Vector3.ONE * maxf(0.25, 1.0 + sin(age * 8.0) * 0.22)
+				flame.visible = age < 6.0
+			if is_instance_valid(smoke):
+				smoke.scale = Vector3.ONE * (0.45 + age * 0.16)
+				smoke.position.y = 2.0 + age * 0.55
+		elif kind == "hijack":
+			var hijack_label: Label3D = scene.get("label") as Label3D
+			if is_instance_valid(hijack_label):
+				hijack_label.position.y = 8.0 + sin(age * 4.0) * 0.7
 		elif kind == "robbery":
 			var robber: Node3D = scene["robber"]
 			var car: Node3D = scene["car"]
@@ -5476,6 +5579,7 @@ func _update_city_event_markers(delta: float) -> void:
 		var marker: Label3D = city["event_marker"]
 		if is_instance_valid(marker) and time_left <= 0.0:
 			marker.visible = false
+			marker.position = Vector3(3.2, 9.0, 0.0)
 		cities[city_id] = city
 
 
