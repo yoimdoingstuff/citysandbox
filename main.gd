@@ -4074,6 +4074,9 @@ func _update_people(delta: float) -> void:
 		var position: Vector3 = person["pos"]
 		var activity: String = str(person.get("activity", "wandering"))
 		var activity_timer: float = float(person.get("activity_timer", 0.0))
+		# Captive civilians are moved by their escort, not the civilian wandering AI.
+		if activity == "hostage":
+			continue
 		if activity == "indoors":
 			activity_timer -= delta
 			if is_instance_valid(node):
@@ -5809,9 +5812,13 @@ func _launch_army(source_id: int, target_id: int, automatic: bool) -> void:
 		unit_types.append("tank")
 		if year >= 1940 and strength >= 3:
 			unit_types.append("tank")
-	if year >= 1945:
+	if year >= 1850 and strength >= 2:
+		unit_types.append("artillery")
+	var source_has_airfield: bool = is_instance_valid(cities[source_id].get("airport"))
+	var target_has_airfield: bool = is_instance_valid(cities[target_id].get("airport"))
+	if year >= 1945 and source_has_airfield and target_has_airfield:
 		unit_types.append("aircraft")
-	if year >= 1970 and not automatic:
+	if year >= 1970 and source_has_airfield and target_has_airfield:
 		unit_types.append("helicopter")
 	if year >= 2000 and strength >= 4:
 		unit_types.append("apc")
@@ -5850,7 +5857,7 @@ func _military_unit_roster(unit_types: Array[String]) -> String:
 	for unit_type in unit_types:
 		counts[unit_type] = int(counts.get(unit_type, 0)) + 1
 	var labels: Array[String] = []
-	for unit_type in ["infantry", "tank", "apc", "aircraft", "helicopter"]:
+	for unit_type in ["infantry", "tank", "artillery", "apc", "aircraft", "helicopter"]:
 		if int(counts.get(unit_type, 0)) > 0:
 			labels.append("%d %s" % [int(counts[unit_type]), unit_type])
 	return ", ".join(labels)
@@ -5860,6 +5867,8 @@ func _military_unit_health(unit_type: String) -> float:
 	match unit_type:
 		"tank":
 			return 5.0
+		"artillery":
+			return 3.2
 		"apc":
 			return 3.5
 		"aircraft":
@@ -5874,6 +5883,8 @@ func _military_unit_attack(unit_type: String) -> float:
 	match unit_type:
 		"tank":
 			return 3.0
+		"artillery":
+			return 2.7
 		"apc":
 			return 1.5
 		"aircraft":
@@ -5888,6 +5899,8 @@ func _military_unit_range(unit_type: String) -> float:
 	match unit_type:
 		"tank":
 			return 5.5
+		"artillery":
+			return 15.0
 		"apc":
 			return 3.0
 		"aircraft":
@@ -5915,6 +5928,12 @@ func _create_military_unit_node(unit_type: String, faction_color: Color) -> Node
 			for side in [-1.0, 1.0]:
 				for axle in [-0.65, 0.0, 0.65]:
 					_add_mesh(root, _cached_box_mesh(Vector3(0.22, 0.30, 0.30)), _material(Color(0.12, 0.13, 0.12)), Vector3(side * 0.66, 0.30, axle))
+		"artillery":
+			_add_mesh(root, _cached_box_mesh(Vector3(1.65, 0.48, 2.0)), _material(Color(0.34, 0.37, 0.28)), Vector3(0.0, 0.45, 0.0))
+			for side in [-1.0, 1.0]:
+				_add_mesh(root, _cached_box_mesh(Vector3(0.24, 0.38, 2.0)), _material(Color(0.15, 0.17, 0.15)), Vector3(side * 0.89, 0.36, 0.0))
+			_add_mesh(root, _cached_box_mesh(Vector3(0.55, 0.28, 0.65)), _material(Color(0.42, 0.43, 0.34)), Vector3(0.0, 0.78, -0.05))
+			_add_mesh(root, _cached_box_mesh(Vector3(0.14, 0.16, 2.3)), _material(Color(0.22, 0.24, 0.21)), Vector3(0.0, 0.90, -1.15))
 		"aircraft":
 			_add_mesh(root, _cached_box_mesh(Vector3(0.32, 0.28, 2.1)), _material(Color(0.48, 0.51, 0.48)), Vector3(0.0, 0.0, 0.0))
 			_add_mesh(root, _cached_box_mesh(Vector3(2.65, 0.12, 0.62)), _material(Color(0.40, 0.44, 0.41)), Vector3(0.0, -0.04, -0.12))
@@ -5983,6 +6002,8 @@ func _update_armies(delta: float) -> void:
 		match unit_type:
 			"tank":
 				move_speed = 3.5
+			"artillery":
+				move_speed = 1.8
 			"apc":
 				move_speed = 4.0
 			"aircraft":
