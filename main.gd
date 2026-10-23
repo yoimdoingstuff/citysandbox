@@ -1029,7 +1029,9 @@ func _build_world() -> void:
 	var sun := DirectionalLight3D.new()
 	sun.rotation_degrees = Vector3(-52.0, -28.0, 0.0)
 	sun.light_energy = 1.15
-	sun.shadow_enabled = true
+	# Real-time shadows over a 768-unit world are expensive on shared-memory GPUs.
+	# The stylised city materials remain readable without a large shadow map.
+	sun.shadow_enabled = false
 	add_child(sun)
 
 	var water := MeshInstance3D.new()
