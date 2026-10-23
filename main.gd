@@ -1609,7 +1609,7 @@ func _add_damaged_aware_road_segment(surface: SurfaceTool, city_id: int, city_po
 	if damage_records.is_empty():
 		_add_road_segment(surface, city_position, start_point, finish_point, width, height_offset, 0.0)
 		return
-	var pieces: int = maxi(1, int(ceil(start_point.distance_to(finish_point) / 3.2))
+	var pieces: int = maxi(1, int(ceil(start_point.distance_to(finish_point) / 3.2)))
 	for piece_index in range(pieces):
 		var t0: float = float(piece_index) / float(pieces)
 		var t1: float = float(piece_index + 1) / float(pieces)
