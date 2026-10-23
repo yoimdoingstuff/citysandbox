@@ -1729,7 +1729,7 @@ func _damage_city_roads(city_id: int, world_position: Vector3, radius: float, re
 			city["road_damage"] = damages
 			cities[city_id] = city
 			if rebuild_after:
-				_rebuild_city_roads(city_id)
+				_queue_city_roads_rebuild(city_id)
 			return true
 	var damage_id: int = rubble_id_sequence
 	damages.append({"id": damage_id, "center": [local_center.x, local_center.y], "radius": radius})
@@ -1737,7 +1737,7 @@ func _damage_city_roads(city_id: int, world_position: Vector3, radius: float, re
 	cities[city_id] = city
 	_spawn_persistent_rubble(world_position, false, Color(0.23, 0.24, 0.24), true, "road", damage_id)
 	if rebuild_after:
-		_rebuild_city_roads(city_id)
+		_queue_city_roads_rebuild(city_id)
 	return true
 
 
@@ -1748,7 +1748,7 @@ func _damage_roads_at_position(world_position: Vector3, radius: float, rebuild_a
 			affected_city_ids.append(city_id)
 	if rebuild_after:
 		for city_id in affected_city_ids:
-			_rebuild_city_roads(city_id)
+			_queue_city_roads_rebuild(city_id)
 	return affected_city_ids
 
 
@@ -4827,7 +4827,7 @@ func _update_abandoned_cities(interval: float) -> void:
 					if _collapse_specific_building(city_id, house, true, false):
 						city = cities[city_id]
 						city["abandoned_decay_timer"] = randf_range(7.0, 13.0)
-						_rebuild_city_roads(city_id)
+						_queue_city_roads_rebuild(city_id)
 						_schedule_city_territory_refresh()
 					break
 		elif float(city.get("abandoned_age", 0.0)) >= 24.0 and not bool(city.get("ruined", false)):
@@ -6787,7 +6787,7 @@ func _spawn_explosion(position: Vector3, target_id: int) -> void:
 			if _collapse_specific_building(city_id, house, true, false, 0, impact_strength):
 				city_changed = true
 		if city_changed or road_affected_city_ids.has(city_id):
-			_rebuild_city_roads(city_id)
+			_queue_city_roads_rebuild(city_id)
 		if city_changed:
 			_schedule_city_territory_refresh()
 		var population_losses: int = 0
@@ -7438,7 +7438,7 @@ func _clear_rubble_by_id(rubble_id: int) -> void:
 			rubble_records.remove_at(record_index)
 			break
 	if road_city_to_rebuild >= 0 and road_city_to_rebuild < cities.size():
-		_rebuild_city_roads(road_city_to_rebuild)
+		_queue_city_roads_rebuild(road_city_to_rebuild)
 	last_detail_signature = ""
 
 
@@ -7456,7 +7456,7 @@ func _destroy_city_houses(city_id: int, count: int) -> void:
 		if _collapse_specific_building(city_id, house, true, false):
 			changed = true
 	if changed and city_id < cities.size():
-		_rebuild_city_roads(city_id)
+		_queue_city_roads_rebuild(city_id)
 
 
 func _capture_city(city_id: int, source_id: int) -> void:
