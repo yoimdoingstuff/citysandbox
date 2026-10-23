@@ -4119,7 +4119,7 @@ func _update_people(delta: float) -> void:
 	elif total_people > 500 or (camera_distance > 85.0 and total_people > 240):
 		batch_count = maxi(1, ceili(float(total_people) / (4.0 if camera_distance > 165.0 else 2.0)))
 	var start_index: int = posmod(people_update_cursor, total_people)
-	var person_delta: float = person_delta * float(total_people) / float(batch_count)
+	var person_delta: float = delta * float(total_people) / float(batch_count)
 	var animate_citizens: bool = camera_distance <= 72.0 and total_people <= 300
 	for batch_offset in range(batch_count):
 		var i: int = (start_index + batch_offset) % total_people
