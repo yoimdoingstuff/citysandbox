@@ -5801,12 +5801,12 @@ func _try_found_cities() -> void:
 				city_relations[_city_relation_key(new_city_id, parent_capital)] = 45.0
 			for member_id in members:
 				people[member_id]["city_id"] = new_city_id
-			if not members.is_empty():
-				_invalidate_population_counts()
 				var member: Dictionary = people[member_id]
 				var city_position: Vector3 = cities[new_city_id]["pos"]
 				member["home_offset"] = Vector2(member["pos"].x - city_position.x, member["pos"].z - city_position.z)
 				people[member_id] = member
+			if not members.is_empty():
+				_invalidate_population_counts()
 			_refresh_city_development(new_city_id)
 			_schedule_city_territory_refresh()
 			_seed_resources_around(cities[new_city_id]["pos"])
