@@ -2316,7 +2316,7 @@ func _update_placed_object_heights_near_many(edits: Array[Dictionary], refresh_t
 	for resource_index in range(resources.size()):
 		var resource: Dictionary = resources[resource_index]
 		var position: Vector3 = resource["pos"]
-		if not _terrain_edit_affects_point(position.x, position.z, edits):
+		if not edit_bounds.has_point(Vector2(position.x, position.z)) or not _terrain_edit_affects_point(position.x, position.z, edits):
 			continue
 		position.y = _height_at(position.x, position.z)
 		resource["pos"] = position
@@ -2389,7 +2389,7 @@ func _update_placed_object_heights_near_many(edits: Array[Dictionary], refresh_t
 	for army_index in range(armies.size()):
 		var army: Dictionary = armies[army_index]
 		var position: Vector3 = army["pos"]
-		if not _terrain_edit_affects_point(position.x, position.z, edits):
+		if not edit_bounds.has_point(Vector2(position.x, position.z)) or not _terrain_edit_affects_point(position.x, position.z, edits):
 			continue
 		position.y = _height_at(position.x, position.z)
 		army["pos"] = position
