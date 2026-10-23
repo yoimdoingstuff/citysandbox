@@ -3536,6 +3536,9 @@ func _sync_city_buildings(city_id: int) -> bool:
 	city["next_plot_index"] = plot_index
 	cities[city_id] = city
 	var houses_changed: bool = houses.size() != houses_before
+	if houses_changed:
+		city["resident_building_candidates_cache_valid"] = false
+		cities[city_id] = city
 	if in_simulation_frame and houses_changed and houses.size() < desired_houses and building_start_budget_remaining <= 0:
 		_queue_city_development(city_id)
 	if terrain_changed:
@@ -4430,13 +4433,13 @@ func _update_people(delta: float) -> void:
 			if selected_rubble_id >= 0:
 				pass
 			elif city_id >= 0 and city_id < cities.size() and randf() < 0.16:
-				var candidates: Array[Node3D] = []
-				for house in cities[city_id]["houses"]:
-					if is_instance_valid(house) and int(house.get_meta("base_building_type", house.get_meta("building_type", 0))) in [0, 1, 2, 3]:
-						candidates.append(house)
+				# Cache eligible home/shop nodes per city rather than scanning every
+				# building for every citizen who decides to visit one.
+				var candidates: Array = _get_citizen_home_candidates(city_id)
 				if not candidates.is_empty():
-					selected_house = candidates[randi_range(0, candidates.size() - 1)]
-					next_target = _surface_position(selected_house.global_position.x, selected_house.global_position.z + 1.65)
+					selected_house = candidates[randi_range(0, candidates.size() - 1)] as Node3D
+					if is_instance_valid(selected_house):
+						next_target = _surface_position(selected_house.global_position.x, selected_house.global_position.z + 1.65)
 			elif city_id >= 0 and city_id < cities.size() and _world_year() >= 1900 and randf() < 0.12:
 				var best_distance: float = 24.0
 				for car_data in cars:
@@ -4497,6 +4500,24 @@ func _update_people(delta: float) -> void:
 				node.rotation.y = atan2(target.x - position.x, target.z - position.z)
 		people[i] = person
 	people_update_cursor = (start_index + batch_count) % maxi(1, people.size())
+
+
+func _get_citizen_home_candidates(city_id: int) -> Array:
+	if city_id < 0 or city_id >= cities.size():
+		return []
+	var city: Dictionary = cities[city_id]
+	var houses: Array = city.get("houses", [])
+	if bool(city.get("resident_building_candidates_cache_valid", false)) and int(city.get("resident_building_candidates_cache_size", -1)) == houses.size():
+		return city.get("resident_building_candidates_cache", [])
+	var candidates: Array = []
+	for house in houses:
+		if is_instance_valid(house) and int(house.get_meta("base_building_type", house.get_meta("building_type", 0))) in [0, 1, 2, 3]:
+			candidates.append(house)
+	city["resident_building_candidates_cache"] = candidates
+	city["resident_building_candidates_cache_size"] = houses.size()
+	city["resident_building_candidates_cache_valid"] = true
+	cities[city_id] = city
+	return candidates
 
 
 func _choose_citizen_street_target(city_id: int, centre: Vector3, radius: float) -> Vector3:
@@ -6911,6 +6932,7 @@ func _collapse_specific_building(city_id: int, house: Node3D, allow_chain: bool 
 	houses.remove_at(house_index)
 	city["houses"] = houses
 	city["building_economy_counts_cache_valid"] = false
+	city["resident_building_candidates_cache_valid"] = false
 	city["destroyed_building_debt"] = int(city.get("destroyed_building_debt", 0)) + 1
 	cities[city_id] = city
 	last_detail_signature = ""
