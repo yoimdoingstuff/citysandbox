@@ -4,19 +4,28 @@ This pass adds CPU and allocation optimizations beyond the existing LOD, frustum
 
 ## Implemented techniques
 
-1. **Spatial hashing for local queries.** Citizens, resources, and rubble are bucketed into 16-world-unit X/Z cells. Resource collection, fire/tornado area damage, missile impacts, wildfire tree spread, and nearby rubble selection query intersecting cells first, then keep the original exact radius checks. Indexes are invalidated when indexed positions, the relevant arrays, or the world change.
-2. **Deferred citizen-array compaction.** Area damage and missile impacts mark victims dead and queue their visuals for deletion instead of repeatedly shifting the people array. Dead entries are compacted in one pass after the effect/plague phase, so multiple effects can safely share the same spatial index.
-3. **Reusable transient effects.** God-power pulse/lightning visuals reuse mesh/material/light nodes, and building-collapse smoke puffs reuse their mesh/material nodes. Pools are bounded to prevent unlimited growth.
-4. **Terrain-edit broad phase.** Terrain relocation calculates one padded union bounding rectangle for a batch of sculpt/crater edits. Entities outside it skip per-edit circle checks; entities inside still pass the original exact test and height update.
-5. **Squared-distance comparisons.** Hot citizen movement/activity checks, nearest-car selection, stuck recovery, city assignment, wildfire spread and local damage checks use squared distances where they only need thresholds. This avoids unnecessary square roots without changing those thresholds.
-6. **Adaptive frame-time workload governor.** A smoothed frame-time estimate raises performance pressure when frames are slow. It gradually increases citizen update batching and spreads UI, crowd-proxy and visual-detail refreshes over longer intervals, then recovers gradually as frame times improve.
+1. **Spatial hashing for local queries.** Citizens, resources, and rubble are bucketed into 16-world-unit X/Z cells. Resource collection, fire/tornado damage, missile impacts, wildfire spread and nearby rubble selection query intersecting cells first, then keep exact radius checks. The indexes are invalidated when the underlying collections or positions change.
+2. **Deferred citizen-array compaction.** Area damage and missile impacts mark victims dead and queue their visuals for deletion rather than repeatedly shifting the people array. Dead entries are compacted in one pass after the effect/plague phase.
+3. **Reusable transient effects.** God-power pulse/lightning visuals reuse mesh/material/light nodes, and building-collapse smoke puffs reuse their mesh/material nodes. The pools are bounded.
+4. **Terrain-edit broad phase.** Terrain relocation calculates one padded union bounding rectangle for a batch of sculpt/crater edits. Entities outside it skip detailed per-edit circle checks.
+5. **Squared-distance comparisons.** Hot citizen movement, nearest-car selection, stuck recovery, city assignment and local damage checks avoid square roots when only comparing thresholds.
+6. **Adaptive frame-time workload governor.** A smoothed frame-time estimate increases citizen batching and spreads UI, crowd-proxy and visual-detail refreshes across longer intervals when frames are slow.
+7. **City-local traffic-light indexing.** Car signal checks search the current city's traffic signals rather than iterating through every signal in every city.
+8. **Bounded round-robin infrastructure checks.** Airport/seaport eligibility is rechecked in small city batches, so growing cities can qualify later without scanning/rebuilding every city in one frame.
+
+## Transport and timeline fixes
+
+- Airports have a larger, higher-contrast terminal/runway layout and a terrain-following access road that joins the nearest actual street-grid line.
+- Airliners have a larger silhouette, blue livery/tail, engines and a higher flight arc; air-transport routes are preferred when at least two airports exist, and aircraft remain eligible when all candidate cities happen to be at war.
+- **Maritime services unlock in 1885, exactly 60 years before the 1945 airport milestone.** Seaports, ships and oil rigs are gated to this date; airports and aircraft are gated to 1945. Era-skipping backward removes future facilities/vehicles, and world reloads reset unlock caches.
+- The era selector includes 1885 and 1945 so those boundaries can be checked directly.
 
 ## Stability fixes found while stress-testing
 
-- Check validity before casting scene objects, and discard dead traffic-light and construction-site references instead of repeatedly throwing errors.
-- Add smoke nodes to the scene tree before accessing their global transforms.
-- Tint conquered city buildings through duplicated mesh materials instead of assigning the unsupported `modulate` property to a `Node3D`.
+- Validate scene references before type checks/casts and discard stale traffic-light/construction references.
+- Add smoke nodes to the scene tree before reading their global transforms.
+- Avoid assigning the unsupported `modulate` property to a `Node3D`; conquered buildings are tinted through mesh materials instead.
 
 ## Validation notes
 
-The repository's Runtime stress-test workflow launches the rendered Godot 4.3 game and exercises 19 scenarios, including crowded cities, disasters, mass collapses, terrain edits, settlement growth, save/load and combined-load testing. The latest available recorded run completed the suite but exposed stale-object errors; fixes have since been committed, and a new run is needed to confirm the fixes are clean. Existing FPS samples came from different virtual CPUs/rendering environments, so they are not an apples-to-apples speed comparison. Do not infer a percentage FPS gain until a comparable baseline and optimized run are available.
+The recorded Godot 4.3 runtime run for commit `8129b654` completed all 19 stress scenarios without any Godot script errors in its log. The later aircraft/timeline changes still need a fresh run against the newest source revision. FPS results have been recorded on different virtual CPUs/rendering environments, so they are not an apples-to-apples speed comparison; do not infer a percentage gain until comparable runs are available.
