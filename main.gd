@@ -7996,18 +7996,25 @@ func _update_fire_zones(delta: float) -> void:
 			fire["tick"] = 0.0
 			_power_damage(fire["pos"], float(fire["radius"]), 2, 0.22, 1, false)
 			if fire_zones.size() < 12:
-				for resource in resources:
-					if str(resource["type"]) != "tree" or int(resource["amount"]) <= 0:
+				var fire_position: Vector3 = fire["pos"]
+				var spread_radius: float = float(fire["radius"]) + 2.2
+				_ensure_resource_spatial_index()
+				for resource_index in _query_spatial_indices(resource_spatial_grid, fire_position, spread_radius):
+					if resource_index < 0 or resource_index >= resources.size():
+						continue
+					var resource: Dictionary = resources[resource_index]
+					if str(resource.get("type", "")) != "tree" or int(resource.get("amount", 0)) <= 0 or not bool(resource.get("alive", true)):
 						continue
 					var tree_position: Vector3 = resource["pos"]
-					var spread_dx: float = tree_position.x - float(fire["pos"].x)
-					var spread_dz: float = tree_position.z - float(fire["pos"].z)
-					var spread_radius: float = float(fire["radius"]) + 2.2
+					var spread_dx: float = tree_position.x - fire_position.x
+					var spread_dz: float = tree_position.z - fire_position.z
 					if spread_dx * spread_dx + spread_dz * spread_dz <= spread_radius * spread_radius and randf() < 0.22:
 						resource["amount"] = 0
 						resource["alive"] = false
-						if is_instance_valid(resource["node"]):
-							resource["node"].visible = false
+						resources[resource_index] = resource
+						var resource_node: Variant = resource.get("node", null)
+						if is_instance_valid(resource_node):
+							resource_node.visible = false
 						_ignite_fire(_surface_position(tree_position.x, tree_position.z))
 						_log("The wildfire has spread to a nearby tree.")
 						break
