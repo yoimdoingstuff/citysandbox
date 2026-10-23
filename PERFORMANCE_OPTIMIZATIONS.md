@@ -16,8 +16,8 @@ This pass adds CPU and allocation optimizations beyond the existing LOD, frustum
 
 ## Transport and timeline fixes
 
-- Airports have a larger, higher-contrast terminal/runway layout and a terrain-following access road that joins the nearest actual street-grid line.
-- Airliners have a larger silhouette, blue livery/tail, engines and a higher flight arc; air-transport routes are preferred when at least two airports exist, and aircraft remain eligible when all candidate cities happen to be at war.
+- Airports have a larger, higher-contrast terminal/runway layout and a terrain-following access road that joins the nearest actual street-grid line. The airport and its access road now live outside the city-detail parent, so medium/overview LOD no longer hides them just because buildings are hidden.
+- Airliners have a larger silhouette, blue livery/tail, engines and a higher flight arc. When a city has only its first airport, a short runway circuit makes aircraft visible while the network grows; once several airports exist, flights route between cities. Local circuits do not generate crash/hijack incidents, and maritime traffic remains active alongside a single-airport network.
 - **Maritime services unlock in 1885, exactly 60 years before the 1945 airport milestone.** Seaports, ships and oil rigs are gated to this date; airports and aircraft are gated to 1945. Era-skipping backward removes future facilities/vehicles, and world reloads reset unlock caches.
 - The era selector includes 1885 and 1945 so those boundaries can be checked directly.
 
