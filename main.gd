@@ -10036,7 +10036,16 @@ func _update_transport_era_unlocks(year: int) -> void:
 				city["seaport"] = null
 				city["seaport_attempted"] = false
 				cities[city_id] = city
+	# Also repair stale saved state in case a save was written before the
+	# historical transport gates existed.
+	if not maritime_available:
+		if not oil_rigs.is_empty():
+			_clear_oil_rigs()
+		if not transports.is_empty():
+			_remove_transports_of_kind("sea")
 	var aviation_available: bool = year >= AIRPORT_INTRODUCTION_YEAR
+	if not aviation_available and not transports.is_empty():
+		_remove_transports_of_kind("air")
 	if aviation_available != aviation_era_unlocked:
 		aviation_era_unlocked = aviation_available
 		if aviation_available:
@@ -10548,6 +10557,10 @@ func _update_transports(delta: float) -> void:
 		var start: Vector3 = transport["start"]
 		var finish: Vector3 = transport["finish"]
 		var kind: String = str(transport.get("kind", "air"))
+		if (kind == "air" and _world_year() < AIRPORT_INTRODUCTION_YEAR) or (kind == "sea" and _world_year() < MARITIME_INTRODUCTION_YEAR):
+			node.queue_free()
+			transports.remove_at(transport_index)
+			continue
 		var position: Vector3 = start.lerp(finish, progress)
 		if kind == "air":
 			position.y += sin(progress * PI) * 26.0
