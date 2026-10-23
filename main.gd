@@ -130,9 +130,11 @@ var diplomacy_timer: float = 0.0
 var city_event_scenes: Array = []
 var rubble_records: Array = []
 var rubble_nodes: Array = []
+var rubble_index_by_id: Dictionary = {}
 var rubble_id_sequence: int = 1
 var active_building_smoke_puffs: int = 0
 var construction_sites: Array = []
+var construction_sites_by_id: Dictionary = {}
 var construction_id_sequence: int = 1
 var construction_site_update_cursor: int = 0
 var construction_simulation_clock: float = 0.0
@@ -3415,14 +3417,28 @@ func _setup_construction_site(house: Node3D, city_id: int, building_type: int, p
 		"worker_count": assigned_workers, "worker_entries": assigned_worker_entries, "pad_size": pad_size,
 		"last_simulation_clock": construction_simulation_clock
 	})
+	construction_sites_by_id[site_id] = construction_sites[construction_sites.size() - 1]
 	_trace_slow_operation("construction-scaffold-full-setup", setup_started_usec)
 
 
 func _get_construction_site(site_id: int) -> Dictionary:
-	for site in construction_sites:
-		if int(site.get("id", -1)) == site_id:
-			return site
-	return {}
+	var site_value: Variant = construction_sites_by_id.get(site_id, null)
+	if not (site_value is Dictionary):
+		construction_sites_by_id.erase(site_id)
+		return {}
+	var site: Dictionary = site_value
+	var house_value: Variant = site.get("node", null)
+	if not is_instance_valid(house_value) or not (house_value is Node3D):
+		construction_sites_by_id.erase(site_id)
+		return {}
+	return site
+
+func _remove_construction_site_at(site_index: int) -> void:
+	if site_index < 0 or site_index >= construction_sites.size():
+		return
+	var site: Dictionary = construction_sites[site_index]
+	construction_sites_by_id.erase(int(site.get("id", -1)))
+	construction_sites.remove_at(site_index)
 
 
 func _cancel_construction_site(house: Node3D) -> void:
@@ -3440,7 +3456,7 @@ func _cancel_construction_site(house: Node3D) -> void:
 			person["activity"] = "wandering"
 			person["walk_timer"] = 0.0
 			person["activity_timer"] = 0.0
-		construction_sites.remove_at(site_index)
+		_remove_construction_site_at(site_index)
 		return
 
 
@@ -3472,12 +3488,12 @@ func _update_construction_sites(delta: float) -> void:
 		# house can be queued for deletion by a disaster in the same frame.
 		var house_value: Variant = site.get("node", null)
 		if not is_instance_valid(house_value) or not (house_value is Node3D) or not (house_value as Node3D).is_inside_tree():
-			construction_sites.remove_at(site_index)
+			_remove_construction_site_at(site_index)
 			continue
 		var house: Node3D = house_value as Node3D
 		var city_id: int = int(site.get("city_id", -1))
 		if city_id < 0 or city_id >= cities.size():
-			construction_sites.remove_at(site_index)
+			_remove_construction_site_at(site_index)
 			continue
 
 		var previous_clock: float = float(site.get("last_simulation_clock", construction_simulation_clock))
@@ -3520,6 +3536,7 @@ func _update_construction_sites(delta: float) -> void:
 					if arm.is_inside_tree():
 						arm.rotation.x = sin(phase * 3.0) * 0.75
 		construction_sites[site_index] = site
+		construction_sites_by_id[requested_site_id] = site
 		if progress < 1.0:
 			continue
 
@@ -3528,7 +3545,7 @@ func _update_construction_sites(delta: float) -> void:
 			building_visual_mutation_consumed_this_frame = true
 		var completed_city_id: int = int(site["city_id"])
 		var site_id: int = int(site["id"])
-		construction_sites.remove_at(site_index)
+		_remove_construction_site_at(site_index)
 		for child in house.get_children():
 			child.free()
 		house.set_meta("is_construction_site", false)
@@ -7656,18 +7673,32 @@ func _spawn_persistent_rubble(position: Vector3, tall_building: bool, building_c
 		fall_tween.tween_property(piece, "position", landing_position, randf_range(0.28, 0.82)).set_trans(Tween.TRANS_BOUNCE).set_ease(Tween.EASE_OUT)
 		fall_tween.tween_property(piece, "rotation", Vector3(randf_range(-0.9, 0.9), randf() * TAU, randf_range(-0.9, 0.9)), randf_range(0.25, 0.65)).set_trans(Tween.TRANS_CUBIC).set_ease(Tween.EASE_OUT)
 	_invalidate_rubble_spatial_index()
-	rubble_nodes.append({"id": resolved_id, "node": rubble, "position": debris_position, "kind": rubble_kind, "reserved": false, "age": 0.0, "decaying": false})
+	var rubble_entry: Dictionary = {"id": resolved_id, "node": rubble, "position": debris_position, "kind": rubble_kind, "reserved": false, "age": 0.0, "decaying": false}
+	rubble_nodes.append(rubble_entry)
+	rubble_index_by_id[resolved_id] = rubble_nodes.size() - 1
 	if record:
 		rubble_records.append({"id": resolved_id, "position": _vector3_to_array(debris_position), "tall": tall_building, "kind": rubble_kind, "color": building_color.to_html(true)})
 
 
-func _get_rubble_node(rubble_id: int) -> Node3D:
-	for entry in rubble_nodes:
-		if int(entry.get("id", -1)) == rubble_id:
-			var node: Node3D = entry.get("node") as Node3D
-			return node if is_instance_valid(node) else null
-	return null
+func _reindex_rubble_from(start_index: int = 0) -> void:
+	for rubble_index in range(maxi(0, start_index), rubble_nodes.size()):
+		var entry: Dictionary = rubble_nodes[rubble_index]
+		rubble_index_by_id[int(entry.get("id", -1))] = rubble_index
 
+
+func _get_rubble_node(rubble_id: int) -> Node3D:
+	var rubble_index: int = int(rubble_index_by_id.get(rubble_id, -1))
+	if rubble_index < 0 or rubble_index >= rubble_nodes.size():
+		rubble_index_by_id.erase(rubble_id)
+		return null
+	var entry: Dictionary = rubble_nodes[rubble_index]
+	if int(entry.get("id", -1)) != rubble_id:
+		rubble_index_by_id.erase(rubble_id)
+		return null
+	var node_value: Variant = entry.get("node", null)
+	if not is_instance_valid(node_value) or not (node_value is Node3D):
+		return null
+	return node_value as Node3D
 
 func _find_nearby_cleanup_rubble(position: Vector3, max_distance: float = 22.0) -> int:
 	_ensure_rubble_spatial_index()
@@ -7695,37 +7726,44 @@ func _find_nearby_cleanup_rubble(position: Vector3, max_distance: float = 22.0) 
 	return best_id
 
 func _reserve_cleanup_rubble(rubble_id: int, reserved: bool) -> void:
-	for index in range(rubble_nodes.size()):
-		var entry: Dictionary = rubble_nodes[index]
-		if int(entry.get("id", -1)) == rubble_id:
-			entry["reserved"] = reserved
-			rubble_nodes[index] = entry
-			return
-
+	var rubble_index: int = int(rubble_index_by_id.get(rubble_id, -1))
+	if rubble_index < 0 or rubble_index >= rubble_nodes.size():
+		rubble_index_by_id.erase(rubble_id)
+		return
+	var entry: Dictionary = rubble_nodes[rubble_index]
+	if int(entry.get("id", -1)) != rubble_id:
+		rubble_index_by_id.erase(rubble_id)
+		return
+	entry["reserved"] = reserved
+	rubble_nodes[rubble_index] = entry
 
 func _clear_rubble_by_id(rubble_id: int) -> void:
 	var road_city_to_rebuild: int = -1
-	for index in range(rubble_nodes.size() - 1, -1, -1):
-		var entry: Dictionary = rubble_nodes[index]
-		if int(entry.get("id", -1)) != rubble_id:
-			continue
-		var node: Node3D = entry.get("node") as Node3D
-		if is_instance_valid(node):
-			if node.has_meta("road_city_id"):
-				road_city_to_rebuild = int(node.get_meta("road_city_id", -1))
-				var damage_id: int = int(node.get_meta("road_damage_id", rubble_id))
-				if road_city_to_rebuild >= 0 and road_city_to_rebuild < cities.size():
-					var city: Dictionary = cities[road_city_to_rebuild]
-					var remaining_damage: Array = []
-					for damage in city.get("road_damage", []):
-						if int(damage.get("id", -1)) != damage_id:
-							remaining_damage.append(damage)
-					city["road_damage"] = remaining_damage
-					cities[road_city_to_rebuild] = city
-			node.queue_free()
-		rubble_nodes.remove_at(index)
-		_invalidate_rubble_spatial_index()
-		break
+	var rubble_index: int = int(rubble_index_by_id.get(rubble_id, -1))
+	if rubble_index >= 0 and rubble_index < rubble_nodes.size():
+		var entry: Dictionary = rubble_nodes[rubble_index]
+		if int(entry.get("id", -1)) == rubble_id:
+			var node_value: Variant = entry.get("node", null)
+			if is_instance_valid(node_value) and node_value is Node3D:
+				var node: Node3D = node_value as Node3D
+				if node.has_meta("road_city_id"):
+					road_city_to_rebuild = int(node.get_meta("road_city_id", -1))
+					var damage_id: int = int(node.get_meta("road_damage_id", rubble_id))
+					if road_city_to_rebuild >= 0 and road_city_to_rebuild < cities.size():
+						var city: Dictionary = cities[road_city_to_rebuild]
+						var remaining_damage: Array = []
+						for damage in city.get("road_damage", []):
+							if int(damage.get("id", -1)) != damage_id:
+								remaining_damage.append(damage)
+						city["road_damage"] = remaining_damage
+						cities[road_city_to_rebuild] = city
+				node.queue_free()
+			rubble_nodes.remove_at(rubble_index)
+			rubble_index_by_id.erase(rubble_id)
+			_invalidate_rubble_spatial_index()
+			_reindex_rubble_from(rubble_index)
+	else:
+		rubble_index_by_id.erase(rubble_id)
 	for record_index in range(rubble_records.size() - 1, -1, -1):
 		if int(rubble_records[record_index].get("id", -2)) == rubble_id:
 			rubble_records.remove_at(record_index)
@@ -7733,7 +7771,6 @@ func _clear_rubble_by_id(rubble_id: int) -> void:
 	if road_city_to_rebuild >= 0 and road_city_to_rebuild < cities.size():
 		_queue_city_roads_rebuild(road_city_to_rebuild)
 	last_detail_signature = ""
-
 
 func _destroy_city_houses(city_id: int, count: int) -> void:
 	if city_id < 0 or city_id >= cities.size():
@@ -9793,8 +9830,10 @@ func _clear_loaded_world() -> void:
 			existing_child.queue_free()
 	rubble_records.clear()
 	rubble_nodes.clear()
+	rubble_index_by_id.clear()
 	rubble_id_sequence = 1
 	construction_sites.clear()
+	construction_sites_by_id.clear()
 	construction_id_sequence = 1
 	construction_site_update_cursor = 0
 	construction_simulation_clock = 0.0
