@@ -12,6 +12,7 @@ This pass adds CPU and allocation optimizations beyond the existing LOD, frustum
 6. **Adaptive frame-time workload governor.** A smoothed frame-time estimate increases citizen batching and spreads UI, crowd-proxy and visual-detail refreshes across longer intervals when frames are slow.
 7. **City-local traffic-light indexing.** Car signal checks search the current city's traffic signals rather than iterating through every signal in every city.
 8. **Bounded round-robin infrastructure checks.** Airport/seaport eligibility is rechecked in small city batches, so growing cities can qualify later without scanning/rebuilding every city in one frame.
+9. **O(1) construction and rubble lookups.** Construction workers no longer linearly scan every active work site for each AI update, and cleanup crews can resolve/reserve rubble by an ID index. Construction indices are updated as sites are removed; the rubble index is repaired only after a rubble deletion, not during every lookup.
 
 ## Transport and timeline fixes
 
