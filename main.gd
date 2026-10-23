@@ -10219,17 +10219,17 @@ func _create_airport_access_road(city_id: int, airport: Node3D) -> void:
 		var left1_z: float = city_position.z + point1.y + perpendicular.y * half_width
 		var right1_x: float = city_position.x + point1.x - perpendicular.x * half_width
 		var right1_z: float = city_position.z + point1.y - perpendicular.y * half_width
-		var left0 := Vector3(point0.x + perpendicular.x * half_width, _height_at(left0_x, left0_z) - city_position.y + 0.21, point0.y + perpendicular.y * half_width)
-		var right0 := Vector3(point0.x - perpendicular.x * half_width, _height_at(right0_x, right0_z) - city_position.y + 0.21, point0.y - perpendicular.y * half_width)
-		var left1 := Vector3(point1.x + perpendicular.x * half_width, _height_at(left1_x, left1_z) - city_position.y + 0.21, point1.y + perpendicular.y * half_width)
-		var right1 := Vector3(point1.x - perpendicular.x * half_width, _height_at(right1_x, right1_z) - city_position.y + 0.21, point1.y - perpendicular.y * half_width)
+		var left0 := Vector3(point0.x + perpendicular.x * half_width, _height_at(left0_x, left0_z) - city_position.y + 0.34, point0.y + perpendicular.y * half_width)
+		var right0 := Vector3(point0.x - perpendicular.x * half_width, _height_at(right0_x, right0_z) - city_position.y + 0.34, point0.y - perpendicular.y * half_width)
+		var left1 := Vector3(point1.x + perpendicular.x * half_width, _height_at(left1_x, left1_z) - city_position.y + 0.34, point1.y + perpendicular.y * half_width)
+		var right1 := Vector3(point1.x - perpendicular.x * half_width, _height_at(right1_x, right1_z) - city_position.y + 0.34, point1.y - perpendicular.y * half_width)
 		surface.add_vertex(left0)
 		surface.add_vertex(left1)
 		surface.add_vertex(right0)
 		surface.add_vertex(right0)
 		surface.add_vertex(left1)
 		surface.add_vertex(right1)
-	surface.generate_normals(true)
+	surface.generate_normals(false)
 	var road := MeshInstance3D.new()
 	road.name = "AirportAccessRoad"
 	road.mesh = surface.commit()
@@ -10438,13 +10438,16 @@ func _spawn_transport_wave() -> void:
 	var target_id: int = -1
 	var target_distance_squared: float = INF
 	for candidate_id in eligible:
-		if candidate_id == source_id or _are_at_war(source_id, candidate_id):
+		if candidate_id == source_id:
 			continue
 		var a: Vector3 = cities[source_id]["pos"]
 		var b: Vector3 = cities[candidate_id]["pos"]
 		var dx: float = a.x - b.x
 		var dz: float = a.z - b.z
-		var distance_squared: float = dx * dx + dz * dz
+		# Prefer peaceful destinations, but do not suppress every flight just
+		# because every eligible city happens to be at war.
+		var war_penalty: float = 1000000.0 if _are_at_war(source_id, candidate_id) else 0.0
+		var distance_squared: float = dx * dx + dz * dz + war_penalty
 		if distance_squared < target_distance_squared:
 			target_distance_squared = distance_squared
 			target_id = candidate_id
