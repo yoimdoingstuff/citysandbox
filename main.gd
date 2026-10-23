@@ -4737,24 +4737,32 @@ func _city_relationship_summary(city_id: int) -> String:
 	if city_id < 0 or city_id >= cities.size():
 		return "RELATIONS: unknown"
 	var wars_with: Array[String] = []
+	var allies_with: Array[String] = []
 	var trade_partners: int = 0
 	var friendly: int = 0
+	var city: Dictionary = cities[city_id]
 	for other_id in range(cities.size()):
 		if other_id == city_id:
 			continue
 		if _are_at_war(city_id, other_id):
 			wars_with.append(str(cities[other_id]["name"]))
 		else:
+			if _are_allied(city_id, other_id):
+				allies_with.append(str(cities[other_id]["name"]))
 			if _city_relation(city_id, other_id) >= 20.0:
 				friendly += 1
 			if _city_relation(city_id, other_id) > -35.0:
 				trade_partners += 1
+	var polity_status: String = "CAPITAL"
+	if not bool(city.get("is_capital", true)):
+		var parent_id: int = clampi(int(city.get("capital_id", city_id)), 0, cities.size() - 1)
+		polity_status = "SATELLITE OF %s · LOYALTY %.0f%%" % [cities[parent_id]["name"], float(city.get("loyalty", 70.0))]
+	var summary: String = "%s · FRIENDS %d · TRADE %d" % [polity_status, friendly, trade_partners]
+	if not allies_with.is_empty():
+		summary += " · ALLIANCES %s" % ", ".join(allies_with.slice(0, 2))
 	if not wars_with.is_empty():
-		var war_list: String = wars_with[0]
-		if wars_with.size() > 1:
-			war_list += ", " + wars_with[1]
-		return "WAR WITH: %s" % war_list
-	return "FRIENDS %d · TRADE ACCESS %d" % [friendly, trade_partners]
+		summary += " · WAR WITH %s" % ", ".join(wars_with.slice(0, 2))
+	return summary
 
 
 func _update_city_trade() -> void:
@@ -5474,16 +5482,141 @@ func _update_city_event_markers(delta: float) -> void:
 func _try_start_ai_war() -> void:
 	if cities.size() < 2:
 		return
-	for attempt in range(12):
-		var source: int = randi_range(0, cities.size() - 1)
-		var target: int = randi_range(0, cities.size() - 1)
-		if source == target or _same_faction(source, target) or _are_at_war(source, target):
-			continue
-		if randf() < 0.58:
-			_launch_army(source, target, true)
-		else:
-			_log("Scouts report rising tensions between %s and %s." % [cities[source]["name"], cities[target]["name"]])
+	var best_source: int = -1
+	var best_target: int = -1
+	var best_tension: float = -INF
+	for source in range(cities.size()):
+		for target in range(source + 1, cities.size()):
+			if _same_faction(source, target) or _are_at_war(source, target) or _are_allied(source, target):
+				continue
+			var relation: float = _city_relation(source, target)
+			var tension: float = -relation + randf_range(-10.0, 10.0)
+			for rig in oil_rigs:
+				if int(rig.get("owner_city", -1)) == source or int(rig.get("owner_city", -1)) == target:
+					tension += 12.0
+			if tension > best_tension:
+				best_tension = tension
+				best_source = source
+				best_target = target
+	if best_source < 0:
 		return
+	var source_id: int = best_source
+	var target_id: int = best_target
+	var relation_score: float = _city_relation(source_id, target_id)
+	var conflict_chance: float = 0.20
+	if relation_score < -20.0:
+		conflict_chance += 0.25
+	if relation_score < -55.0:
+		conflict_chance += 0.20
+	for rig in oil_rigs:
+		if int(rig.get("owner_city", -1)) == source_id or int(rig.get("owner_city", -1)) == target_id:
+			conflict_chance += 0.08
+	if randf() < minf(0.82, conflict_chance):
+		_launch_army(source_id, target_id, true)
+	else:
+		_adjust_city_relation(source_id, target_id, -randf_range(1.5, 5.0))
+		_log("DIPLOMATIC CRISIS: %s and %s are disputing resources and border influence." % [cities[source_id]["name"], cities[target_id]["name"]])
+
+
+func _are_allied(a: int, b: int) -> bool:
+	if a < 0 or b < 0 or a >= cities.size() or b >= cities.size() or a == b:
+		return false
+	return bool(alliances.get(_city_relation_key(a, b), false))
+
+
+func _update_diplomacy() -> void:
+	# Satellites pay a small levy and build loyalty when the capital is stable;
+	# shortages and unrest make a breakaway more likely over time.
+	for city_id in range(cities.size()):
+		var city: Dictionary = cities[city_id]
+		if bool(city.get("is_capital", true)):
+			continue
+		var capital_id: int = int(city.get("capital_id", -1))
+		if capital_id < 0 or capital_id >= cities.size() or capital_id == city_id:
+			city["capital_id"] = city_id
+			city["is_capital"] = true
+			city["owner"] = city_id
+			cities[city_id] = city
+			continue
+		if not _same_faction(city_id, capital_id):
+			continue
+		var loyalty: float = float(city.get("loyalty", 70.0))
+		if float(city.get("food", 0.0)) < 2.0 or float(city.get("stability", 72.0)) < 38.0:
+			loyalty -= randf_range(1.1, 2.8)
+		else:
+			loyalty += randf_range(0.15, 0.65)
+		var capital: Dictionary = cities[capital_id]
+		var tribute: float = minf(0.45, maxf(0.0, float(city.get("treasury", 0.0)) - 8.0) * 0.02)
+		if tribute > 0.0 and float(capital.get("treasury", 0.0)) < 5000.0:
+			city["treasury"] = maxf(0.0, float(city.get("treasury", 0.0)) - tribute)
+			capital["treasury"] = minf(5000.0, float(capital.get("treasury", 0.0)) + tribute)
+			cities[capital_id] = capital
+			loyalty += 0.12
+		city["loyalty"] = clampf(loyalty, 0.0, 100.0)
+		city["autonomy"] = clampf(100.0 - float(city["loyalty"]), 0.0, 90.0)
+		cities[city_id] = city
+		if float(city["loyalty"]) < 24.0 and float(city.get("stability", 72.0)) < 52.0 and randf() < 0.22:
+			_declare_city_independence(city_id, capital_id)
+
+	# Wars can exhaust treasuries or be settled through hostage negotiations.
+	var current_wars: Array = wars.duplicate()
+	for war in current_wars:
+		var a: int = int(war.get("a", -1))
+		var b: int = int(war.get("b", -1))
+		if a < 0 or b < 0 or a >= cities.size() or b >= cities.size():
+			continue
+		var started_at: float = float(war.get("started_at", game_clock))
+		if game_clock - started_at < 42.0:
+			continue
+		var hostages_held: int = 0
+		for person in people:
+			if str(person.get("activity", "")) == "hostage" and int(person.get("hostage_captor", -1)) in [a, b]:
+				hostages_held += 1
+		var peace_chance: float = 0.075
+		if hostages_held > 0:
+			peace_chance = 0.20
+		if float(cities[a].get("treasury", 0.0)) < 12.0 or float(cities[b].get("treasury", 0.0)) < 12.0:
+			peace_chance += 0.08
+		if randf() < peace_chance:
+			_make_peace(a, b)
+			_log("WAR EXHAUSTION: %s and %s accepted a ceasefire after prolonged fighting." % [cities[a]["name"], cities[b]["name"]])
+
+	# A long run of mutually beneficial trade can create alliances, while
+	# deteriorating relations can dissolve them without player intervention.
+	for a in range(cities.size()):
+		for b in range(a + 1, cities.size()):
+			if _same_faction(a, b) or _are_at_war(a, b):
+				continue
+			var key: String = _city_relation_key(a, b)
+			var relation: float = _city_relation(a, b)
+			if _are_allied(a, b):
+				if relation < 8.0:
+					alliances.erase(key)
+					_log("ALLIANCE DISSOLVED: %s and %s no longer trust one another." % [cities[a]["name"], cities[b]["name"]])
+			elif relation >= 62.0 and randf() < 0.10:
+				alliances[key] = true
+				_log("ALLIANCE: %s and %s signed a mutual-aid pact." % [cities[a]["name"], cities[b]["name"]])
+
+
+func _declare_city_independence(city_id: int, former_capital_id: int) -> void:
+	if city_id < 0 or city_id >= cities.size() or former_capital_id < 0 or former_capital_id >= cities.size():
+		return
+	if bool(cities[city_id].get("is_capital", true)) or not _same_faction(city_id, former_capital_id):
+		return
+	var city: Dictionary = cities[city_id]
+	city["owner"] = city_id
+	city["capital_id"] = city_id
+	city["is_capital"] = true
+	city["loyalty"] = 100.0
+	city["autonomy"] = 100.0
+	city["stability"] = maxf(25.0, float(city.get("stability", 50.0)) - 8.0)
+	cities[city_id] = city
+	var key: String = _city_relation_key(city_id, former_capital_id)
+	alliances.erase(key)
+	city_relations[key] = minf(-55.0, float(city_relations.get(key, -20.0)))
+	_log("INDEPENDENCE: %s broke away from %s and established a new capital." % [city["name"], cities[former_capital_id]["name"]])
+	if randf() < 0.38:
+		_declare_war(city_id, former_capital_id)
 
 
 func _same_faction(a: int, b: int) -> bool:
@@ -5501,9 +5634,11 @@ func _are_at_war(a: int, b: int) -> bool:
 
 func _declare_war(a: int, b: int) -> void:
 	if not _are_at_war(a, b):
-		wars.append({"a": a, "b": b})
-		city_relations[_city_relation_key(a, b)] = -100.0
-		_log("WAR: %s vs %s. Trade between the city-states is suspended." % [cities[a]["name"], cities[b]["name"]])
+		var relation_key: String = _city_relation_key(a, b)
+		alliances.erase(relation_key)
+		wars.append({"a": a, "b": b, "started_at": game_clock, "battles": 0})
+		city_relations[relation_key] = -100.0
+		_log("WAR: %s vs %s. Trade is embargoed and forces are mobilising." % [cities[a]["name"], cities[b]["name"]])
 
 
 func _make_peace(a: int, b: int) -> void:
@@ -5514,7 +5649,20 @@ func _make_peace(a: int, b: int) -> void:
 	wars = remaining
 	var relation_key: String = _city_relation_key(a, b)
 	city_relations[relation_key] = maxf(-25.0, float(city_relations.get(relation_key, -25.0)))
-	_log("A ceasefire was declared between %s and %s. Trade can resume if supplies and funds allow." % [cities[a]["name"], cities[b]["name"]])
+	alliances.erase(relation_key)
+	for person_index in range(people.size()):
+		var person: Dictionary = people[person_index]
+		if str(person.get("activity", "")) != "hostage":
+			continue
+		var captor: int = int(person.get("hostage_captor", -1))
+		var home_city: int = int(person.get("hostage_home_city", person.get("city_id", -1)))
+		if captor in [a, b] and home_city in [a, b]:
+			person["activity"] = "wandering"
+			person["hostage_timer"] = 0.0
+			person["hostage_captor"] = -1
+			person["walk_timer"] = 0.0
+			people[person_index] = person
+	_log("A ceasefire was declared between %s and %s. Remaining hostages were released and trade may resume." % [cities[a]["name"], cities[b]["name"]])
 
 
 func _launch_army(source_id: int, target_id: int, automatic: bool) -> void:
