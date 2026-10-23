@@ -148,6 +148,7 @@ var game_clock: float = 0.0
 var last_architecture_era: int = -1
 var world_seed: int = 0
 var people_update_accumulator: float = 0.0
+var people_update_cursor: int = 0
 var car_update_accumulator: float = 0.0
 var traffic_spawn_timer: float = 0.0
 var growth_timer: float = 0.0
@@ -991,7 +992,7 @@ func _process(delta: float) -> void:
 		_flush_pending_terrain_edits()
 	_process_pending_terrain_chunk_updates()
 	ui_timer += delta
-	if ui_timer >= 0.35:
+	if ui_timer >= 0.50:
 		ui_timer = 0.0
 		var detail_started_usec: int = Time.get_ticks_usec()
 		_update_world_detail_levels()
@@ -1598,7 +1599,15 @@ func _add_damaged_aware_road_segment(surface: SurfaceTool, city_id: int, city_po
 	var direction: Vector2 = delta / length
 	var start_point: Vector2 = from_point + direction * endpoint_padding
 	var finish_point: Vector2 = to_point - direction * endpoint_padding
-	var pieces: int = maxi(1, int(ceil(start_point.distance_to(finish_point) / 1.8)))
+	# With no recorded road damage, submit the whole ribbon directly instead
+	# of splitting it into many tiny pieces and checking an empty damage list.
+	var damage_records: Array = []
+	if city_id >= 0 and city_id < cities.size():
+		damage_records = cities[city_id].get("road_damage", [])
+	if damage_records.is_empty():
+		_add_road_segment(surface, city_position, start_point, finish_point, width, height_offset, 0.0)
+		return
+	var pieces: int = maxi(1, int(ceil(start_point.distance_to(finish_point) / 3.2))
 	for piece_index in range(pieces):
 		var t0: float = float(piece_index) / float(pieces)
 		var t1: float = float(piece_index + 1) / float(pieces)
@@ -3461,7 +3470,9 @@ func _add_road_segment(surface: SurfaceTool, city_position: Vector3, from_point:
 	var finish_point: Vector2 = to_point - direction * endpoint_padding
 	if finish_point.distance_to(start_point) < 0.1:
 		return
-	var segment_count: int = maxi(2, int(ceil(start_point.distance_to(finish_point) / 0.70)))
+	# The terrain grid samples at about 3.2 world units; the old 0.7-unit road
+	# spacing oversampled it by over four times for no visible benefit.
+	var segment_count: int = maxi(2, int(ceil(start_point.distance_to(finish_point) / 1.4)))
 	var previous_left := Vector3.ZERO
 	var previous_right := Vector3.ZERO
 	for segment in range(segment_count + 1):
@@ -4094,8 +4105,24 @@ func _add_mesh(parent: Node3D, mesh: Mesh, material: Material, local_position: V
 
 
 func _update_people(delta: float) -> void:
-	var animate_citizens: bool = camera_distance <= 72.0 and people.size() <= 300
-	for i in range(people.size()):
+	var total_people: int = people.size()
+	if total_people <= 0:
+		people_update_cursor = 0
+		return
+	# At medium/far zoom civilians are represented by the MultiMesh crowd proxy,
+	# so updating every full-detail agent every tick wastes CPU on hidden nodes.
+	# Rotate through deterministic batches and scale elapsed simulation time so
+	# every citizen still receives the same average amount of AI/movement time.
+	var batch_count: int = total_people
+	if total_people > 900:
+		batch_count = maxi(1, ceili(float(total_people) / (4.0 if camera_distance > 165.0 else 3.0)))
+	elif total_people > 500 or (camera_distance > 85.0 and total_people > 240):
+		batch_count = maxi(1, ceili(float(total_people) / (4.0 if camera_distance > 165.0 else 2.0)))
+	var start_index: int = posmod(people_update_cursor, total_people)
+	var person_delta: float = person_delta * float(total_people) / float(batch_count)
+	var animate_citizens: bool = camera_distance <= 72.0 and total_people <= 300
+	for batch_offset in range(batch_count):
+		var i: int = (start_index + batch_offset) % total_people
 		var person: Dictionary = people[i]
 		if not bool(person.get("alive", true)):
 			continue
@@ -4107,7 +4134,7 @@ func _update_people(delta: float) -> void:
 		if activity == "hostage":
 			continue
 		if activity == "indoors":
-			activity_timer -= delta
+			activity_timer -= person_delta
 			if is_instance_valid(node):
 				node.visible = false
 			if activity_timer <= 0.0:
@@ -4151,14 +4178,14 @@ func _update_people(delta: float) -> void:
 						node.visible = false
 				else:
 					person["target"] = vehicle_position
-					position = position.move_toward(Vector3(vehicle_position.x, position.y, vehicle_position.z), delta * 2.6)
+					position = position.move_toward(Vector3(vehicle_position.x, position.y, vehicle_position.z), person_delta * 2.6)
 					position.y = _height_at(position.x, position.z)
 					person["pos"] = position
 					if is_instance_valid(node):
 						node.position = position
 						node.visible = true
 			else:
-				activity_timer -= delta
+				activity_timer -= person_delta
 				position = vehicle_position
 				person["pos"] = position
 				person["activity_timer"] = activity_timer
@@ -4196,7 +4223,7 @@ func _update_people(delta: float) -> void:
 					person["activity"] = "constructing"
 					person["pos"] = position
 				else:
-					position = position.move_toward(Vector3(construction_target.x, position.y, construction_target.z), delta * 2.0)
+					position = position.move_toward(Vector3(construction_target.x, position.y, construction_target.z), person_delta * 2.0)
 					position.y = _height_at(position.x, position.z)
 					person["pos"] = position
 					if is_instance_valid(node):
@@ -4227,14 +4254,14 @@ func _update_people(delta: float) -> void:
 					# Move every assigned cleaner toward the rubble even if its
 					# render node is valid. This used to be nested under the
 					# wrong else branch, so visible cleaners never reached debris.
-					position = position.move_toward(Vector3(cleanup_position.x, position.y, cleanup_position.z), delta * 2.0)
+					position = position.move_toward(Vector3(cleanup_position.x, position.y, cleanup_position.z), person_delta * 2.0)
 					position.y = _height_at(position.x, position.z)
 					person["pos"] = position
 					if is_instance_valid(node):
 						node.position = position
 						node.visible = true
 			else:
-				person["activity_timer"] = float(person.get("activity_timer", 0.0)) + delta
+				person["activity_timer"] = float(person.get("activity_timer", 0.0)) + person_delta
 				if float(person["activity_timer"]) >= 5.0:
 					_clear_rubble_by_id(cleanup_id)
 					person["activity"] = "wandering"
@@ -4245,7 +4272,7 @@ func _update_people(delta: float) -> void:
 					node.visible = true
 			people[i] = person
 			continue
-		person["walk_timer"] = float(person.get("walk_timer", 1.0)) - delta
+		person["walk_timer"] = float(person.get("walk_timer", 1.0)) - person_delta
 		var target: Vector3 = person["target"]
 		var distance_to_target: float = Vector2(position.x - target.x, position.z - target.z).length()
 		if activity == "entering":
@@ -4329,11 +4356,11 @@ func _update_people(delta: float) -> void:
 		var horizontal_target := Vector3(target.x, position.y, target.z)
 		var distance_before_move: float = Vector2(position.x - target.x, position.z - target.z).length()
 		var is_walking: bool = distance_before_move > 0.45
-		position = position.move_toward(horizontal_target, delta * 2.2)
+		position = position.move_toward(horizontal_target, person_delta * 2.2)
 		position.y = _height_at(position.x, position.z)
 		person["pos"] = position
 		if animate_citizens:
-			var walk_phase: float = float(person.get("walk_phase", 0.0)) + delta * (7.2 if is_walking else 1.5)
+			var walk_phase: float = float(person.get("walk_phase", 0.0)) + person_delta * (7.2 if is_walking else 1.5)
 			person["walk_phase"] = walk_phase
 			var gait: float = sin(walk_phase) * (0.52 if is_walking else 0.035)
 			var left_arm: Node3D = person["left_arm"]
@@ -4354,6 +4381,7 @@ func _update_people(delta: float) -> void:
 			if is_walking:
 				node.rotation.y = atan2(target.x - position.x, target.z - position.z)
 		people[i] = person
+	people_update_cursor = (start_index + batch_count) % maxi(1, people.size())
 
 
 func _choose_citizen_street_target(city_id: int, centre: Vector3, radius: float) -> Vector3:
@@ -8441,7 +8469,7 @@ func _update_world_detail_levels() -> void:
 	if detail_refresh_cooldown > 0.0:
 		return
 	last_detail_signature = detail_signature
-	detail_refresh_cooldown = 0.45
+	detail_refresh_cooldown = 0.75
 	var viewport_rect: Rect2 = get_viewport().get_visible_rect()
 	var view_inverse: Transform3D = camera.global_transform.affine_inverse()
 	var focal_pixels: float = viewport_rect.size.y * 0.5 / maxf(0.1, tan(deg_to_rad(camera.fov * 0.5)))
