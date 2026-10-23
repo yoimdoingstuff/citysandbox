@@ -9746,6 +9746,14 @@ func _capture_city_hostages(city_id: int, captor_city_id: int, maximum: int = 2)
 
 
 func _update_hostages(delta: float) -> void:
+	# City hostage counts are maintained on capture/release, so avoid scanning
+	# every civilian on every frame when no hostage crisis is active.
+	var tracked_hostages: int = 0
+	for city_id in range(cities.size()):
+		tracked_hostages += maxi(0, int(cities[city_id].get("hostage_count", 0)))
+		cities[city_id]["hostage_cooldown"] = maxf(0.0, float(cities[city_id].get("hostage_cooldown", 0.0)) - delta)
+	if tracked_hostages <= 0:
+		return
 	for person_index in range(people.size()):
 		var person: Dictionary = people[person_index]
 		if str(person.get("activity", "")) != "hostage":
@@ -9801,9 +9809,6 @@ func _update_hostages(delta: float) -> void:
 				(person["node"] as Node3D).position = hostage_position
 				(person["node"] as Node3D).visible = true
 		people[person_index] = person
-	for city_id in range(cities.size()):
-		cities[city_id]["hostage_cooldown"] = maxf(0.0, float(cities[city_id].get("hostage_cooldown", 0.0)) - delta)
-
 func _world_year() -> int:
 	return STARTING_YEAR + int(game_clock / SECONDS_PER_YEAR)
 
