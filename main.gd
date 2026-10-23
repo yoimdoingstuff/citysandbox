@@ -10500,7 +10500,13 @@ func _spawn_transport_wave() -> void:
 			air_city_count += 1
 		if is_instance_valid(cities[city_id].get("seaport")):
 			sea_city_count += 1
-	var kind: String = "air" if air_city_count > 0 and (air_city_count < 2 or sea_city_count < 2 or randf() < 0.76) else "sea"
+	var kind: String = "sea"
+	if air_city_count >= 2:
+		kind = "air" if sea_city_count < 2 or randf() < 0.76 else "sea"
+	elif air_city_count == 1:
+		# Keep maritime traffic active while the air network is still small,
+		# but periodically show a local takeoff/landing circuit at the first airport.
+		kind = "air" if sea_city_count < 2 or randf() < 0.35 else "sea"
 	var eligible: Array[int] = []
 	for city_id in range(cities.size()):
 		if kind == "air" and _world_year() >= AIRPORT_INTRODUCTION_YEAR and is_instance_valid(cities[city_id].get("airport")):
