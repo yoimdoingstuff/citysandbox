@@ -5779,6 +5779,8 @@ func _make_peace(a: int, b: int) -> void:
 		var captor: int = int(person.get("hostage_captor", -1))
 		var home_city: int = int(person.get("hostage_home_city", person.get("city_id", -1)))
 		if captor in [a, b] and home_city in [a, b]:
+			if home_city >= 0 and home_city < cities.size():
+				cities[home_city]["hostage_count"] = maxi(0, int(cities[home_city].get("hostage_count", 0)) - 1)
 			person["activity"] = "wandering"
 			person["hostage_timer"] = 0.0
 			person["hostage_captor"] = -1
@@ -7043,19 +7045,40 @@ func _capture_city(city_id: int, source_id: int) -> void:
 		return
 	if _same_faction(city_id, source_id):
 		return
-	var previous_name: String = cities[city_id]["name"]
-	cities[city_id]["owner"] = cities[source_id]["owner"]
-	cities[city_id]["color"] = cities[source_id]["color"]
-	cities[city_id]["body"].material_override = _material(cities[city_id]["color"].darkened(0.25))
-	cities[city_id]["roof"].material_override = _material(cities[city_id]["color"].lightened(0.12))
+	var previous_name: String = str(cities[city_id]["name"])
+	var conqueror_owner: int = int(cities[source_id].get("owner", source_id))
+	var conqueror_capital: int = int(cities[source_id].get("capital_id", source_id))
+	if conqueror_capital < 0 or conqueror_capital >= cities.size():
+		conqueror_capital = source_id
+	var conquered_color: Color = cities[source_id]["color"]
+	cities[city_id]["owner"] = conqueror_owner
+	cities[city_id]["capital_id"] = conqueror_capital
+	cities[city_id]["is_capital"] = false
+	cities[city_id]["loyalty"] = 48.0
+	cities[city_id]["autonomy"] = 52.0
+	cities[city_id]["color"] = conquered_color
+	cities[city_id]["body"].material_override = _material(conquered_color.darkened(0.25))
+	cities[city_id]["roof"].material_override = _material(conquered_color.lightened(0.12))
 	cities[city_id]["label"].modulate = Color(1.0, 1.0, 1.0)
 	for house in cities[city_id]["houses"]:
 		if is_instance_valid(house):
-			house.modulate = cities[city_id]["color"].lightened(0.2)
-	_log("CITY CAPTURED: %s now answers to %s." % [previous_name, cities[source_id]["name"]])
+			house.modulate = conquered_color.lightened(0.2)
+	# Satellite towns that were loyal to a captured capital become part of the
+	# occupying government's wider polity, but with reduced loyalty and high autonomy.
+	for child_city_id in range(cities.size()):
+		if child_city_id == city_id or int(cities[child_city_id].get("capital_id", -1)) != city_id:
+			continue
+		cities[child_city_id]["owner"] = conqueror_owner
+		cities[child_city_id]["capital_id"] = conqueror_capital
+		cities[child_city_id]["is_capital"] = child_city_id == conqueror_capital
+		cities[child_city_id]["loyalty"] = maxf(12.0, float(cities[child_city_id].get("loyalty", 60.0)) - 18.0)
+		cities[child_city_id]["autonomy"] = clampf(100.0 - float(cities[child_city_id]["loyalty"]), 0.0, 100.0)
+		city_relations[_city_relation_key(child_city_id, conqueror_capital)] = minf(45.0, float(city_relations.get(_city_relation_key(child_city_id, conqueror_capital), 15.0)))
+	_log("CITY CAPTURED: %s now answers to %s; its local government receives high autonomy and reduced loyalty." % [previous_name, cities[source_id]["name"]])
 	for spawn_index in range(3):
 		var p: Vector3 = cities[city_id]["pos"]
 		_spawn_human(_surface_position(p.x + randf_range(-2.0, 2.0), p.z + randf_range(-2.0, 2.0)), city_id)
+	_schedule_city_territory_refresh()
 	_make_peace(city_id, source_id)
 
 
@@ -8808,7 +8831,7 @@ func _load_world() -> void:
 			if war_a < 0 or war_b < 0 or war_a >= cities.size() or war_b >= cities.size() or war_a == war_b:
 				continue
 			if not _are_at_war(war_a, war_b):
-				wars.append({"a": war_a, "b": war_b})
+				wars.append({"a": war_a, "b": war_b, "started_at": float(saved_war.get("started_at", game_clock)), "battles": int(saved_war.get("battles", 0))})
 
 	for saved_person in saved_people:
 		if typeof(saved_person) != TYPE_DICTIONARY or people.size() >= MAX_PEOPLE:
