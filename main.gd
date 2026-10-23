@@ -9180,8 +9180,10 @@ func _update_world_detail_levels() -> void:
 	# painting every driveway across the entire world.
 	var airport_render_range: float = minf(900.0, maxf(260.0, camera_distance * 1.75 + 100.0))
 	var airport_render_range_squared: float = airport_render_range * airport_render_range
-	var airport_road_range: float = minf(340.0, maxf(185.0, camera_distance * 1.12))
-	var airport_road_range_squared: float = airport_road_range * airport_road_range
+	# Keep the access route visible anywhere its airport is visible. A
+	# separate 340-unit cutoff made perfectly valid airports look detached
+	# precisely when zooming out to see the city and runway together.
+	var airport_road_range_squared: float = airport_render_range_squared
 	for city in cities:
 		var ruined_transport_city: bool = bool(city.get("ruined", false))
 		var transport_city_position: Vector3 = city.get("pos", Vector3.ZERO)
