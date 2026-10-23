@@ -8405,6 +8405,12 @@ func _save_world() -> void:
 			"pos": _vector3_to_array(city["pos"]),
 			"color": (city["color"] as Color).to_html(true),
 			"owner": int(city["owner"]),
+			"capital_id": int(city.get("capital_id", city["owner"])),
+			"is_capital": bool(city.get("is_capital", true)),
+			"loyalty": float(city.get("loyalty", 100.0)),
+			"autonomy": float(city.get("autonomy", 0.0)),
+			"hostage_count": int(city.get("hostage_count", 0)),
+			"hostage_cooldown": float(city.get("hostage_cooldown", 0.0)),
 			"food": float(city["food"]),
 			"wood": float(city["wood"]),
 			"stone": float(city["stone"]),
@@ -8444,9 +8450,22 @@ func _save_world() -> void:
 			"infected": bool(person.get("infected", false)),
 			"infection_time": float(person.get("infection_time", 0.0)),
 			"spread_timer": float(person.get("spread_timer", 1.0)),
-			"walk_timer": float(person.get("walk_timer", 1.0))
+			"walk_timer": float(person.get("walk_timer", 1.0)),
+			"activity": str(person.get("activity", "wandering")),
+			"hostage_home_city": int(person.get("hostage_home_city", -1)),
+			"hostage_captor": int(person.get("hostage_captor", -1)),
+			"hostage_timer": float(person.get("hostage_timer", 0.0))
 		})
 
+	var saved_oil_rigs: Array = []
+	for rig in oil_rigs:
+		saved_oil_rigs.append({
+			"pos": _vector3_to_array(rig["pos"]),
+			"owner_city": int(rig.get("owner_city", -1)),
+			"reserves": float(rig.get("reserves", 0.0)),
+			"production": float(rig.get("production", 0.0)),
+			"health": float(rig.get("health", 100.0))
+		})
 	var saved_resources: Array = []
 	for resource in resources:
 		if not bool(resource.get("alive", true)) or int(resource.get("amount", 0)) <= 0:
@@ -8460,7 +8479,9 @@ func _save_world() -> void:
 	var save_data: Dictionary = {
 		"version": SAVE_VERSION,
 		"city_relations": city_relations,
+		"alliances": alliances,
 		"wars": wars,
+		"oil_rigs": saved_oil_rigs,
 		"trade_timer": trade_timer,
 		"trade_events_total": trade_events_total,
 		"terrain_size": TERRAIN_SIZE,
@@ -8553,6 +8574,7 @@ func _load_world() -> void:
 	var saved_cities: Variant = save_data.get("cities", [])
 	var saved_people: Variant = save_data.get("people", [])
 	var saved_resources: Variant = save_data.get("resources", [])
+	var saved_oil_rigs: Variant = save_data.get("oil_rigs", [])
 	var saved_rubble: Variant = save_data.get("rubble", [])
 	if typeof(saved_cities) != TYPE_ARRAY or typeof(saved_people) != TYPE_ARRAY or typeof(saved_resources) != TYPE_ARRAY or typeof(saved_rubble) != TYPE_ARRAY:
 		_log("LOAD FAILED: The save is missing world data.")
@@ -8572,6 +8594,8 @@ func _load_world() -> void:
 	city_events_total = int(save_data.get("city_events_total", 0))
 	var saved_relations: Variant = save_data.get("city_relations", {})
 	city_relations = saved_relations if typeof(saved_relations) == TYPE_DICTIONARY else {}
+	var saved_alliances: Variant = save_data.get("alliances", {})
+	alliances = saved_alliances if typeof(saved_alliances) == TYPE_DICTIONARY else {}
 	var saved_wars: Variant = save_data.get("wars", [])
 	trade_timer = maxf(0.0, float(save_data.get("trade_timer", 0.0)))
 	trade_events_total = maxi(0, int(save_data.get("trade_events_total", 0)))
@@ -8599,6 +8623,14 @@ func _load_world() -> void:
 		var city_id: int = _create_city(position, city_name, city_color)
 		var city: Dictionary = cities[city_id]
 		city["owner"] = clampi(int(city_data.get("owner", city_id)), 0, saved_cities.size() - 1)
+		city["capital_id"] = clampi(int(city_data.get("capital_id", city_id)), 0, maxi(0, saved_cities.size() - 1))
+		city["is_capital"] = bool(city_data.get("is_capital", int(city_data.get("owner", city_id)) == city_id))
+		city["loyalty"] = clampf(float(city_data.get("loyalty", 100.0)), 0.0, 100.0)
+		city["autonomy"] = clampf(float(city_data.get("autonomy", 0.0)), 0.0, 100.0)
+		city["hostage_count"] = maxi(0, int(city_data.get("hostage_count", 0)))
+		city["hostage_cooldown"] = maxf(0.0, float(city_data.get("hostage_cooldown", 0.0)))
+		city["airport_attempted"] = false
+		city["seaport_attempted"] = false
 		city["food"] = float(city_data.get("food", 8.0))
 		city["wood"] = float(city_data.get("wood", 5.0))
 		city["stone"] = float(city_data.get("stone", 3.0))
@@ -8646,6 +8678,18 @@ func _load_world() -> void:
 				city["houses"].append(house)
 		cities[city_id] = city
 
+	# Restore oil fields after city IDs exist, preserving their current owners.
+	if typeof(saved_oil_rigs) == TYPE_ARRAY:
+		for saved_rig in saved_oil_rigs:
+			if typeof(saved_rig) != TYPE_DICTIONARY:
+				continue
+			var rig_data: Dictionary = saved_rig
+			var rig_position: Vector3 = _array_to_vector3(rig_data.get("pos", []), Vector3(0.0, WATER_LEVEL, 0.0))
+			var rig_owner: int = int(rig_data.get("owner_city", -1))
+			if rig_owner < -1 or rig_owner >= cities.size():
+				rig_owner = -1
+			var rig_node: Node3D = _create_oil_rig_visual(rig_position)
+			oil_rigs.append({"node": rig_node, "pos": rig_position, "owner_city": rig_owner, "reserves": maxf(0.0, float(rig_data.get("reserves", 800.0))), "production": maxf(0.05, float(rig_data.get("production", 0.5))), "health": clampf(float(rig_data.get("health", 100.0)), 0.0, 100.0)})
 	# Restore diplomatic wars only after the city index table has been rebuilt.
 	if typeof(saved_wars) == TYPE_ARRAY:
 		for saved_war in saved_wars:
@@ -8677,6 +8721,10 @@ func _load_world() -> void:
 			person["home_offset"] = Vector2(float(saved_home_offset[0]), float(saved_home_offset[1]))
 		person["alive"] = bool(person_data.get("alive", true))
 		person["infected"] = bool(person_data.get("infected", false))
+		person["activity"] = str(person_data.get("activity", "wandering"))
+		person["hostage_home_city"] = int(person_data.get("hostage_home_city", -1))
+		person["hostage_captor"] = int(person_data.get("hostage_captor", -1))
+		person["hostage_timer"] = maxf(0.0, float(person_data.get("hostage_timer", 0.0)))
 		person["infection_time"] = float(person_data.get("infection_time", 0.0))
 		person["spread_timer"] = float(person_data.get("spread_timer", 1.0))
 		person["walk_timer"] = float(person_data.get("walk_timer", 1.0))
@@ -8734,7 +8782,7 @@ func _load_world() -> void:
 	if controlled_city < 0 or controlled_city >= cities.size():
 		controlled_city = -1
 	camera_target = _array_to_vector3(save_data.get("camera_target", [0.0, 0.0, 0.0]))
-	camera_distance = clampf(float(save_data.get("camera_distance", 94.0)), 24.0, TERRAIN_SIZE * 1.75)
+	camera_distance = clampf(float(save_data.get("camera_distance", 230.0)), 24.0, TERRAIN_SIZE * 1.75)
 	camera_yaw = float(save_data.get("camera_yaw", -0.72))
 	camera_pitch = clampf(float(save_data.get("camera_pitch", 0.56)), 0.20, 1.25)
 	sim_speed = clampf(float(save_data.get("sim_speed", 1.0)), 1.0, 16.0)
@@ -8790,6 +8838,8 @@ func _clear_loaded_world() -> void:
 	_queue_nodes_from_entries(people)
 	_queue_nodes_from_entries(cars)
 	_queue_nodes_from_entries(resources)
+	_queue_nodes_from_entries(transports)
+	_queue_nodes_from_entries(oil_rigs)
 	_queue_nodes_from_entries(armies)
 	_queue_nodes_from_entries(missiles)
 	_queue_nodes_from_entries(explosions)
@@ -8803,6 +8853,12 @@ func _clear_loaded_world() -> void:
 	people.clear()
 	cars.clear()
 	resources.clear()
+	transports.clear()
+	oil_rigs.clear()
+	alliances.clear()
+	transport_timer = 0.0
+	oil_update_timer = 0.0
+	diplomacy_timer = 0.0
 	last_detail_signature = ""
 	armies.clear()
 	missiles.clear()
