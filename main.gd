@@ -3260,6 +3260,22 @@ func _process_one_pending_city_development() -> void:
 	_refresh_city_development(city_id)
 
 
+func _city_road_grid_size(city_id: int, year_override: int = -1) -> float:
+	if city_id < 0 or city_id >= cities.size():
+		return ROAD_GRID_SIZE
+	var year: int = _world_year() if year_override < 0 else year_override
+	var stage: int = clampi(int(cities[city_id].get("stage", 0)), 0, 4)
+	# Established industrial/modern cities spread into much wider suburban
+	# districts. With a larger house cap this scales their footprint to roughly
+	# ten times the old mature-city area without making individual models huge.
+	var scale: float = 1.0
+	if year >= 1780:
+		scale += float(stage) * 0.12
+	if year >= 1950:
+		scale += float(stage) * 0.12
+	return ROAD_GRID_SIZE * clampf(scale, 1.0, 2.0)
+
+
 func _sync_city_buildings(city_id: int) -> bool:
 	if city_id < 0 or city_id >= cities.size() or _city_population(city_id) <= 0 or bool(cities[city_id].get("ruined", false)):
 		return false
@@ -3270,6 +3286,7 @@ func _sync_city_buildings(city_id: int) -> bool:
 	var city: Dictionary = cities[city_id]
 	var population: int = _city_population(city_id)
 	var stage: int = int(city.get("stage", 0))
+	var city_grid_spacing: float = _city_road_grid_size(city_id, _world_year())
 	var theoretical_houses: int = min(MAX_CITY_HOUSES, max(1, 1 + int(population / 3) + stage * 2))
 	var destroyed_building_debt: int = maxi(0, int(city.get("destroyed_building_debt", 0)))
 	var desired_houses: int = maxi(0, theoretical_houses - destroyed_building_debt)
@@ -3304,8 +3321,8 @@ func _sync_city_buildings(city_id: int) -> bool:
 				continue
 			candidate_large_plot = _is_large_city_plot(city_id, plot_index, _world_year())
 			candidate_footprint = 8.8 if candidate_large_plot else 3.6
-			offset_x = float(plot.x) * ROAD_GRID_SIZE + ROAD_GRID_SIZE * 0.5
-			offset_z = float(plot.y) * ROAD_GRID_SIZE + ROAD_GRID_SIZE * 0.5
+			offset_x = float(plot.x) * city_grid_spacing + city_grid_spacing * 0.5
+			offset_z = float(plot.y) * city_grid_spacing + city_grid_spacing * 0.5
 			var candidate_x: float = city["pos"].x + offset_x
 			var candidate_z: float = city["pos"].z + offset_z
 			var inside_world: bool = abs(candidate_x) < TERRAIN_SIZE * 0.47 and abs(candidate_z) < TERRAIN_SIZE * 0.47
@@ -3528,6 +3545,7 @@ func _rebuild_city_roads(city_id: int) -> void:
 	var island_surface := SurfaceTool.new()
 	island_surface.begin(Mesh.PRIMITIVE_TRIANGLES)
 	var city_position: Vector3 = city["pos"]
+	var grid_spacing: float = _city_road_grid_size(city_id, _world_year())
 	var houses: Array = city["houses"]
 	if houses.is_empty():
 		road_node.mesh = null
@@ -3556,10 +3574,10 @@ func _rebuild_city_roads(city_id: int) -> void:
 		max_x = maxf(max_x, house.position.x + footprint)
 		min_z = minf(min_z, house.position.z - footprint)
 		max_z = maxf(max_z, house.position.z + footprint)
-	var first_x: float = floor(min_x / ROAD_GRID_SIZE) * ROAD_GRID_SIZE
-	var last_x: float = ceil(max_x / ROAD_GRID_SIZE) * ROAD_GRID_SIZE
-	var first_z: float = floor(min_z / ROAD_GRID_SIZE) * ROAD_GRID_SIZE
-	var last_z: float = ceil(max_z / ROAD_GRID_SIZE) * ROAD_GRID_SIZE
+	var first_x: float = floor(min_x / grid_spacing) * grid_spacing
+	var last_x: float = ceil(max_x / grid_spacing) * grid_spacing
+	var first_z: float = floor(min_z / grid_spacing) * grid_spacing
+	var last_z: float = ceil(max_z / grid_spacing) * grid_spacing
 	city["road_grid_min_x"] = first_x
 	city["road_grid_max_x"] = last_x
 	city["road_grid_min_z"] = first_z
@@ -3577,7 +3595,7 @@ func _rebuild_city_roads(city_id: int) -> void:
 		elif _world_year() >= 1880 and (x_line_index + city_id) % 5 == 1:
 			x_road_width = 1.92
 		_add_damaged_aware_road_segment(road_surface, city_id, city_position, Vector2(cursor_x, min_z), Vector2(cursor_x, max_z), x_road_width, 0.34, 0.0)
-		cursor_x += ROAD_GRID_SIZE
+		cursor_x += grid_spacing
 	var cursor_z: float = first_z
 	while cursor_z <= last_z + 0.001:
 		grid_z.append(cursor_z)
@@ -3588,7 +3606,7 @@ func _rebuild_city_roads(city_id: int) -> void:
 		elif _world_year() >= 1880 and (z_line_index + city_id) % 5 == 2:
 			z_road_width = 1.92
 		_add_damaged_aware_road_segment(road_surface, city_id, city_position, Vector2(min_x, cursor_z), Vector2(max_x, cursor_z), z_road_width, 0.34, 0.0)
-		cursor_z += ROAD_GRID_SIZE
+		cursor_z += grid_spacing
 
 	for x_index in range(grid_x.size()):
 		var x_value: float = grid_x[x_index]
@@ -3669,7 +3687,7 @@ func _rebuild_city_roads(city_id: int) -> void:
 	if current_road_year >= 1880:
 		for x_index in range(grid_x.size() - 1):
 			for z_index in range(grid_z.size() - 1):
-				var avenue_plot := Vector2i(roundi(grid_x[x_index] / ROAD_GRID_SIZE), roundi(grid_z[z_index] / ROAD_GRID_SIZE))
+				var avenue_plot := Vector2i(roundi(grid_x[x_index] / grid_spacing), roundi(grid_z[z_index] / grid_spacing))
 				if not _is_diagonal_avenue_plot(city_id, avenue_plot, current_road_year):
 					continue
 				var avenue_start: Vector2
@@ -4330,28 +4348,29 @@ func _update_people(delta: float) -> void:
 func _choose_citizen_street_target(city_id: int, centre: Vector3, radius: float) -> Vector3:
 	if city_id >= 0 and city_id < cities.size():
 		var city: Dictionary = cities[city_id]
+		var grid_spacing: float = _city_road_grid_size(city_id, _world_year())
 		var min_x: float = float(city.get("road_grid_min_x", -7.5))
 		var max_x: float = float(city.get("road_grid_max_x", 7.5))
 		var min_z: float = float(city.get("road_grid_min_z", -7.5))
 		var max_z: float = float(city.get("road_grid_max_z", 7.5))
 		if max_x >= min_x and max_z >= min_z:
-			var x_steps: int = maxi(0, roundi((max_x - min_x) / ROAD_GRID_SIZE))
-			var z_steps: int = maxi(0, roundi((max_z - min_z) / ROAD_GRID_SIZE))
+			var x_steps: int = maxi(0, roundi((max_x - min_x) / grid_spacing))
+			var z_steps: int = maxi(0, roundi((max_z - min_z) / grid_spacing))
 			if x_steps > 0 and z_steps > 0:
 				var local_x: float
 				var local_z: float
 				if randf() < 0.5:
 					var street_index: int = randi_range(0, x_steps)
 					var street_side: float = -1.0 if randf() < 0.5 else 1.0
-					local_x = min_x + float(street_index) * ROAD_GRID_SIZE + street_side * 1.05 + randf_range(-0.08, 0.08)
+					local_x = min_x + float(street_index) * grid_spacing + street_side * 1.05 + randf_range(-0.08, 0.08)
 					var block_z: int = randi_range(0, z_steps - 1)
-					local_z = min_z + float(block_z) * ROAD_GRID_SIZE + randf_range(1.25, ROAD_GRID_SIZE - 1.25)
+					local_z = min_z + float(block_z) * grid_spacing + randf_range(1.25, grid_spacing - 1.25)
 				else:
 					var street_index: int = randi_range(0, z_steps)
 					var street_side: float = -1.0 if randf() < 0.5 else 1.0
-					local_z = min_z + float(street_index) * ROAD_GRID_SIZE + street_side * 1.05 + randf_range(-0.08, 0.08)
+					local_z = min_z + float(street_index) * grid_spacing + street_side * 1.05 + randf_range(-0.08, 0.08)
 					var block_x: int = randi_range(0, x_steps - 1)
-					local_x = min_x + float(block_x) * ROAD_GRID_SIZE + randf_range(1.25, ROAD_GRID_SIZE - 1.25)
+					local_x = min_x + float(block_x) * grid_spacing + randf_range(1.25, grid_spacing - 1.25)
 				var street_x: float = clampf(float(city["pos"].x) + local_x, -TERRAIN_SIZE * 0.47, TERRAIN_SIZE * 0.47)
 				var street_z: float = clampf(float(city["pos"].z) + local_z, -TERRAIN_SIZE * 0.47, TERRAIN_SIZE * 0.47)
 				if _height_at(street_x, street_z) > WATER_LEVEL + 0.15:
