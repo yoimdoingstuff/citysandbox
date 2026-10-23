@@ -36,6 +36,9 @@ const PERFORMANCE_LOG_PATH: String = "user://civiterra-performance.log"
 const SLOW_OPERATION_THRESHOLD_USEC: int = 40000
 const FRAME_HITCH_THRESHOLD_USEC: int = 100000
 const MAX_ACTIVE_BUILDING_SMOKE_PUFFS: int = 72
+const MAX_POOLED_SMOKE_PUFFS: int = 48
+const MAX_POOLED_GOD_EFFECTS: int = 48
+const SPATIAL_CELL_SIZE: float = 16.0
 const URBAN_FACADE_PALETTE := [
 	Color(0.68, 0.57, 0.45), Color(0.50, 0.53, 0.53), Color(0.70, 0.48, 0.35),
 	Color(0.43, 0.50, 0.43), Color(0.71, 0.67, 0.56), Color(0.40, 0.43, 0.44),
@@ -167,6 +170,19 @@ var auto_war_timer: float = 24.0
 var ui_timer: float = 0.0
 var performance_log: FileAccess
 var performance_frame_count: int = 0
+var adaptive_frame_time_usec: float = 16666.7
+var adaptive_performance_pressure: float = 0.0
+var dead_people_pending_compaction: bool = false
+var people_spatial_grid: Dictionary = {}
+var resource_spatial_grid: Dictionary = {}
+var rubble_spatial_grid: Dictionary = {}
+var people_spatial_index_frame: int = -1
+var resource_spatial_index_frame: int = -1
+var rubble_spatial_index_frame: int = -1
+var god_effect_pool: Array[Dictionary] = []
+var god_effect_sphere_mesh: SphereMesh
+var god_effect_lightning_mesh: CylinderMesh
+var building_smoke_pool: Array[MeshInstance3D] = []
 var stress_csv: FileAccess
 var stress_suite_active: bool = false
 var stress_suite_started_usec: int = 0
@@ -232,6 +248,136 @@ var ceasefire_button: Button
 var era_skipper: OptionButton
 var city_context_panel: PanelContainer
 var tool_buttons: Dictionary = {}
+
+
+func _spatial_cell(position: Vector3) -> Vector2i:
+	return Vector2i(floori(position.x / SPATIAL_CELL_SIZE), floori(position.z / SPATIAL_CELL_SIZE))
+
+
+func _append_spatial_index(grid: Dictionary, cell: Vector2i, item_index: int) -> void:
+	var bucket: Array = grid.get(cell, [])
+	bucket.append(item_index)
+	grid[cell] = bucket
+
+
+func _query_spatial_indices(grid: Dictionary, center: Vector3, radius: float) -> Array[int]:
+	var found: Array[int] = []
+	var min_x: int = floori((center.x - radius) / SPATIAL_CELL_SIZE)
+	var max_x: int = floori((center.x + radius) / SPATIAL_CELL_SIZE)
+	var min_z: int = floori((center.z - radius) / SPATIAL_CELL_SIZE)
+	var max_z: int = floori((center.z + radius) / SPATIAL_CELL_SIZE)
+	for cell_x in range(min_x, max_x + 1):
+		for cell_z in range(min_z, max_z + 1):
+			var bucket: Array = grid.get(Vector2i(cell_x, cell_z), [])
+			for item_index in bucket:
+				found.append(int(item_index))
+	return found
+
+
+func _invalidate_people_spatial_index() -> void:
+	people_spatial_index_frame = -1
+
+
+func _invalidate_resource_spatial_index() -> void:
+	resource_spatial_index_frame = -1
+
+
+func _invalidate_rubble_spatial_index() -> void:
+	rubble_spatial_index_frame = -1
+
+
+func _invalidate_all_spatial_indices() -> void:
+	_invalidate_people_spatial_index()
+	_invalidate_resource_spatial_index()
+	_invalidate_rubble_spatial_index()
+
+
+func _ensure_people_spatial_index() -> void:
+	if people_spatial_index_frame == performance_frame_count:
+		return
+	people_spatial_grid.clear()
+	for person_index in range(people.size()):
+		var person: Dictionary = people[person_index]
+		if not bool(person.get("alive", true)):
+			continue
+		_append_spatial_index(people_spatial_grid, _spatial_cell(person.get("pos", Vector3.ZERO)), person_index)
+	people_spatial_index_frame = performance_frame_count
+
+
+func _ensure_resource_spatial_index() -> void:
+	if resource_spatial_index_frame == performance_frame_count:
+		return
+	resource_spatial_grid.clear()
+	for resource_index in range(resources.size()):
+		var resource: Dictionary = resources[resource_index]
+		if not bool(resource.get("alive", true)) or int(resource.get("amount", 0)) <= 0:
+			continue
+		_append_spatial_index(resource_spatial_grid, _spatial_cell(resource.get("pos", Vector3.ZERO)), resource_index)
+	resource_spatial_index_frame = performance_frame_count
+
+
+func _ensure_rubble_spatial_index() -> void:
+	if rubble_spatial_index_frame == performance_frame_count:
+		return
+	rubble_spatial_grid.clear()
+	for rubble_index in range(rubble_nodes.size()):
+		var entry: Dictionary = rubble_nodes[rubble_index]
+		var node: Node3D = entry.get("node") as Node3D
+		if not is_instance_valid(node):
+			continue
+		_append_spatial_index(rubble_spatial_grid, _spatial_cell(node.global_position), rubble_index)
+	rubble_spatial_index_frame = performance_frame_count
+
+
+func _mark_person_dead(person_index: int) -> bool:
+	if person_index < 0 or person_index >= people.size():
+		return false
+	var person: Dictionary = people[person_index]
+	if not bool(person.get("alive", true)):
+		return false
+	person["alive"] = false
+	var node: Node3D = person.get("node") as Node3D
+	if is_instance_valid(node):
+		node.queue_free()
+	people[person_index] = person
+	dead_people_pending_compaction = true
+	return true
+
+
+func _remove_person_at(person_index: int) -> void:
+	if person_index < 0 or person_index >= people.size():
+		return
+	people.remove_at(person_index)
+	_invalidate_people_spatial_index()
+
+func _compact_dead_people() -> void:
+	if not dead_people_pending_compaction:
+		return
+	var alive_people: Array = []
+	for person in people:
+		if bool(person.get("alive", true)):
+			alive_people.append(person)
+	people = alive_people
+	dead_people_pending_compaction = false
+	people_update_cursor = posmod(people_update_cursor, maxi(1, people.size()))
+	_invalidate_people_spatial_index()
+
+
+func _terrain_edit_bounds(edits: Array[Dictionary], padding: float = 0.0) -> Rect2:
+	if edits.is_empty():
+		return Rect2()
+	var min_x: float = INF
+	var max_x: float = -INF
+	var min_z: float = INF
+	var max_z: float = -INF
+	for edit in edits:
+		var center: Vector3 = edit.get("center", Vector3.ZERO)
+		var radius: float = maxf(0.1, float(edit.get("radius", brush_radius))) + padding
+		min_x = minf(min_x, center.x - radius)
+		max_x = maxf(max_x, center.x + radius)
+		min_z = minf(min_z, center.z - radius)
+		max_z = maxf(max_z, center.z + radius)
+	return Rect2(Vector2(min_x, min_z), Vector2(max_x - min_x, max_z - min_z))
 
 
 func _ready() -> void:
@@ -874,11 +1020,15 @@ func _recover_stuck_citizens() -> void:
 			continue
 		var position: Vector3 = person["pos"]
 		var target: Vector3 = person.get("target", position)
-		var distance_to_target: float = Vector2(position.x - target.x, position.z - target.z).length()
+		var target_dx: float = position.x - target.x
+		var target_dz: float = position.z - target.z
+		var distance_to_target_squared: float = target_dx * target_dx + target_dz * target_dz
 		var last_watch_position: Vector3 = person.get("stuck_watch_position", position)
-		var moved_distance: float = Vector2(position.x - last_watch_position.x, position.z - last_watch_position.z).length()
+		var moved_dx: float = position.x - last_watch_position.x
+		var moved_dz: float = position.z - last_watch_position.z
+		var moved_distance_squared: float = moved_dx * moved_dx + moved_dz * moved_dz
 		var stuck_timer: float = float(person.get("stuck_timer", 0.0))
-		if distance_to_target > 1.1 and moved_distance < 0.25:
+		if distance_to_target_squared > 1.21 and moved_distance_squared < 0.0625:
 			stuck_timer += 1.0
 		else:
 			stuck_timer = 0.0
@@ -978,6 +1128,7 @@ func _process(delta: float) -> void:
 				var people_delta: float = people_update_accumulator
 				people_update_accumulator = fmod(people_update_accumulator, people_update_interval)
 				_update_people(people_delta)
+		_invalidate_people_spatial_index()
 		_trace_slow_operation("citizen-update", people_started_usec)
 
 		if not cars.is_empty():
@@ -998,6 +1149,7 @@ func _process(delta: float) -> void:
 		_update_falling_meteors(sim_delta)
 		_update_tornadoes(sim_delta)
 		_update_plague(sim_delta)
+		_compact_dead_people()
 		var simulation_timers_started_usec: int = Time.get_ticks_usec()
 		_update_simulation_timers(sim_delta)
 		_trace_slow_operation("economy-growth-trade-events-total", simulation_timers_started_usec)
@@ -1016,13 +1168,15 @@ func _process(delta: float) -> void:
 		var era_started_usec: int = Time.get_ticks_usec()
 		_update_historical_era()
 		_trace_slow_operation("era-refurbishment", era_started_usec)
+	_compact_dead_people()
 	if not pending_terrain_edits.is_empty() and terrain_rebuild_cooldown <= 0.0:
 		_flush_pending_terrain_edits()
 	_process_terrain_lod_transition()
 	_process_pending_terrain_chunk_updates()
 	ui_timer += delta
-	if ui_timer >= 0.50:
-		ui_timer = 0.0
+	var ui_refresh_interval: float = lerpf(0.50, 0.90, adaptive_performance_pressure)
+	if ui_timer >= ui_refresh_interval:
+		ui_timer = fmod(ui_timer, ui_refresh_interval)
 		var detail_started_usec: int = Time.get_ticks_usec()
 		_update_world_detail_levels()
 		_trace_slow_operation("world-detail-and-occlusion", detail_started_usec)
@@ -1033,6 +1187,10 @@ func _process(delta: float) -> void:
 		_tick_runtime_stress_tests()
 		_tick_runtime_stress_screenshot()
 	var frame_elapsed_usec: int = Time.get_ticks_usec() - frame_started_usec
+	var observed_frame_usec: float = maxf(float(frame_elapsed_usec), delta * 1000000.0)
+	adaptive_frame_time_usec = lerpf(adaptive_frame_time_usec, observed_frame_usec, 0.10)
+	var target_performance_pressure: float = clampf((adaptive_frame_time_usec - 16000.0) / 32000.0, 0.0, 1.0)
+	adaptive_performance_pressure = lerpf(adaptive_performance_pressure, target_performance_pressure, 0.12)
 	if frame_elapsed_usec >= FRAME_HITCH_THRESHOLD_USEC:
 		_write_performance_sample("FRAME-HITCH", frame_elapsed_usec)
 	if stress_suite_active:
@@ -2140,11 +2298,14 @@ func _terrain_edit_affects_point(x: float, z: float, edits: Array[Dictionary], e
 func _update_placed_object_heights_near_many(edits: Array[Dictionary], refresh_territory: bool = true) -> void:
 	if edits.is_empty():
 		return
+	# Union-AABB rejection avoids testing edit circles for distant entities.
+	# Padding covers terraced foundations that extend beyond the sculpting brush.
+	var edit_bounds: Rect2 = _terrain_edit_bounds(edits, 4.5)
 	# Scan each world collection once for all brush strokes or meteor craters.
 	for person_index in range(people.size()):
 		var person: Dictionary = people[person_index]
 		var position: Vector3 = person["pos"]
-		if not _terrain_edit_affects_point(position.x, position.z, edits):
+		if not edit_bounds.has_point(Vector2(position.x, position.z)) or not _terrain_edit_affects_point(position.x, position.z, edits):
 			continue
 		position.y = _height_at(position.x, position.z)
 		person["pos"] = position
@@ -2167,12 +2328,12 @@ func _update_placed_object_heights_near_many(edits: Array[Dictionary], refresh_t
 		var car: Dictionary = cars[car_index]
 		var car_position: Vector3 = car["pos"]
 		var car_changed: bool = false
-		if _terrain_edit_affects_point(car_position.x, car_position.z, edits):
+		if edit_bounds.has_point(Vector2(car_position.x, car_position.z)) and _terrain_edit_affects_point(car_position.x, car_position.z, edits):
 			car_position.y = _height_at(car_position.x, car_position.z)
 			car["pos"] = car_position
 			car_changed = true
 		var waypoint: Vector3 = car["waypoint"]
-		if _terrain_edit_affects_point(waypoint.x, waypoint.z, edits):
+		if edit_bounds.has_point(Vector2(waypoint.x, waypoint.z)) and _terrain_edit_affects_point(waypoint.x, waypoint.z, edits):
 			waypoint.y = _height_at(waypoint.x, waypoint.z)
 			car["waypoint"] = waypoint
 			car_changed = true
@@ -2186,7 +2347,7 @@ func _update_placed_object_heights_near_many(edits: Array[Dictionary], refresh_t
 		var city: Dictionary = cities[city_id]
 		var old_city_position: Vector3 = city["pos"]
 		var city_position: Vector3 = old_city_position
-		var city_centre_affected: bool = _terrain_edit_affects_point(city_position.x, city_position.z, edits)
+		var city_centre_affected: bool = edit_bounds.has_point(Vector2(city_position.x, city_position.z)) and _terrain_edit_affects_point(city_position.x, city_position.z, edits)
 		if city_centre_affected:
 			city_position.y = _height_at(city_position.x, city_position.z)
 			city["pos"] = city_position
@@ -2200,7 +2361,7 @@ func _update_placed_object_heights_near_many(edits: Array[Dictionary], refresh_t
 			var house_world_x: float = old_city_position.x + house.position.x
 			var house_world_z: float = old_city_position.z + house.position.z
 			var grade_radius: float = float(house.get_meta("plot_grade_radius", 2.25)) if bool(house.get_meta("terrain_terraced", false)) else 0.0
-			if _terrain_edit_affects_point(house_world_x, house_world_z, edits, grade_radius):
+			if edit_bounds.has_point(Vector2(house_world_x, house_world_z)) and _terrain_edit_affects_point(house_world_x, house_world_z, edits, grade_radius):
 				var base_height: float = _height_at(house_world_x, house_world_z)
 				if grade_radius > 0.0:
 					base_height = _max_terrain_height_in_radius(house_world_x, house_world_z, grade_radius) + 0.18
@@ -2237,6 +2398,8 @@ func _update_placed_object_heights_near_many(edits: Array[Dictionary], refresh_t
 			army_node.position = position
 		armies[army_index] = army
 
+	_invalidate_people_spatial_index()
+	_invalidate_resource_spatial_index()
 	if refresh_territory:
 		_schedule_city_territory_refresh()
 
@@ -4127,12 +4290,14 @@ func _spawn_human(position: Vector3, city_id: int) -> void:
 		return
 	var assigned_city: int = city_id
 	if assigned_city < 0:
-		var nearest_distance: float = 8.0
+		var nearest_distance_squared: float = 8.0 * 8.0
 		for i in range(cities.size()):
 			var city_pos: Vector3 = cities[i]["pos"]
-			var distance: float = Vector2(position.x, position.z).distance_to(Vector2(city_pos.x, city_pos.z))
-			if distance < nearest_distance:
-				nearest_distance = distance
+			var dx: float = position.x - city_pos.x
+			var dz: float = position.z - city_pos.z
+			var distance_squared: float = dx * dx + dz * dz
+			if distance_squared < nearest_distance_squared:
+				nearest_distance_squared = distance_squared
 				assigned_city = i
 	var garment: Color
 	if assigned_city >= 0 and assigned_city < cities.size():
@@ -4159,6 +4324,7 @@ func _spawn_human(position: Vector3, city_id: int) -> void:
 				break
 	p.y = _height_at(p.x, p.z)
 	human.position = p
+	_invalidate_people_spatial_index()
 	people.append({
 		"node": human,
 		"pos": p,
@@ -4242,6 +4408,7 @@ func _spawn_resource(position: Vector3, kind: String, amount: int = 8) -> void:
 		ore_rock_small.rings = 3
 		_add_mesh(node, ore_rock_small, _material(ore_color.lightened(0.16)), Vector3(0.53, 0.34, 0.23), Vector3(1.0, 0.78, 0.9))
 	add_child(node)
+	_invalidate_resource_spatial_index()
 	resources.append({"node": node, "pos": p, "type": kind, "amount": amount, "alive": true})
 
 
@@ -4316,6 +4483,7 @@ func _update_people(delta: float) -> void:
 		batch_divisor = maxf(batch_divisor, 4.0)
 	elif camera_distance > 85.0:
 		batch_divisor = maxf(batch_divisor, 3.0)
+	batch_divisor = maxf(batch_divisor, lerpf(1.0, 3.0, adaptive_performance_pressure))
 	if total_people > 900:
 		batch_count = maxi(1, ceili(float(total_people) / maxf(3.0, batch_divisor)))
 	elif total_people > 500 or (camera_distance > 85.0 and total_people > 240) or (sim_speed >= 4.0 and total_people > 240):
@@ -4371,8 +4539,9 @@ func _update_people(delta: float) -> void:
 				continue
 			var vehicle_position: Vector3 = vehicle.global_position
 			if activity == "boarding":
-				var boarding_distance: float = Vector2(position.x - vehicle_position.x, position.z - vehicle_position.z).length()
-				if boarding_distance <= 1.55:
+				var boarding_dx: float = position.x - vehicle_position.x
+				var boarding_dz: float = position.z - vehicle_position.z
+				if boarding_dx * boarding_dx + boarding_dz * boarding_dz <= 2.4025:
 					person["activity"] = "riding"
 					person["activity_timer"] = randf_range(5.0, 15.0)
 					_adjust_car_occupancy(vehicle, 1)
@@ -4420,8 +4589,9 @@ func _update_people(delta: float) -> void:
 				continue
 			if activity == "constructing_walk":
 				var construction_target: Vector3 = person.get("construction_target", site_node.global_position)
-				var construction_distance: float = Vector2(position.x - construction_target.x, position.z - construction_target.z).length()
-				if construction_distance <= 1.1:
+				var construction_dx: float = position.x - construction_target.x
+				var construction_dz: float = position.z - construction_target.z
+				if construction_dx * construction_dx + construction_dz * construction_dz <= 1.21:
 					person["activity"] = "constructing"
 					person["pos"] = position
 				else:
@@ -4445,9 +4615,11 @@ func _update_people(delta: float) -> void:
 				people[i] = person
 				continue
 			var cleanup_position: Vector3 = cleanup_node.global_position
-			var cleanup_distance: float = Vector2(position.x - cleanup_position.x, position.z - cleanup_position.z).length()
+			var cleanup_dx: float = position.x - cleanup_position.x
+			var cleanup_dz: float = position.z - cleanup_position.z
+			var cleanup_distance_squared: float = cleanup_dx * cleanup_dx + cleanup_dz * cleanup_dz
 			if activity == "cleanup_walk":
-				if cleanup_distance <= 1.5:
+				if cleanup_distance_squared <= 2.25:
 					person["activity"] = "cleaning"
 					person["activity_timer"] = 0.0
 					if is_instance_valid(node):
@@ -4476,14 +4648,16 @@ func _update_people(delta: float) -> void:
 			continue
 		person["walk_timer"] = float(person.get("walk_timer", 1.0)) - person_delta
 		var target: Vector3 = person["target"]
-		var distance_to_target: float = Vector2(position.x - target.x, position.z - target.z).length()
+		var target_dx: float = position.x - target.x
+		var target_dz: float = position.z - target.z
+		var distance_to_target_squared: float = target_dx * target_dx + target_dz * target_dz
 		if activity == "entering":
 			var target_house: Variant = person.get("indoor_house", null)
 			if not (target_house is Node3D) or not is_instance_valid(target_house):
 				person["activity"] = "wandering"
 				person["indoor_house"] = null
 				person["walk_timer"] = 0.0
-			elif distance_to_target <= 0.9:
+			elif distance_to_target_squared <= 0.81:
 				person["activity"] = "indoors"
 				person["activity_timer"] = randf_range(8.0, 28.0)
 				position = target
@@ -4493,7 +4667,7 @@ func _update_people(delta: float) -> void:
 				people[i] = person
 				continue
 
-		if activity != "entering" and (person["walk_timer"] <= 0.0 or distance_to_target < 0.55):
+		if activity != "entering" and (person["walk_timer"] <= 0.0 or distance_to_target_squared < 0.3025):
 			var city_id: int = int(person.get("city_id", -1))
 			var destination_center: Vector3 = position
 			var local_wander_radius: float = 6.0
@@ -4525,16 +4699,18 @@ func _update_people(delta: float) -> void:
 					if is_instance_valid(selected_house):
 						next_target = _surface_position(selected_house.global_position.x, selected_house.global_position.z + 1.65)
 			elif city_id >= 0 and city_id < cities.size() and _world_year() >= 1900 and randf() < 0.12:
-				var best_distance: float = 24.0
+				var best_distance_squared: float = 24.0 * 24.0
 				for car_data in cars:
 					if int(car_data["city_id"]) != city_id or int(car_data.get("occupied", 0)) >= int(car_data.get("capacity", 2)):
 						continue
 					var car_node: Node3D = car_data["node"]
 					if not is_instance_valid(car_node):
 						continue
-					var candidate_distance: float = Vector2(car_node.position.x - position.x, car_node.position.z - position.z).length()
-					if candidate_distance < best_distance:
-						best_distance = candidate_distance
+					var candidate_dx: float = car_node.position.x - position.x
+					var candidate_dz: float = car_node.position.z - position.z
+					var candidate_distance_squared: float = candidate_dx * candidate_dx + candidate_dz * candidate_dz
+					if candidate_distance_squared < best_distance_squared:
+						best_distance_squared = candidate_distance_squared
 						selected_vehicle = car_node
 				if is_instance_valid(selected_vehicle):
 					next_target = selected_vehicle.global_position
@@ -4556,8 +4732,9 @@ func _update_people(delta: float) -> void:
 			target = person["target"]
 
 		var horizontal_target := Vector3(target.x, position.y, target.z)
-		var distance_before_move: float = Vector2(position.x - target.x, position.z - target.z).length()
-		var is_walking: bool = distance_before_move > 0.45
+		var move_dx: float = position.x - target.x
+		var move_dz: float = position.z - target.z
+		var is_walking: bool = move_dx * move_dx + move_dz * move_dz > 0.2025
 		position = position.move_toward(horizontal_target, person_delta * 2.2)
 		position.y = _height_at(position.x, position.z)
 		person["pos"] = position
@@ -5198,13 +5375,17 @@ func _city_population(city_id: int) -> int:
 
 
 func _collect_resources() -> void:
+	_ensure_resource_spatial_index()
 	for city_id in range(cities.size()):
 		var city: Dictionary = cities[city_id]
-		for resource in resources:
+		var city_pos: Vector3 = city["pos"]
+		for resource_index in _query_spatial_indices(resource_spatial_grid, city_pos, 15.0):
+			if resource_index < 0 or resource_index >= resources.size():
+				continue
+			var resource: Dictionary = resources[resource_index]
 			if int(resource.get("amount", 0)) <= 0 or not bool(resource.get("alive", true)):
 				continue
 			var resource_pos: Vector3 = resource["pos"]
-			var city_pos: Vector3 = city["pos"]
 			var dx: float = resource_pos.x - city_pos.x
 			var dz: float = resource_pos.z - city_pos.z
 			# Collection is a hot O(cities × resources) path. Squared distance is
@@ -6773,53 +6954,65 @@ func _spawn_explosion(position: Vector3, target_id: int) -> void:
 	_spawn_missile_mushroom_cloud(position)
 
 	var blast_radius: float = 14.0
-	_destroy_cars_in_radius(position, blast_radius)
 	var blast_radius_squared: float = blast_radius * blast_radius
+	_destroy_cars_in_radius(position, blast_radius)
 	var road_affected_city_ids: Array[int] = _damage_roads_at_position(position, blast_radius * 0.92, false)
-	var damaged_city_names: Array[String] = []
+	var city_changed_by_id: Dictionary = {}
 	for city_id in range(cities.size()):
 		var city: Dictionary = cities[city_id]
-		var city_position: Vector3 = city["pos"]
-		var city_dx: float = city_position.x - position.x
-		var city_dz: float = city_position.z - position.z
-		var city_distance_squared: float = city_dx * city_dx + city_dz * city_dz
-		var houses: Array = city["houses"]
-		var targets: Array[Node3D] = []
-		for house in houses:
+		var city_changed: bool = false
+		for house in city["houses"]:
 			if not is_instance_valid(house):
 				continue
-			var offset := Vector2(house.global_position.x - position.x, house.global_position.z - position.z)
-			if offset.length_squared() <= blast_radius_squared:
-				targets.append(house)
-		var city_changed: bool = false
-		for house in targets:
-			var distance: float = Vector2(house.global_position.x - position.x, house.global_position.z - position.z).length()
+			var house_position: Vector3 = house.global_position
+			var dx: float = house_position.x - position.x
+			var dz: float = house_position.z - position.z
+			var distance_squared: float = dx * dx + dz * dz
+			if distance_squared > blast_radius_squared:
+				continue
+			var distance: float = sqrt(distance_squared)
 			var impact_strength: float = clampf(0.42 - distance / blast_radius * 0.18, 0.22, 0.42)
 			if _collapse_specific_building(city_id, house, true, false, 0, impact_strength):
 				city_changed = true
+		city_changed_by_id[city_id] = city_changed
 		if city_changed or road_affected_city_ids.has(city_id):
 			_queue_city_roads_rebuild(city_id)
 		if city_changed:
 			_schedule_city_territory_refresh()
-		var population_losses: int = 0
-		for person_index in range(people.size() - 1, -1, -1):
-			var person: Dictionary = people[person_index]
-			var activity: String = str(person.get("activity", ""))
-			if activity == "riding":
+
+	# Collapse side effects may remove citizens; build the index only afterwards.
+	_ensure_people_spatial_index()
+	var population_losses_by_city: Dictionary = {}
+	var nearby_people: Array[int] = _query_spatial_indices(people_spatial_grid, position, blast_radius)
+	for person_index in nearby_people:
+		if person_index < 0 or person_index >= people.size():
+			continue
+		var person: Dictionary = people[person_index]
+		if not bool(person.get("alive", true)) or str(person.get("activity", "")) == "riding":
+			continue
+		var person_position: Vector3 = person.get("pos", Vector3.ZERO)
+		var dx: float = person_position.x - position.x
+		var dz: float = person_position.z - position.z
+		if dx * dx + dz * dz > blast_radius_squared:
+			continue
+		if str(person.get("activity", "")) == "indoors":
+			var indoor_house: Variant = person.get("indoor_house", null)
+			if indoor_house is Node3D and is_instance_valid(indoor_house) and indoor_house.global_position.distance_squared_to(position) > 4.0:
 				continue
-			var person_position: Vector3 = person["pos"]
-			var dx: float = person_position.x - position.x
-			var dz: float = person_position.z - position.z
-			if dx * dx + dz * dz > blast_radius_squared:
-				continue
-			if activity == "indoors":
-				var indoor_house: Variant = person.get("indoor_house", null)
-				if indoor_house is Node3D and is_instance_valid(indoor_house) and indoor_house.global_position.distance_to(position) > 2.0:
-					continue
-			if is_instance_valid(person.get("node")):
-				person["node"].queue_free()
-			people.remove_at(person_index)
-			population_losses += 1
+		if _mark_person_dead(person_index):
+			var resident_city_id: int = int(person.get("city_id", -1))
+			if resident_city_id >= 0 and resident_city_id < cities.size():
+				population_losses_by_city[resident_city_id] = int(population_losses_by_city.get(resident_city_id, 0)) + 1
+
+	var damaged_city_names: Array[String] = []
+	for city_id in range(cities.size()):
+		var city: Dictionary = cities[city_id]
+		var population_losses: int = int(population_losses_by_city.get(city_id, 0))
+		var city_changed: bool = bool(city_changed_by_id.get(city_id, false))
+		var city_position: Vector3 = city["pos"]
+		var city_dx: float = city_position.x - position.x
+		var city_dz: float = city_position.z - position.z
+		var city_distance_squared: float = city_dx * city_dx + city_dz * city_dz
 		if population_losses > 0 or city_changed:
 			city["stability"] = maxf(0.0, float(city.get("stability", 72.0)) - 22.0)
 			city["security"] = maxf(0.0, float(city.get("security", 44.0)) - 28.0)
@@ -6831,20 +7024,26 @@ func _spawn_explosion(position: Vector3, target_id: int) -> void:
 			city["stability"] = maxf(0.0, float(city.get("stability", 72.0)) - 12.0)
 			cities[city_id] = city
 			damaged_city_names.append(str(city["name"]))
-	for resource in resources:
-		var resource_pos: Vector3 = resource["pos"]
+
+	_ensure_resource_spatial_index()
+	for resource_index in _query_spatial_indices(resource_spatial_grid, position, blast_radius):
+		if resource_index < 0 or resource_index >= resources.size():
+			continue
+		var resource: Dictionary = resources[resource_index]
+		var resource_pos: Vector3 = resource.get("pos", Vector3.ZERO)
 		var dx: float = resource_pos.x - position.x
 		var dz: float = resource_pos.z - position.z
 		if dx * dx + dz * dz <= blast_radius_squared:
 			resource["amount"] = 0
 			resource["alive"] = false
-			if is_instance_valid(resource["node"]):
-				resource["node"].visible = false
+			var resource_node: Node3D = resource.get("node") as Node3D
+			if is_instance_valid(resource_node):
+				resource_node.visible = false
+			resources[resource_index] = resource
 	if damaged_city_names.is_empty():
 		_log("MISSILE DETONATION: Massive blast on open ground.")
 	else:
 		_log("MISSILE DETONATION: Strategic strike devastates %s." % ", ".join(damaged_city_names))
-
 
 func _spawn_ground_shockwave(position: Vector3) -> void:
 	var wave := MeshInstance3D.new()
@@ -6972,7 +7171,7 @@ func _damage_city(city_id: int, amount: int, cause: String) -> void:
 		if int(people[i]["city_id"]) == city_id and removed < amount:
 			if is_instance_valid(people[i]["node"]):
 				people[i]["node"].queue_free()
-			people.remove_at(i)
+			_remove_person_at(i)
 			removed += 1
 	if removed > 0 and cause == "army":
 		_log("Fighting near %s: %d citizen(s) lost." % [cities[city_id]["name"], removed])
@@ -7189,7 +7388,7 @@ func _kill_people_in_fall_corridor(center: Vector3, direction: Vector2, reach: f
 			continue
 		if is_instance_valid(person.get("node")):
 			person["node"].queue_free()
-		people.remove_at(person_index)
+		_remove_person_at(person_index)
 		deaths += 1
 	if deaths > 0:
 		last_detail_signature = ""
@@ -7236,7 +7435,7 @@ func _destroy_car_node(car_node: Node3D, cause: String = "impact") -> bool:
 			continue
 		if is_instance_valid(person.get("node")):
 			person["node"].queue_free()
-		people.remove_at(person_index)
+		_remove_person_at(person_index)
 	car_node.queue_free()
 	cars.remove_at(found_index)
 	_spawn_persistent_rubble(crash_position, false, Color(0.35, 0.38, 0.40), true, "vehicle")
@@ -7296,33 +7495,40 @@ func _finish_building_collapse(house: Node3D, tall_building: bool, building_colo
 
 
 func _spawn_building_collapse_smoke(center: Vector3, building_height: float, tall_building: bool, impact_burst: bool = false) -> void:
-	# Smoke is cosmetic. Keep the silhouette and drift, but avoid hundreds of
-	# independent meshes/materials/tweens when a whole district collapses at once.
 	var puff_count: int = 8 if tall_building else 5
 	if impact_burst:
 		puff_count = 3 if tall_building else 2
 	puff_count = mini(puff_count, maxi(0, MAX_ACTIVE_BUILDING_SMOKE_PUFFS - active_building_smoke_puffs))
 	for puff_index in range(puff_count):
-		var puff := MeshInstance3D.new()
-		var puff_mesh := SphereMesh.new()
+		var puff: MeshInstance3D
+		var puff_mesh: SphereMesh
+		var smoke_material: StandardMaterial3D
+		if not building_smoke_pool.is_empty():
+			puff = building_smoke_pool.pop_back()
+			puff_mesh = puff.mesh as SphereMesh
+			smoke_material = puff.material_override as StandardMaterial3D
+		else:
+			puff = MeshInstance3D.new()
+			puff_mesh = SphereMesh.new()
+			puff_mesh.radial_segments = 8
+			puff_mesh.rings = 4
+			puff.mesh = puff_mesh
+			smoke_material = StandardMaterial3D.new()
+			smoke_material.transparency = BaseMaterial3D.TRANSPARENCY_ALPHA
+			smoke_material.shading_mode = BaseMaterial3D.SHADING_MODE_UNSHADED
+			smoke_material.depth_draw_mode = BaseMaterial3D.DEPTH_DRAW_DISABLED
+			smoke_material.roughness = 1.0
+			puff.material_override = smoke_material
+			puff.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
 		puff_mesh.radius = randf_range(0.62, 1.05)
 		puff_mesh.height = puff_mesh.radius * 2.0
-		puff_mesh.radial_segments = 8
-		puff_mesh.rings = 4
-		puff.mesh = puff_mesh
-		var smoke_material := StandardMaterial3D.new()
 		smoke_material.albedo_color = Color(randf_range(0.17, 0.29), randf_range(0.18, 0.30), randf_range(0.19, 0.31), randf_range(0.48, 0.70))
-		smoke_material.transparency = BaseMaterial3D.TRANSPARENCY_ALPHA
-		smoke_material.shading_mode = BaseMaterial3D.SHADING_MODE_UNSHADED
-		smoke_material.depth_draw_mode = BaseMaterial3D.DEPTH_DRAW_DISABLED
-		smoke_material.roughness = 1.0
-		puff.material_override = smoke_material
-		puff.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
 		var drift := Vector3(randf_range(-2.2, 2.2), randf_range(0.4, maxf(2.0, building_height * 0.36)), randf_range(-2.2, 2.2))
 		puff.global_position = center + Vector3(randf_range(-1.8, 1.8), randf_range(0.0, 1.3), randf_range(-1.8, 1.8))
-		var scale_start: float = randf_range(0.4, 0.9)
-		puff.scale = Vector3.ONE * scale_start
-		add_child(puff)
+		puff.scale = Vector3.ONE * randf_range(0.4, 0.9)
+		puff.visible = true
+		if puff.get_parent() == null:
+			add_child(puff)
 		active_building_smoke_puffs += 1
 		var lifetime: float = randf_range(2.5, 4.2) if tall_building else randf_range(1.8, 3.0)
 		if impact_burst:
@@ -7334,12 +7540,15 @@ func _spawn_building_collapse_smoke(center: Vector3, building_height: float, tal
 		smoke_tween.tween_property(smoke_material, "albedo_color:a", 0.0, lifetime)
 		smoke_tween.chain().tween_callback(_release_building_smoke_puff.bind(puff))
 
-
 func _release_building_smoke_puff(puff: Node3D) -> void:
 	active_building_smoke_puffs = maxi(0, active_building_smoke_puffs - 1)
-	if is_instance_valid(puff):
+	if not is_instance_valid(puff):
+		return
+	puff.visible = false
+	if building_smoke_pool.size() < MAX_POOLED_SMOKE_PUFFS and puff is MeshInstance3D:
+		building_smoke_pool.append(puff as MeshInstance3D)
+	else:
 		puff.queue_free()
-
 
 func _spawn_persistent_rubble(position: Vector3, tall_building: bool, building_color: Color, record: bool = true, rubble_kind: String = "building", saved_id: int = -1) -> void:
 	var resolved_id: int = saved_id
@@ -7381,6 +7590,7 @@ func _spawn_persistent_rubble(position: Vector3, tall_building: bool, building_c
 		fall_tween.set_parallel(true)
 		fall_tween.tween_property(piece, "position", landing_position, randf_range(0.28, 0.82)).set_trans(Tween.TRANS_BOUNCE).set_ease(Tween.EASE_OUT)
 		fall_tween.tween_property(piece, "rotation", Vector3(randf_range(-0.9, 0.9), randf() * TAU, randf_range(-0.9, 0.9)), randf_range(0.25, 0.65)).set_trans(Tween.TRANS_CUBIC).set_ease(Tween.EASE_OUT)
+	_invalidate_rubble_spatial_index()
 	rubble_nodes.append({"id": resolved_id, "node": rubble, "position": debris_position, "kind": rubble_kind, "reserved": false, "age": 0.0, "decaying": false})
 	if record:
 		rubble_records.append({"id": resolved_id, "position": _vector3_to_array(debris_position), "tall": tall_building, "kind": rubble_kind, "color": building_color.to_html(true)})
@@ -7395,9 +7605,13 @@ func _get_rubble_node(rubble_id: int) -> Node3D:
 
 
 func _find_nearby_cleanup_rubble(position: Vector3, max_distance: float = 22.0) -> int:
+	_ensure_rubble_spatial_index()
 	var best_id: int = -1
 	var best_distance_squared: float = max_distance * max_distance
-	for entry in rubble_nodes:
+	for rubble_index in _query_spatial_indices(rubble_spatial_grid, position, max_distance):
+		if rubble_index < 0 or rubble_index >= rubble_nodes.size():
+			continue
+		var entry: Dictionary = rubble_nodes[rubble_index]
 		if bool(entry.get("reserved", false)):
 			continue
 		var node: Node3D = entry.get("node") as Node3D
@@ -7411,7 +7625,6 @@ func _find_nearby_cleanup_rubble(position: Vector3, max_distance: float = 22.0) 
 			best_distance_squared = distance_squared
 			best_id = int(entry["id"])
 	return best_id
-
 
 func _reserve_cleanup_rubble(rubble_id: int, reserved: bool) -> void:
 	for index in range(rubble_nodes.size()):
@@ -7443,6 +7656,7 @@ func _clear_rubble_by_id(rubble_id: int) -> void:
 					cities[road_city_to_rebuild] = city
 			node.queue_free()
 		rubble_nodes.remove_at(index)
+		_invalidate_rubble_spatial_index()
 		break
 	for record_index in range(rubble_records.size() - 1, -1, -1):
 		if int(rubble_records[record_index].get("id", -2)) == rubble_id:
@@ -7513,90 +7727,117 @@ func _capture_city(city_id: int, source_id: int) -> void:
 
 
 func _spawn_god_effect(position: Vector3, tint: Color, radius: float, duration: float, kind: String = "pulse") -> void:
-	var effect_node := MeshInstance3D.new()
-	var effect_mesh: Mesh
+	if god_effect_sphere_mesh == null:
+		god_effect_sphere_mesh = SphereMesh.new()
+		god_effect_sphere_mesh.radius = 1.0
+		god_effect_sphere_mesh.height = 2.0
+		god_effect_sphere_mesh.radial_segments = 12
+		god_effect_sphere_mesh.rings = 6
+	if god_effect_lightning_mesh == null:
+		god_effect_lightning_mesh = CylinderMesh.new()
+		god_effect_lightning_mesh.top_radius = 0.035
+		god_effect_lightning_mesh.bottom_radius = 0.18
+		god_effect_lightning_mesh.height = 12.0
+		god_effect_lightning_mesh.radial_segments = 8
+	var pooled: Dictionary = {}
+	if not god_effect_pool.is_empty():
+		pooled = god_effect_pool.pop_back()
+	var effect_node: MeshInstance3D
+	var material: StandardMaterial3D
+	var light: OmniLight3D
+	if pooled.is_empty():
+		effect_node = MeshInstance3D.new()
+		material = StandardMaterial3D.new()
+		material.transparency = BaseMaterial3D.TRANSPARENCY_ALPHA
+		material.shading_mode = BaseMaterial3D.SHADING_MODE_UNSHADED
+		material.emission_enabled = true
+		effect_node.material_override = material
+		light = OmniLight3D.new()
+		effect_node.add_child(light)
+	else:
+		effect_node = pooled["node"] as MeshInstance3D
+		material = pooled["material"] as StandardMaterial3D
+		light = pooled["light"] as OmniLight3D
+		if not is_instance_valid(effect_node) or not is_instance_valid(material) or not is_instance_valid(light):
+			_spawn_god_effect(position, tint, radius, duration, kind)
+			return
 	var base_scale: Vector3
 	if kind == "lightning":
-		var beam := CylinderMesh.new()
-		beam.top_radius = 0.035
-		beam.bottom_radius = 0.18
-		beam.height = 12.0
-		beam.radial_segments = 8
-		effect_mesh = beam
+		effect_node.mesh = god_effect_lightning_mesh
 		base_scale = Vector3.ONE
 		effect_node.position = position + Vector3(0.0, 6.0, 0.0)
 	else:
-		var sphere := SphereMesh.new()
-		sphere.radius = 1.0
-		sphere.height = 2.0
-		effect_mesh = sphere
-		base_scale = Vector3(radius, max(0.35, radius * 0.48), radius)
+		effect_node.mesh = god_effect_sphere_mesh
+		base_scale = Vector3(radius, maxf(0.35, radius * 0.48), radius)
 		effect_node.position = position + Vector3(0.0, 0.55, 0.0)
-	effect_node.mesh = effect_mesh
-	var material := StandardMaterial3D.new()
 	material.albedo_color = Color(tint.r, tint.g, tint.b, 0.82)
-	material.transparency = BaseMaterial3D.TRANSPARENCY_ALPHA
-	material.shading_mode = BaseMaterial3D.SHADING_MODE_UNSHADED
-	material.emission_enabled = true
 	material.emission = tint
 	material.emission_energy_multiplier = 1.8
-	effect_node.material_override = material
 	effect_node.scale = base_scale
-	add_child(effect_node)
-	var light := OmniLight3D.new()
+	effect_node.visible = true
 	light.light_color = tint
 	light.light_energy = 3.0
-	light.omni_range = max(5.0, radius * 3.0)
-	effect_node.add_child(light)
-	god_effects.append({
-		"node": effect_node,
-		"material": material,
-		"light": light,
-		"age": 0.0,
-		"duration": duration,
-		"base_scale": base_scale,
-		"base_alpha": 0.82
-	})
-
+	light.omni_range = maxf(5.0, radius * 3.0)
+	light.visible = true
+	if effect_node.get_parent() == null:
+		add_child(effect_node)
+	god_effects.append({"node": effect_node, "material": material, "light": light, "age": 0.0, "duration": maxf(0.05, duration), "base_scale": base_scale, "base_alpha": 0.82})
 
 func _update_god_effects(delta: float) -> void:
 	for i in range(god_effects.size() - 1, -1, -1):
 		var effect: Dictionary = god_effects[i]
 		effect["age"] = float(effect["age"]) + delta
-		var progress: float = clamp(float(effect["age"]) / float(effect["duration"]), 0.0, 1.0)
-		var node: Node3D = effect["node"]
+		var progress: float = clampf(float(effect["age"]) / maxf(0.05, float(effect["duration"])), 0.0, 1.0)
+		var node: MeshInstance3D = effect["node"] as MeshInstance3D
 		if is_instance_valid(node):
 			node.scale = effect["base_scale"] * (1.0 + progress * 0.35)
-		var material: StandardMaterial3D = effect["material"]
+		var material: StandardMaterial3D = effect["material"] as StandardMaterial3D
 		var tint: Color = material.albedo_color
 		tint.a = float(effect["base_alpha"]) * (1.0 - progress)
 		material.albedo_color = tint
-		var light: OmniLight3D = effect["light"]
+		var light: OmniLight3D = effect["light"] as OmniLight3D
 		if is_instance_valid(light):
 			light.light_energy = 3.0 * (1.0 - progress)
 		if progress >= 1.0:
 			if is_instance_valid(node):
+				node.visible = false
+			if is_instance_valid(light):
+				light.visible = false
+			if god_effect_pool.size() < MAX_POOLED_GOD_EFFECTS and is_instance_valid(node) and is_instance_valid(material) and is_instance_valid(light):
+				god_effect_pool.append({"node": node, "material": material, "light": light})
+			elif is_instance_valid(node):
 				node.queue_free()
 			god_effects.remove_at(i)
 		else:
 			god_effects[i] = effect
 
-
 func _power_damage(center: Vector3, radius: float, people_limit: int, resource_chance: float, house_damage: int, refresh_ui: bool = true) -> void:
 	var power_damage_started_usec: int = Time.get_ticks_usec()
 	var removed: int = 0
 	var radius_squared: float = radius * radius
-	for i in range(people.size() - 1, -1, -1):
-		var person_position: Vector3 = people[i]["pos"]
+	_ensure_people_spatial_index()
+	var nearby_people: Array[int] = _query_spatial_indices(people_spatial_grid, center, radius)
+	nearby_people.sort()
+	for candidate_offset in range(nearby_people.size() - 1, -1, -1):
+		if removed >= people_limit:
+			break
+		var person_index: int = nearby_people[candidate_offset]
+		if person_index < 0 or person_index >= people.size():
+			continue
+		var person: Dictionary = people[person_index]
+		if not bool(person.get("alive", true)):
+			continue
+		var person_position: Vector3 = person.get("pos", Vector3.ZERO)
 		var person_dx: float = person_position.x - center.x
 		var person_dz: float = person_position.z - center.z
-		if person_dx * person_dx + person_dz * person_dz <= radius_squared and removed < people_limit:
-			if is_instance_valid(people[i]["node"]):
-				people[i]["node"].queue_free()
-			people.remove_at(i)
+		if person_dx * person_dx + person_dz * person_dz <= radius_squared and _mark_person_dead(person_index):
 			removed += 1
-	for resource in resources:
-		if int(resource["amount"]) <= 0:
+	_ensure_resource_spatial_index()
+	for resource_index in _query_spatial_indices(resource_spatial_grid, center, radius):
+		if resource_index < 0 or resource_index >= resources.size():
+			continue
+		var resource: Dictionary = resources[resource_index]
+		if int(resource.get("amount", 0)) <= 0 or not bool(resource.get("alive", true)):
 			continue
 		var resource_position: Vector3 = resource["pos"]
 		var resource_dx: float = resource_position.x - center.x
@@ -7606,16 +7847,15 @@ func _power_damage(center: Vector3, radius: float, people_limit: int, resource_c
 			if randf() < chance:
 				resource["amount"] = 0
 				resource["alive"] = false
-				if is_instance_valid(resource["node"]):
-					resource["node"].visible = false
+				var resource_node: Node3D = resource.get("node") as Node3D
+				if is_instance_valid(resource_node):
+					resource_node.visible = false
+				resources[resource_index] = resource
 	_destroy_cars_in_radius(center, radius)
 	var structure_search_radius: float = radius + 45.0
 	var structure_search_radius_squared: float = structure_search_radius * structure_search_radius
 	var city_food_radius_squared: float = radius_squared * 2.25
 	var road_affected_city_ids: Array[int] = _damage_roads_at_position(center, maxf(2.5, radius * 0.78), false)
-	# Rebuild every road mesh touched by the impact, even if the impact is far
-	# from the city anchor. The old code gated this inside the city-centre damage
-	# radius, leaving edge streets recorded as damaged but still visible intact.
 	var road_rebuild_city_ids: Dictionary = {}
 	for road_city_id in road_affected_city_ids:
 		road_rebuild_city_ids[road_city_id] = true
@@ -7644,7 +7884,7 @@ func _power_damage(center: Vector3, radius: float, people_limit: int, resource_c
 			if city_damaged:
 				road_rebuild_city_ids[city_id] = true
 		if city_distance_squared <= city_food_radius_squared:
-			cities[city_id]["food"] = max(0.0, float(cities[city_id]["food"]) - float(removed) * 0.25)
+			cities[city_id]["food"] = maxf(0.0, float(cities[city_id]["food"]) - float(removed) * 0.25)
 	for road_city_id in road_rebuild_city_ids.keys():
 		var affected_city_id: int = int(road_city_id)
 		if affected_city_id >= 0 and affected_city_id < cities.size():
@@ -7652,7 +7892,6 @@ func _power_damage(center: Vector3, radius: float, people_limit: int, resource_c
 	if refresh_ui:
 		_refresh_ui()
 	_trace_slow_operation("power-damage", power_damage_started_usec)
-
 
 func _god_lightning(position: Vector3) -> void:
 	_spawn_god_effect(position, Color(0.30, 0.82, 1.0), 2.7, 0.45, "lightning")
@@ -7712,8 +7951,10 @@ func _update_fire_zones(delta: float) -> void:
 					if str(resource["type"]) != "tree" or int(resource["amount"]) <= 0:
 						continue
 					var tree_position: Vector3 = resource["pos"]
-					var spread_distance: float = Vector2(tree_position.x - float(fire["pos"].x), tree_position.z - float(fire["pos"].z)).length()
-					if spread_distance <= float(fire["radius"]) + 2.2 and randf() < 0.22:
+					var spread_dx: float = tree_position.x - float(fire["pos"].x)
+					var spread_dz: float = tree_position.z - float(fire["pos"].z)
+					var spread_radius: float = float(fire["radius"]) + 2.2
+					if spread_dx * spread_dx + spread_dz * spread_dz <= spread_radius * spread_radius and randf() < 0.22:
 						resource["amount"] = 0
 						resource["alive"] = false
 						if is_instance_valid(resource["node"]):
@@ -7868,7 +8109,7 @@ func _update_plague(delta: float) -> void:
 	var expired_lookup: Dictionary = {}
 	for i in range(people.size() - 1, -1, -1):
 		var person: Dictionary = people[i]
-		if not bool(person.get("infected", false)):
+		if not bool(person.get("alive", true)) or not bool(person.get("infected", false)):
 			continue
 		person["infection_time"] = float(person["infection_time"]) + delta
 		person["spread_timer"] = float(person["spread_timer"]) + delta
@@ -7886,7 +8127,7 @@ func _update_plague(delta: float) -> void:
 	# Timer/death handling above is all the work needed until the next spread pulse.
 	if spreader_indices.is_empty():
 		for expired_index in expired_indices:
-			people.remove_at(expired_index)
+			_remove_person_at(expired_index)
 		return
 
 	# People only need to be compared with residents in neighbouring 2.25-unit
@@ -7896,7 +8137,7 @@ func _update_plague(delta: float) -> void:
 	var cell_size: float = infection_radius
 	var cells: Dictionary = {}
 	for person_index in range(people.size()):
-		if expired_lookup.has(person_index):
+		if expired_lookup.has(person_index) or not bool(people[person_index].get("alive", true)):
 			continue
 		var person_position: Vector3 = people[person_index]["pos"]
 		var cell := Vector2i(floori(person_position.x / cell_size), floori(person_position.z / cell_size))
@@ -7938,7 +8179,7 @@ func _update_plague(delta: float) -> void:
 	# Defer removals until all spatial queries are complete, then remove in descending
 	# index order so the cell-index references remain valid throughout this update.
 	for expired_index in expired_indices:
-		people.remove_at(expired_index)
+		_remove_person_at(expired_index)
 
 
 func _god_tornado(position: Vector3) -> void:
@@ -8047,7 +8288,7 @@ func _erase_near(position: Vector3) -> void:
 	if best_person >= 0:
 		if is_instance_valid(people[best_person]["node"]):
 			people[best_person]["node"].queue_free()
-		people.remove_at(best_person)
+		_remove_person_at(best_person)
 		_log("One human erased. The mysteries of godhood remain unsolved.")
 		return
 	for resource in resources:
@@ -8737,13 +8978,13 @@ func _update_world_detail_levels() -> void:
 			people_lod_proxy.visible = false
 	elif people_lod_refresh_cooldown <= 0.0:
 		_refresh_people_lod_proxy(true)
-		people_lod_refresh_cooldown = 0.75
+		people_lod_refresh_cooldown = lerpf(0.75, 1.65, adaptive_performance_pressure)
 	if detail_signature == last_detail_signature:
 		return
 	if detail_refresh_cooldown > 0.0:
 		return
 	last_detail_signature = detail_signature
-	detail_refresh_cooldown = 0.75
+	detail_refresh_cooldown = lerpf(0.75, 1.50, adaptive_performance_pressure)
 	var viewport_rect: Rect2 = get_viewport().get_visible_rect()
 	var view_inverse: Transform3D = camera.global_transform.affine_inverse()
 	var focal_pixels: float = viewport_rect.size.y * 0.5 / maxf(0.1, tan(deg_to_rad(camera.fov * 0.5)))
@@ -9485,6 +9726,8 @@ func _clear_loaded_world() -> void:
 	people.clear()
 	cars.clear()
 	resources.clear()
+	_invalidate_all_spatial_indices()
+	dead_people_pending_compaction = false
 	transports.clear()
 	oil_rigs.clear()
 	alliances.clear()
